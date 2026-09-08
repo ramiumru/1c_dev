@@ -1,0 +1,15 @@
+{
+  "databases": [
+    {
+      "id": "<alias>-dev",
+      "name": "<Название базы> (разработка)",
+      "type": "file",
+      "path": "C:\\Bases\\<ПапкаБазы>",
+      "user": "Admin",
+      "password": "",
+      "aliases": ["<alias>"],
+      "configSrc": "<путь к projects/<источник>/src>"
+    }
+  ],
+  "default": "<alias>-dev"
+}

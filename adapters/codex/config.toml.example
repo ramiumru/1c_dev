@@ -1,0 +1,12 @@
+# Пример конфигурации Codex CLI для 1C Dev
+# Разместите как config.toml в корне проекта (или ~/.config/codex/config.toml для глобального).
+# Документация: https://github.com/openai/codex (актуальная версия).
+
+[model]
+# Модель для роутера 1c-do (указать доступную).
+name = "level/z-ai/glm-5.2"
+
+[instructions]
+# Инструкции читаются из AGENTS.md (корень проекта) автоматически.
+# Дополнительные пути — при необходимости.
+# paths = ["core/context/INSTRUCTIONS.md", "core/context/BslChecklists.md"]

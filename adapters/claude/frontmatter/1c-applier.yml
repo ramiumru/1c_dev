@@ -1,0 +1,6 @@
+﻿---
+name: 1c-applier
+description: "Апликер конфигурации 1С — применение готовых правок из projects/** (от 1c-developer) в живую информационную базу. Использовать только по явному запросу пользователя (через делегирование от 1c-do). НЕ правит исходники (→ 1c-developer), НЕ анализирует (→ 1c-analyst). Работает с базами из .v8-project.json. В SDD-режиме читает 06_change_report.md для списка изменённых файлов."
+tools: Read, Glob, Grep, Bash, Skill
+model: level/z-ai/glm-5.2
+---
