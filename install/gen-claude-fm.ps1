@@ -1,11 +1,16 @@
-$ErrorActionPreference = "Stop"
-$kiloFmDir = "C:\Ramium\1c-vibe\temp\1c_dev\adapters\kilo\frontmatter"
-$claudeFmDir = "C:\Ramium\1c-vibe\temp\1c_dev\adapters\claude\frontmatter"
+﻿$ErrorActionPreference = "Stop"
+# Генератор frontmatter для адаптера Claude из frontmatter Kilo.
+# Запуск из корня репо ai-environment: powershell -File install/gen-claude-fm.ps1
+$repo = Split-Path -Parent $PSScriptRoot
+$kiloFmDir = Join-Path $repo "adapters\kilo\frontmatter"
+$claudeFmDir = Join-Path $repo "adapters\claude\frontmatter"
 
-$agents = @("1c-do","1c-analyst","1c-developer","1c-applier","1c-tools")
+$agents = @("1c-do","1c-analyst","1c-developer","1c-reviewer","1c-applier","1c-tools")
 
 foreach ($name in $agents) {
-    $fm = Get-Content -Path "$kiloFmDir\$name.yml" -Raw -Encoding UTF8
+    $src = Join-Path $kiloFmDir "$name.yml"
+    if (-not (Test-Path $src)) { Write-Host "SKIP (no source): $name"; continue }
+    $fm = [System.IO.File]::ReadAllText($src, [System.Text.Encoding]::UTF8)
 
     # Extract description
     $desc = ""
@@ -18,6 +23,7 @@ foreach ($name in $agents) {
         "1c-do"        { "Read, Edit, Glob, Grep, Task" }
         "1c-analyst"   { "Read, Glob, Grep, Bash, Skill" }
         "1c-developer" { "Read, Edit, Glob, Grep, Bash, Skill" }
+        "1c-reviewer"  { "Read, Edit, Glob, Grep, Bash, Skill" }
         "1c-applier"   { "Read, Glob, Grep, Bash, Skill" }
         "1c-tools"     { "Read, Glob, Grep, Bash" }
     }

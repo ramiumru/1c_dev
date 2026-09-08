@@ -1,0 +1,79 @@
+﻿description: "Апликер конфигурации 1С — применение готовых правок из projects/** (от 1c-developer) в живую информационную базу. Использовать только по явному запросу пользователя (через делегирование от 1c-do). НЕ правит исходники (→ 1c-developer), НЕ анализирует (→ 1c-analyst). Работает с базами из .v8-project.json (environment + env-секреты). В SDD-режиме читает 06_change_report.md + review.md + блок status/risk. ОПАСНЫЕ операции (load/update/create/web) выполняет ТОЛЬКО после успешного preflight scripts/applier_guard.py; production и отсутствие/неизвестное environment блокируются. НЕ редактирует .v8-project.json (не может изменить environment/обойти guard). Автоматическое восстановление DT запрещено."
+mode: all
+model: level/z-ai/glm-5.2
+permission:
+  read:
+    "INSTRUCTIONS.md": allow
+    "AGENTS.md": allow
+    ".openworks/agent/1c-applier.md": allow
+    ".v8-project.json": allow
+    ".openworks/context/projects/**": allow
+    "projects/**": allow
+    "specs/**": allow
+    "scripts/**": allow
+    ".openworks/logs/1c-applier/**": allow
+  glob:
+    "INSTRUCTIONS.md": allow
+    "AGENTS.md": allow
+    ".openworks/agent/1c-applier.md": allow
+    ".v8-project.json": allow
+    ".openworks/context/projects/**": allow
+    "projects/**": allow
+    "specs/**": allow
+    "scripts/**": allow
+    ".openworks/logs/1c-applier/**": allow
+  grep:
+    "INSTRUCTIONS.md": allow
+    "AGENTS.md": allow
+    ".openworks/agent/1c-applier.md": allow
+    ".openworks/context/projects/**": allow
+    "projects/**": allow
+    "specs/**": allow
+    "scripts/**": allow
+  list:
+    "INSTRUCTIONS.md": allow
+    "AGENTS.md": allow
+    ".openworks/agent/1c-applier.md": allow
+    ".v8-project.json": allow
+    ".openworks/context/projects/**": allow
+    "projects/**": allow
+    "specs/**": allow
+    "scripts/**": allow
+    ".openworks/logs/1c-applier/**": allow
+  edit:
+    ".openworks/logs/1c-applier/**": allow
+    "*": deny
+  bash:
+    "python scripts/applier_guard.py *": allow
+    "python scripts/bsl-check.py *": allow
+    "powershell.exe -NoProfile -File .openworks/skills/db-list/scripts/*": allow
+    "powershell.exe -NoProfile -File .openworks/skills/db-dump-dt/scripts/*": allow
+    "powershell.exe -NoProfile -File .openworks/skills/db-dump-cf/scripts/*": allow
+    "powershell.exe -NoProfile -File .openworks/skills/db-dump-xml/scripts/*": allow
+    "powershell.exe -NoProfile -File .openworks/skills/db-load-xml/scripts/*": allow
+    "powershell.exe -NoProfile -File .openworks/skills/db-load-cf/scripts/*": allow
+    "powershell.exe -NoProfile -File .openworks/skills/db-load-dt/scripts/*": allow
+    "powershell.exe -NoProfile -File .openworks/skills/db-update/scripts/*": allow
+    "powershell.exe -NoProfile -File .openworks/skills/db-run/scripts/*": allow
+    "*": deny
+  task: deny
+  webfetch: deny
+  websearch: deny
+  lsp: deny
+  semantic_search: deny
+  external_directory: deny
+  skill:
+    "db-list": allow
+    "db-dump-xml": allow
+    "db-dump-dt": allow
+    "db-dump-cf": allow
+    "db-load-xml": allow
+    "db-load-cf": allow
+    "db-load-dt": allow
+    "db-update": allow
+    "db-run": allow
+    "*": deny
+  mcp:
+    "*": deny
+
+# MCP permissions: configured at server level in openworks.json (mcp key)

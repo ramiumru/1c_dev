@@ -1,4 +1,4 @@
-﻿description: "Апликер конфигурации 1С — применение готовых правок из projects/** (от 1c-developer) в живую информационную базу. Использовать только по явному запросу пользователя (через делегирование от 1c-do). НЕ правит исходники (→ 1c-developer), НЕ анализирует (→ 1c-analyst). Работает с базами из .v8-project.json. В SDD-режиме читает 06_change_report.md для списка изменённых файлов."
+﻿description: "Апликер конфигурации 1С — применение готовых правок из projects/** (от 1c-developer) в живую информационную базу. Использовать только по явному запросу пользователя (через делегирование от 1c-do). НЕ правит исходники (→ 1c-developer), НЕ анализирует (→ 1c-analyst). Работает с базами из .v8-project.json (environment + env-секреты). В SDD-режиме читает 06_change_report.md + review.md + блок status/risk. ОПАСНЫЕ операции (load/update/create/web) выполняет ТОЛЬКО после успешного preflight scripts/applier_guard.py; production и отсутствие/неизвестное environment блокируются. НЕ редактирует .v8-project.json (не может изменить environment/обойти guard). Автоматическое восстановление DT запрещено."
 mode: all
 model: level/z-ai/glm-5.2
 permission:
@@ -10,6 +10,7 @@ permission:
     ".kilo/context/projects/**": allow
     "projects/**": allow
     "specs/**": allow
+    "scripts/**": allow
     ".kilo/logs/1c-applier/**": allow
   glob:
     "INSTRUCTIONS.md": allow
@@ -19,6 +20,7 @@ permission:
     ".kilo/context/projects/**": allow
     "projects/**": allow
     "specs/**": allow
+    "scripts/**": allow
     ".kilo/logs/1c-applier/**": allow
   grep:
     "INSTRUCTIONS.md": allow
@@ -27,6 +29,7 @@ permission:
     ".kilo/context/projects/**": allow
     "projects/**": allow
     "specs/**": allow
+    "scripts/**": allow
   list:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
@@ -35,13 +38,24 @@ permission:
     ".kilo/context/projects/**": allow
     "projects/**": allow
     "specs/**": allow
+    "scripts/**": allow
     ".kilo/logs/1c-applier/**": allow
   edit:
-    ".v8-project.json": allow
     ".kilo/logs/1c-applier/**": allow
+    "*": deny
   bash:
-    "powershell.exe -NoProfile -File .kilo/skills/db-*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/web-*": allow
+    "python scripts/applier_guard.py *": allow
+    "python scripts/bsl-check.py *": allow
+    "powershell.exe -NoProfile -File .kilo/skills/db-list/scripts/*": allow
+    "powershell.exe -NoProfile -File .kilo/skills/db-dump-dt/scripts/*": allow
+    "powershell.exe -NoProfile -File .kilo/skills/db-dump-cf/scripts/*": allow
+    "powershell.exe -NoProfile -File .kilo/skills/db-dump-xml/scripts/*": allow
+    "powershell.exe -NoProfile -File .kilo/skills/db-load-xml/scripts/*": allow
+    "powershell.exe -NoProfile -File .kilo/skills/db-load-cf/scripts/*": allow
+    "powershell.exe -NoProfile -File .kilo/skills/db-load-dt/scripts/*": allow
+    "powershell.exe -NoProfile -File .kilo/skills/db-update/scripts/*": allow
+    "powershell.exe -NoProfile -File .kilo/skills/db-run/scripts/*": allow
+    "*": deny
   task: deny
   webfetch: deny
   websearch: deny
@@ -50,20 +64,14 @@ permission:
   external_directory: deny
   skill:
     "db-list": allow
-    "db-create": allow
     "db-dump-xml": allow
     "db-dump-dt": allow
     "db-dump-cf": allow
     "db-load-xml": allow
-    "db-load-git": allow
     "db-load-cf": allow
     "db-load-dt": allow
     "db-update": allow
     "db-run": allow
-    "web-info": allow
-    "web-publish": allow
-    "web-stop": allow
-    "web-test": allow
-    "web-unpublish": allow
+    "*": deny
   mcp:
     "*": deny

@@ -1,13 +1,13 @@
-<#
+﻿<#
 .SYNOPSIS
     Установка агентской схемы 1C Dev под целевой AI-кодинг-инструмент.
 
 .DESCRIPTION
     Собирает раскладку схемы из core/ + adapters/ в целевой каталог.
-    Поддерживаемые инструменты: kilo, claude, codex, opencode.
+    Поддерживаемые инструменты: kilo, claude, codex, openworks.
 
 .PARAMETER Tool
-    Целевой инструмент: kilo | claude | codex | opencode
+    Целевой инструмент: kilo | claude | codex | openworks
 
 .PARAMETER Target
     Целевой каталог (по умолчанию ".").
@@ -17,7 +17,7 @@
     .\install.ps1 -Tool claude -Target C:\MyProject
 #>
 param(
-    [Parameter(Mandatory=$true)][ValidateSet("kilo","claude","codex","opencode")]
+    [Parameter(Mandatory=$true)][ValidateSet("kilo","claude","codex","openworks")]
     [string]$Tool,
     [string]$Target = "."
 )
@@ -52,25 +52,25 @@ $config = @{
         copySkills = $true
         copyAgents = $true
     }
-    opencode = @{
-        skillDir = ".opencode/skills"
-        agentDir = ".opencode/agents"
-        contextDir = ".opencode/context"
-        logsDir = ".opencode/logs"
-        rootConfig = "opencode.json"
+    openworks = @{
+        skillDir = ".openworks/skills"
+        agentDir = ".openworks/agents"
+        contextDir = ".openworks/context"
+        logsDir = ".openworks/logs"
+        rootConfig = "openworks.json"
         instructionsInRoot = $false
         copySkills = $true
         copyAgents = $true
     }
     codex = @{
-        skillDir = ""
-        agentDir = ""
+        skillDir = "skills"
+        agentDir = "agents"
         contextDir = "context"
         logsDir = "logs"
         rootConfig = "AGENTS.md"
         instructionsInRoot = $false
-        copySkills = $false
-        copyAgents = $false
+        copySkills = $true
+        copyAgents = $true
     }
 }[$Tool]
 
@@ -112,14 +112,19 @@ if ($config.copyAgents) {
         $name = $_.BaseName
         $fmPath = "$fmSrc\$name.yml"
         $body = [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8)
-        $fm = [System.IO.File]::ReadAllText($fmPath, [System.Text.Encoding]::UTF8)
         # Подстановка путей в теле
         $body = $body -replace '\{\{CONTEXT_DIR\}\}', $ctx
         $body = $body -replace '\{\{LOGS_DIR\}\}', $logs
         $body = $body -replace '\{\{SKILLS_DIR\}\}', $skills
         $body = $body -replace '\{\{AGENTS_DIR\}\}', $agents
-        # Сборка: ---\n<FM>\n---\n\n<body>
-        $combined = "---`r`n$fm---`r`n`r`n$body"
+        if (Test-Path $fmPath) {
+            $fm = [System.IO.File]::ReadAllText($fmPath, [System.Text.Encoding]::UTF8)
+            # Сборка: ---\n<FM>\n---\n\n<body>
+            $combined = "---`r`n$fm---`r`n`r`n$body"
+        } else {
+            # Нет frontmatter (напр. Codex одноагентный режим) — тело как reference-док
+            $combined = $body
+        }
         $dstPath = Join-Path $Target "$agents/$name.md"
         $dstDir = Split-Path $dstPath -Parent
         New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
@@ -133,7 +138,7 @@ if ($config.copyAgents) {
 Write-Host "[3/5] Корневой конфиг -> $($config.rootConfig)"
 $tplPath = "$repo\adapters\$Tool\$($config.rootConfig).tpl"
 if (-not (Test-Path $tplPath)) {
-    # Fallback: kilo.json.tpl, opencode.json.tpl
+    # Fallback: kilo.json.tpl, openworks.json.tpl
     $tpls = Get-ChildItem "$repo\adapters\$Tool" -Filter "*.tpl" -ErrorAction SilentlyContinue
     if ($tpls) { $tplPath = $tpls[0].FullName }
 }
@@ -149,6 +154,20 @@ $ctxSrc = "$repo\core\context"
 $ctxDst = Join-Path $Target $ctx
 Copy-Item $ctxSrc $ctxDst -Recurse -Force
 
+# Подстановка плейсхолдеров путей в контекст-файлах (INSTRUCTIONS.md, BslChecklists.md,
+# requirements-README.md и др.) — они используют {{CONTEXT_DIR}}/{{LOGS_DIR}}/
+# {{SKILLS_DIR}}/{{AGENTS_DIR}}, как и тела агентов.
+Get-ChildItem $ctxDst -Recurse -File -Filter "*.md" | ForEach-Object {
+    $content = [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8)
+    if ($content -match '\{\{') {
+        $content = $content -replace '\{\{CONTEXT_DIR\}\}', $ctx
+        $content = $content -replace '\{\{LOGS_DIR\}\}', $logs
+        $content = $content -replace '\{\{SKILLS_DIR\}\}', $skills
+        $content = $content -replace '\{\{AGENTS_DIR\}\}', $agents
+        [System.IO.File]::WriteAllText($_.FullName, $content, $utf8Bom)
+    }
+}
+
 # Для kilo: INSTRUCTIONS.md + BslChecklists.md в корень (kilo.json instructions: ["INSTRUCTIONS.md"])
 if ($config.instructionsInRoot) {
     Copy-Item "$ctxDst\INSTRUCTIONS.md" (Join-Path $Target "INSTRUCTIONS.md") -Force
@@ -163,6 +182,24 @@ Copy-Item "$repo\core\scripts" $scriptsDst -Recurse -Force
 $specsDst = Join-Path $Target "specs"
 New-Item -ItemType Directory -Force -Path $specsDst | Out-Null
 Copy-Item "$repo\core\sdd\README.md" (Join-Path $specsDst "README.md") -Force
+
+# Подстановка плейсхолдеров путей в specs/README.md (использует {{CONTEXT_DIR}} и др.)
+$specReadme = Join-Path $specsDst "README.md"
+if (Test-Path $specReadme) {
+    $content = [System.IO.File]::ReadAllText($specReadme, [System.Text.Encoding]::UTF8)
+    if ($content -match '\{\{') {
+        $content = $content -replace '\{\{CONTEXT_DIR\}\}', $ctx
+        $content = $content -replace '\{\{LOGS_DIR\}\}', $logs
+        $content = $content -replace '\{\{SKILLS_DIR\}\}', $skills
+        $content = $content -replace '\{\{AGENTS_DIR\}\}', $agents
+        [System.IO.File]::WriteAllText($specReadme, $content, $utf8Bom)
+    }
+}
+
+# Пример реестра баз (безопасный, без секретов)
+$examplesDst = Join-Path $Target "examples"
+New-Item -ItemType Directory -Force -Path $examplesDst | Out-Null
+Copy-Item "$repo\examples\v8-project.example.json" (Join-Path $examplesDst "v8-project.example.json") -Force
 
 # --- Итог ---
 Write-Host ""
