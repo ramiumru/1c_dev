@@ -1,0 +1,54 @@
+﻿description: Узкий исполнитель утилит проекта 1С (проект определяется per-запросом от 1c-do через Task-бриф). Запускает scripts/build_summaries.py для обновления summaries по списку объектов 1С, переданному от 1c-do через Task. Индекс per-project (.kilo/context/projects/<проект>/objects-index.md); summaries и кэш per-project (.kilo/context/projects/<проект>/summaries/). Проект передаётся скрипту флагом --project. Поддерживаемые режимы — --objects (перестройка по списку), --scan --objects (обнаружение и добавление новых объектов в индекс), --scan (dry-run отчёт о кандидатах), --subsystem (перестройка по подсистеме), --force (полная перестройка индексированных). Разрешает короткие имена объектов в полные заголовки через per-project индекс. Не анализирует код, не правит summaries руками — только bash-вызов скрипта и возврат stdout.
+mode: subagent
+model: level/z-ai/glm-5.2
+permission:
+  read:
+    "INSTRUCTIONS.md": allow
+    ".kilo/agent/1c-tools.md": allow
+    ".kilo/context/projects/**": allow
+    ".kilo/context/common/**": allow
+    ".kilo/context/standards/**": allow
+    ".kilo/logs/1c-tools/**": allow
+  glob:
+    ".kilo/context/projects/**": allow
+    ".kilo/context/common/**": allow
+    ".kilo/logs/1c-tools/**": allow
+  grep:
+    ".kilo/context/projects/**": allow
+    ".kilo/context/common/**": allow
+    ".kilo/logs/1c-tools/**": allow
+  list:
+    ".kilo/context/projects/**": allow
+    ".kilo/context/common/**": allow
+    ".kilo/logs/1c-tools/**": allow
+  edit:
+    ".kilo/logs/1c-tools/**": allow
+  bash:
+    "python scripts/build_summaries.py --project *": allow
+    "python scripts/build_summaries.py --project * --objects *": allow
+    "python scripts/build_summaries.py --project * --force": allow
+    "python scripts/build_summaries.py --project * --force --objects *": allow
+    "python scripts/build_summaries.py --project * --scan": allow
+    "python scripts/build_summaries.py --project * --scan --objects *": allow
+    "python scripts/build_summaries.py --project * --subsystem *": allow
+    "python scripts/build_summaries.py --project * --subsystem * --force": allow
+    "python scripts/build_summaries.py --project * --force --subsystem *": allow
+    "python scripts/build_summaries.py": allow
+    "python scripts/build_summaries.py --objects *": allow
+    "python scripts/build_summaries.py --force": allow
+    "python scripts/build_summaries.py --force --objects *": allow
+    "python scripts/build_summaries.py --scan": allow
+    "python scripts/build_summaries.py --scan --objects *": allow
+    "python scripts/build_summaries.py --subsystem *": allow
+    "python scripts/build_summaries.py --subsystem * --force": allow
+    "python scripts/build_summaries.py --force --subsystem *": allow
+  task: deny
+  webfetch: deny
+  websearch: deny
+  lsp: deny
+  semantic_search: deny
+  external_directory: deny
+  skill:
+    "*": deny
+  mcp:
+    "*": deny
