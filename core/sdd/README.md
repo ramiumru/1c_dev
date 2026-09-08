@@ -4,7 +4,7 @@
 Каждая задача живёт в отдельной папке `specs/<TASK-ID>/`.
 
 > Для не-SDD задач (быстрые наброски требований, уточнения по существующим
-> объектам без полноценной spec) используется каталог `.kilo/context/projects/<проект>/requirements/**`.
+> объектам без полноценной spec) используется каталог `{{CONTEXT_DIR}}/projects/<проект>/requirements/**`.
 > SDD-режим запускается только для **нетривиальных правок кода** (новая бизнес-логика,
 > правка проведения, изменение форм, риск регрессии). Решение о нетривиальности —
 > на `1c-do`; при сомнении запускать SDD. Тривиальные правки (опечатка, комментарий)
@@ -18,19 +18,56 @@
 
 Этот же TASK-ID используется в комментариях BSL:
 `// ++ #<TASK-ID>` … `// -- #<TASK-ID>` (согласуется с
-`.kilo/context/standards/level-standards.md`, раздел «Комментарии изменений»).
+`{{CONTEXT_DIR}}/standards/level-standards.md`, раздел «Комментарии изменений»).
 
 ## Распределение прав на `specs/**`
 
 | Агент | Что пишет |
 |---|---|
 | `1c-do` | каркас task-папки + `00_request.md` (только эти файлы) |
-| `1c-analyst` | `01_context.md`, `03_solution_spec.md`, `05_test_scenarios.md` |
-| `1c-developer` | `06_change_report.md` (после реализации) |
+| `1c-analyst` | `01_context.md`, `03_solution_spec.md` (вкл. машиночитаемый блок status/risk), `05_test_scenarios.md` |
+| `1c-developer` | `06_change_report.md` (после реализации; + `scope_hash` для сверки) |
+| `1c-reviewer` | `review.md` (независимое заключение: verdict + findings) |
+| `1c-applier` | ничего не пишет в `specs/**`; читает `06_change_report.md` + `review.md` + блок status/risk |
 
 `1c-do` также проверяет gate перед вызовом `1c-developer`: наличие
-`03_solution_spec.md` в `specs/<TASK-ID>/`. Если отсутствует или пуст — возвращает
+`03_solution_spec.md` в `specs/<TASK-ID>/` **и машиночитаемого блока `status: approved`**
+(см. «Risk gates»). Если отсутствует, пуст или `status ≠ approved` — возвращает
 задачу `1c-analyst`.
+
+### Risk gates (машиночитаемый блок)
+
+Само наличие файла спецификации не разрешает разработку или применение. В
+`03_solution_spec.md` обязателен блок (fenced `yaml`):
+
+```yaml
+status: draft | ready_for_review | approved | rejected
+risk: low | medium | high
+approved_by: null
+approved_at: null
+spec_version: 1
+scope_hash: null
+```
+
+Правила:
+- документ без блока статуса считается неподтверждённым;
+- `draft` не допускается в разработку; `ready_for_review` ожидает проверки;
+  `rejected` блокирует работу; `approved` разрешает следующий этап с учётом риска;
+- для `risk: high` требуется внешнее согласование + положительный verdict `1c-reviewer`
+  (review обязателен для high-risk и перед передачей результата в `1c-applier`);
+- автор не утверждает собственную high-risk спецификацию (`approved_by` ≠ сам агент);
+- изменение спецификации или scope аннулирует подтверждение (`status` → `draft`,
+  `approved_by`/`approved_at`/`scope_hash` → `null`);
+- `1c-developer` не начинает неподтверждённую реализацию;
+- `1c-applier` не применяет изменения без нужного статуса и review — проверяет
+  `scripts/applier_guard.py`;
+- `scope_hash` — sha256 от канонизированного текста «Границ изменения» + «Затрагиваемые
+  файлы»; `1c-applier` сверяет его с `06_change_report.md` (выход за scope блокируется).
+
+К высокому риску относятся: проведение документов; движения регистров; транзакции и
+блокировки; RLS и права; фоновые и регламентные задания; публичные экспортные процедуры;
+изменение метаданных; интеграционные контракты; изменение структуры базы; массовое
+изменение данных; обмены; финансовые расчёты.
 
 Файлы `specs/README.md` и структура каталога правятся только пользователем вручную
 вне сессии агента (см. `INSTRUCTIONS.md`, раздел «Правка конфигурации агентов»).
@@ -42,9 +79,10 @@ specs/
 └── <TASK-ID>/
     ├── 00_request.md           — исходный запрос (1c-do)
     ├── 01_context.md            — контекст системы и объектов (1c-analyst)
-    ├── 03_solution_spec.md      — спецификация решения, GATE для 1c-developer (1c-analyst)
+    ├── 03_solution_spec.md      — спецификация решения + машиночитаемый блок status/risk, GATE для 1c-developer (1c-analyst)
     ├── 05_test_scenarios.md     — сценарии тестирования (1c-analyst)
-    └── 06_change_report.md      — отчёт об изменениях (1c-developer)
+    ├── 06_change_report.md      — отчёт об изменениях + scope_hash (1c-developer)
+    └── review.md                — независимое заключение 1c-reviewer (verdict + findings)
 ```
 
 ## Шаблоны артефактов
@@ -113,6 +151,22 @@ per-project контекста. Источники (основа + расшир�
 
 ```markdown
 # Solution Spec: <TASK-ID>
+
+<!-- Машиночитаемый блок статуса и риска (risk gate). НЕ удалять. -->
+```yaml
+status: draft
+risk: low
+approved_by: null
+approved_at: null
+spec_version: 1
+scope_hash: null
+```
+
+> `status` переводит аналитик/user: `draft` → `ready_for_review` → `approved`/`rejected`.
+> `approved` (с `approved_by`/`approved_at`) разрешает разработку. Для `risk: high`
+> требуется verdict `1c-reviewer` в `review.md`. `scope_hash` = sha256 от
+> канонизированных «Границ изменения» + «Затрагиваемые файлы» (заполняется/сверяется
+> при review и apply).
 
 ## Цель изменения
 <что и зачем меняется>
@@ -223,6 +277,52 @@ per-project контекста. Источники (основа + расшир�
 ## Что проверить вручную
 1. ...
 2. ...
+```
+
+### review.md
+
+> Независимое заключение `1c-reviewer`. Обязательно для `risk: high` и перед передачей
+> результата в `1c-applier`.
+
+```markdown
+# Review: <TASK-ID>
+
+<!-- Машиночитаемый блок вердикта. НЕ удалять. -->
+```yaml
+verdict: approved | changes_requested | blocked
+reviewed_by: 1c-reviewer
+reviewed_at: <timestamp>
+spec_version: 1
+scope_hash: <hash>
+```
+
+## Сверка со спецификацией
+<соответствие реализации 03_solution_spec.md>
+
+## Scope
+<незаявленные изменения / выход за «Границы изменения»>
+
+## Регрессии и риски
+<транзакции/блокировки, движения регистров, влияние на обмены/отчётность>
+
+## Запросы и производительность
+<запросы вместо циклов, индексы, объёмы>
+
+## Права и RLS
+<РАЗРЕШЕННЫЕ, RLS-шаблоны, роли>
+
+## Интеграционные контракты
+<обратная совместимость, точки входа>
+
+## 06_change_report
+<сверка отчёта разработчика с фактом>
+
+## Тесты
+<результаты доступных безопасных тестов / bsl-check / *-validate>
+
+## Findings
+- severity: info | warning | critical
+  description: <описание>
 ```
 
 ## Roadmap расширения (НЕ входит в MVP)

@@ -209,11 +209,18 @@ def check_file(filepath):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Использование: python scripts/bsl-check.py <файл.bsl | каталог>")
+    # Обработка --help/-h до интерпретации аргумента как пути.
+    args = sys.argv[1:]
+    if not args or any(a in ("-h", "--help") for a in args):
+        print(__doc__)
+        return 0
+
+    if len(args) > 1:
+        print(f"Ошибка: лишние аргументы. Ожидается один путь (файл или каталог).", file=sys.stderr)
+        print("Использование: python scripts/bsl-check.py <файл.bsl | каталог>", file=sys.stderr)
         return 2
 
-    path = sys.argv[1]
+    path = args[0]
     files = []
 
     if os.path.isfile(path):

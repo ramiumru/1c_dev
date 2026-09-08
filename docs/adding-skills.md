@@ -45,7 +45,7 @@ powershell.exe -NoProfile -File "{{SKILL_DIR}}/scripts/<name>.ps1" <параме
 - `{{SKILL_DIR}}` — путь к текущему скиллу. Установщик подставляет:
   - Kilo: `.kilo/skills/<name>`
   - Claude: `.claude/skills/<name>`
-  - OpenCode: `.opencode/skills/<name>`
+  - Open Works: `.openworks/skills/<name>`
 - `{{SKILLS_DIR}}` — путь к корневому каталогу скиллов (для кросс-скилловых ссылок).
 
 **Всегда** используйте плейсхолдеры вместо хардкода путей. Никогда не пишите
@@ -78,7 +78,7 @@ powershell.exe -NoProfile -File "{{SKILL_DIR}}/scripts/<name>.ps1" <параме
 
 ### Frontmatter (per-tool)
 
-Для multi-agent инструментов (Kilo, Claude, OpenCode) — отдельный `.yml` файл
+Для multi-agent инструментов (Kilo, Claude, Open Works) — отдельный `.yml` файл
 в `adapters/<tool>/frontmatter/`. Для Codex — инструкция в `AGENTS.md.tpl`.
 
 ## Сборка после изменений
@@ -86,5 +86,5 @@ powershell.exe -NoProfile -File "{{SKILL_DIR}}/scripts/<name>.ps1" <параме
 После правки `core/` или `adapters/` — перезапустите установщик:
 
 ```powershell
-powershell -File install/install.ps1 -Tool <kilo|claude|codex|opencode>
+powershell -File install/install.ps1 -Tool <kilo|claude|codex|openworks>
 ```

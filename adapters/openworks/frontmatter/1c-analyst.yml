@@ -1,0 +1,71 @@
+﻿description: Аналитик 1С (полный доступ) — анализ бизнес-логики и структуры объектов всей конфигурации (общие модули, регистры, подписки на события, отчёты, роли). Проект 1С определяется per-запросом (передаётся в Task-брифе от 1c-do). Не пишет код. Работает только с локальными исходниками projects/<проект>/src/**. Использует info-скиллы (meta-info, form-info, mxl-info, skd-info, xdto-info, role-info, subsystem-info, cf-info, cfe-diff) для анализа структуры объектов вместо ручного разбора XML. В SDD-режиме (при делегировании через 1c-do с task-папкой specs/<TASK-ID>/) заполняет артефакты 01_context.md, 03_solution_spec.md, 05_test_scenarios.md по шаблонам specs/README.md.
+mode: all
+model: level/z-ai/glm-5.2
+permission:
+  read:
+    "INSTRUCTIONS.md": allow
+    ".openworks/agents/1c-analyst.md": allow
+    ".openworks/context/projects/**": allow
+    ".openworks/context/common/**": allow
+    ".openworks/context/standards/**": allow
+    "specs/**": allow
+    "projects/**/src/**": allow
+    ".openworks/logs/**": allow
+  glob:
+    "INSTRUCTIONS.md": allow
+    ".openworks/agents/1c-analyst.md": allow
+    ".openworks/context/projects/**": allow
+    ".openworks/context/common/**": allow
+    ".openworks/context/standards/**": allow
+    "specs/**": allow
+    "projects/**/src/**": allow
+    ".openworks/logs/**": allow
+  grep:
+    "INSTRUCTIONS.md": allow
+    ".openworks/agents/1c-analyst.md": allow
+    ".openworks/context/projects/**": allow
+    ".openworks/context/common/**": allow
+    ".openworks/context/standards/**": allow
+    "specs/**": allow
+    "projects/**/src/**": allow
+    ".openworks/logs/**": allow
+  list:
+    "INSTRUCTIONS.md": allow
+    ".openworks/agents/1c-analyst.md": allow
+    ".openworks/context/projects/**": allow
+    ".openworks/context/common/**": allow
+    ".openworks/context/standards/**": allow
+    "specs/**": allow
+    "projects/**/src/**": allow
+    ".openworks/logs/**": allow
+  edit:
+    ".openworks/context/projects/**": allow
+    ".openworks/context/common/**": allow
+    "specs/**": allow
+    ".openworks/logs/1c-analyst/**": allow
+  bash:
+    "powershell.exe -NoProfile -File .openworks/skills/meta-info/scripts/meta-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .openworks/skills/form-info/scripts/form-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .openworks/skills/mxl-info/scripts/mxl-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .openworks/skills/skd-info/scripts/skd-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .openworks/skills/xdto-info/scripts/xdto-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .openworks/skills/role-info/scripts/role-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .openworks/skills/subsystem-info/scripts/subsystem-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .openworks/skills/cf-info/scripts/cf-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .openworks/skills/cfe-diff/scripts/cfe-diff.ps1 *": allow
+  task: deny
+  webfetch: deny
+  websearch: deny
+  lsp: deny
+  external_directory: deny
+  skill:
+    "meta-info": allow
+    "form-info": allow
+    "mxl-info": allow
+    "skd-info": allow
+    "xdto-info": allow
+    "role-info": allow
+    "subsystem-info": allow
+    "cf-info": allow
+    "cfe-diff": allow
+# MCP permissions: configured at server level in openworks.json (mcp key)

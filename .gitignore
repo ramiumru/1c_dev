@@ -1,0 +1,34 @@
+# Runtime / local
+node_modules/
+__pycache__/
+*.pyc
+temp/
+logs/
+.kilo/logs/
+.openworks/logs/
+.claude/logs/
+.kilo/agent-manager.json
+.kilo/package.json
+.kilo/package-lock.json
+
+# Рабочие артефакты SDD
+specs/TASK-*/
+
+# Per-project runtime (регенерируется build_summaries.py)
+**/summaries/
+**/summaries/.cache.json
+**/requirements/
+
+# Чувствительное / тяжёлое
+.v8-project.json
+tools/*.zip
+tools/*.jar
+bsl-diagnostics.json
+
+# Данные конфигураций 1С (не входят в схему)
+projects/
+sandbox.bsl
+
+# IDE
+.vscode/
+.assistant/

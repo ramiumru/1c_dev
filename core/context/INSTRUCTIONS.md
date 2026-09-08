@@ -2,19 +2,19 @@
 
 Файл содержит общие (схемные) факты: платформа, структура репозитория, агентская схема,
 SDD, индексы, логирование. **Проект-специфичный контекст** (конфигурация, бизнес-домен,
-префиксы, модули, ключевые объекты) вынесен в `.kilo/context/projects/<проект>/context.md`
+префиксы, модули, ключевые объекты) вынесен в `{{CONTEXT_DIR}}/projects/<проект>/context.md`
 (см. раздел «Per-project контекст»).
 
-Точка входа — агент `1c-do` (`.kilo/agent/1c-do.md`), маршрутизирует запросы на `1c-analyst` (анализ), `1c-developer` (код) и `1c-applier` (применение правок в живую ИБ — только по явному запросу пользователя).
-Скиллы 1С (`.kilo/skills/**`) используются: `1c-analyst` — 9 info-скиллов (read-only анализ структуры), `1c-developer` — ~40 edit/compile/validate/info-скиллов (правка XML-метаданных). MCP `v8std` используется `1c-developer` для сверки со стандартами 1С (вторичный источник после level). Иные MCP и внешние инструменты — не используются.
+Точка входа — агент `1c-do` (`{{AGENTS_DIR}}/1c-do.md`), маршрутизирует запросы на `1c-analyst` (анализ), `1c-developer` (код) и `1c-applier` (применение правок в живую ИБ — только по явному запросу пользователя).
+Скиллы 1С (`{{SKILLS_DIR}}/**`) используются: `1c-analyst` — 9 info-скиллов (read-only анализ структуры), `1c-developer` — ~40 edit/compile/validate/info-скиллов (правка XML-метаданных). MCP `v8std` используется `1c-developer` для сверки со стандартами 1С (вторичный источник после level). Иные MCP и внешние инструменты — не используются.
 Источник истины — локальные исходники (см. раздел «Источник истины»).
 
 Агент по умолчанию — `1c-do` (точка входа / маршрутизатор). Проект запроса определяет
 `1c-do` (шаг 1.5 алгоритма): по явному указанию пользователя, по grep per-project индексов
-`.kilo/context/projects/<проект>/objects-index.md`, либо автоматически при единственном проекте (перечисление
-через `glob .kilo/context/projects/*/context.md`).
+`{{CONTEXT_DIR}}/projects/<проект>/objects-index.md`, либо автоматически при единственном проекте (перечисление
+через `glob {{CONTEXT_DIR}}/projects/*/context.md`).
 
-`.kilo/context/projects/<проект>/objects-index.md` используется агентом как быстрый per-project индекс **путей и связей** объектов (по одному файлу на проект в `projects/`). Справочный список объектов — `.kilo/context/projects/<проект>/analyst-scope.md`.
+`{{CONTEXT_DIR}}/projects/<проект>/objects-index.md` используется агентом как быстрый per-project индекс **путей и связей** объектов (по одному файлу на проект в `projects/`). Справочный список объектов — `{{CONTEXT_DIR}}/projects/<проект>/analyst-scope.md`.
 
 ---
 
@@ -23,18 +23,18 @@ SDD, индексы, логирование. **Проект-специфичны
 - Платформа: **1С:Предприятие 8.3.27**, управляемые формы
 - Язык: **BSL**
 - Конкретная конфигурация/расширение, бизнес-домен, префиксы, модули и ключевые
-  объекты — в per-project файле `.kilo/context/projects/<проект>/context.md`.
+  объекты — в per-project файле `{{CONTEXT_DIR}}/projects/<проект>/context.md`.
 
 ## Per-project контекст
 
 Схема поддерживает несколько проектов в `projects/<источник>/src/**`. Контекст каждого проекта —
-в отдельной папке `.kilo/context/projects/<проект>/` (все per-project данные вместе:
+в отдельной папке `{{CONTEXT_DIR}}/projects/<проект>/` (все per-project данные вместе:
 `context.md`, `objects-index.md`, `analyst-scope.md`, `summaries/`, `requirements/`):
 
-- `finance` → `.kilo/context/projects/finance/context.md` (БИТ.ФИНАНС / БИТ:Строительство КОРП 3.0);
+- `finance` → `{{CONTEXT_DIR}}/projects/finance/context.md` (БИТ.ФИНАНС / БИТ:Строительство КОРП 3.0);
   источники: `finance` (основа) + `extfinance` (расширение, запланировано) — раздел «Источники» в `context.md`.
-- `trade` → `.kilo/context/projects/trade/context.md` (Управление торговлей 10.3).
-- `collector` → `.kilo/context/projects/collector/context.md` (Коллекционер, самописная на БСП).
+- `trade` → `{{CONTEXT_DIR}}/projects/trade/context.md` (Управление торговлей 10.3).
+- `collector` → `{{CONTEXT_DIR}}/projects/collector/context.md` (Коллекционер, самописная на БСП).
 
 Проект = 1..N **источников** (основа + расширения). Список источников — раздел «Источники» в
 `context.md`; скрипт `build_summaries.py` строит маппинг source→project из этого раздела
@@ -47,8 +47,8 @@ SDD, индексы, логирование. **Проект-специфичны
 `WARN project-context-missing` в `1c-do`).
 
 Per-project данные не входят в запретный список «правка конфигурации агентов»: `1c-analyst`
-может дополнять их (`.kilo/context/projects/<проект>/objects-index.md`, `.kilo/context/projects/<проект>/analyst-scope.md`,
-`.kilo/context/projects/<проект>/summaries/**`, `.kilo/context/projects/<проект>/requirements/**`). Заготовку
+может дополнять их (`{{CONTEXT_DIR}}/projects/<проект>/objects-index.md`, `{{CONTEXT_DIR}}/projects/<проект>/analyst-scope.md`,
+`{{CONTEXT_DIR}}/projects/<проект>/summaries/**`, `{{CONTEXT_DIR}}/projects/<проект>/requirements/**`). Заготовку
 для нового проекта создаёт пользователь (или `1c-analyst` по запросу через `1c-do`).
 
 Реестр информационных баз (project↔БД) — `.v8-project.json` в корне репозитория: единственный
@@ -75,40 +75,41 @@ Per-project данные не входят в запретный список «
 ```
 <корень>/
 ├── INSTRUCTIONS.md                        — общий (схемный) контекст
-├── kilo.json                              — проектный конфиг Kilo
-├── .v8-project.json                       — реестр информационных баз (project↔БД; читают db-* скиллы)
-├── .kilo/
-│   └── agent/
-│       ├── 1c-do.md                       — точка входа / маршрутизатор + SDD-оркестратор
-│       ├── 1c-analyst.md                  — аналитик 1С (вся конфигурация, без кода)
-│       ├── 1c-developer.md                — разработчик 1С (BSL-код)
-│       ├── 1c-applier.md                  — апликер (применение правок в живую ИБ, mode: all)
-│       └── 1c-tools.md                     — исполнитель утилит (summaries, mode: subagent)
-│   └── context/
-│       ├── common/                        — кросс-проектное (вопрос вне проекта)
-│       │   ├── requirements-README.md     — мета-документация по требованиям
-│       │   └── requirements/              — (опц.) общие требования
-│       ├── projects/                      — per-project данные (одна папка на проект)
-│       │   ├── finance/
-│       │   │   ├── context.md             — per-project контекст (домен, Источники, модули)
-│       │   │   ├── objects-index.md       — индекс объектов проекта (все источники)
-│       │   │   ├── analyst-scope.md       — справочный список часто используемых объектов
-│       │   │   ├── summaries/             — summaries (+ .cache.json)
-│       │   │   └── requirements/           — per-project требования
-│       │   ├── trade/      { context.md, objects-index.md, summaries/, requirements/ }
-│       │   └── collector/  { context.md, objects-index.md, summaries/, requirements/ }
-│       ├── standards/                     — стандарты компании (level-standards.md)
-│       └── logs/                          — логи агентов (по агентам + датам)
+├── <root-config>                          — kilo.json | CLAUDE.md | openworks.json | AGENTS.md (корневой конфиг инструмента)
+├── .v8-project.json                       — реестр информационных баз (project↔БД; environment + env-секреты; читают db-* скиллы)
+├── <AGENTS_DIR>/                          — каталог агентов инструмента (.kilo/agent | .claude/agents | .openworks/agents | agents)
+│   ├── 1c-do.md                           — точка входа / маршрутизатор + SDD-оркестратор
+│   ├── 1c-analyst.md                      — аналитик 1С (вся конфигурация, без кода)
+│   ├── 1c-developer.md                    — разработчик 1С (BSL-код)
+│   ├── 1c-reviewer.md                     — независимый ревьюер (соответствие spec/scope, регрессии; mode: subagent)
+│   ├── 1c-applier.md                      — апликер (применение правок в живую ИБ, mode: all)
+│   └── 1c-tools.md                        — исполнитель утилит (summaries, mode: subagent)
+├── <CONTEXT_DIR>/                         — каталог контекста инструмента (.kilo/context | .claude/context | .openworks/context | context)
+│   ├── common/                            — кросс-проектное (вопрос вне проекта)
+│   │   ├── requirements-README.md         — мета-документация по требованиям
+│   │   └── requirements/                  — (опц.) общие требования
+│   ├── projects/                          — per-project данные (одна папка на проект)
+│   │   ├── finance/
+│   │   │   ├── context.md                 — per-project контекст (домен, Источники, модули)
+│   │   │   ├── objects-index.md           — индекс объектов проекта (все источники)
+│   │   │   ├── analyst-scope.md           — справочный список часто используемых объектов
+│   │   │   ├── summaries/                 — summaries (+ .cache.json)
+│   │   │   └── requirements/              — per-project требования
+│   │   ├── trade/      { context.md, objects-index.md, summaries/, requirements/ }
+│   │   └── collector/  { context.md, objects-index.md, summaries/, requirements/ }
+│   ├── standards/                         — стандарты компании (level-standards.md)
+│   └── logs/                              — логи агентов (по агентам + датам)
 ├── specs/                                 — SDD-спецификации задач (плоско по <TASK-ID>)
 │   ├── README.md                          — шаблоны артефактов + roadmap расширения
-│   └── <TASK-ID>/                         — task-папка (5 файлов MVP)
-│       ├── 00_request.md                 — + поле «Проект»
+│   └── <TASK-ID>/                         — task-папка (5 файлов MVP + review.md)
+│       ├── 00_request.md                  — + поле «Проект»
 │       ├── 01_context.md
-│       ├── 03_solution_spec.md
+│       ├── 03_solution_spec.md            — + машиночитаемый блок status/risk/scope_hash
 │       ├── 05_test_scenarios.md
-│       └── 06_change_report.md
+│       ├── 06_change_report.md
+│       └── review.md                      — заключение 1c-reviewer (verdict + findings)
 ├── projects/                              — исходники конфигураций/расширений
-│   ├── finance/                            — основная конфигурация (контекст: .kilo/context/projects/finance/context.md)
+│   ├── finance/                            — основная конфигурация (контекст: {{CONTEXT_DIR}}/projects/finance/context.md)
 │   │   └── src/
 │   │       ├── Catalogs/
 │   │       ├── Documents/
@@ -119,6 +120,7 @@ Per-project данные не входят в запретный список «
 │   └── <источник>/                         — иной источник / проект
 │       └── src/
 │           └── ...
+├── scripts/                               — bsl-check.py, build_summaries.py, applier_guard.py, validate.py, doctor.py
 ├── queries/                                — отдельные файлы запросов
 ├── prompts/                                — промпты / шаблоны для AI
 └── sandbox.bsl                             — черновик / тестовый код
@@ -154,14 +156,15 @@ Per-project данные не входят в запретный список «
 
 ## Правка конфигурации агентов
 
-Файлы `.kilo/agent/**`, `AGENTS.md`, `INSTRUCTIONS.md`, `kilo.json` — конфигурация
-агентской схемы. **Их правит только пользователь вручную вне сессии агента.**
+Файлы `{{AGENTS_DIR}}/**`, `AGENTS.md`, `INSTRUCTIONS.md`, корневой конфиг инструмента
+(`kilo.json` / `CLAUDE.md` / `openworks.json`) — конфигурация агентской схемы.
+**Их правит только пользователь вручную вне сессии агента.**
 
 - Агенты не должны редактировать эти файлы (явный `deny` в правах `edit` +
   поведенческое правило в телах агентов `1c-do`, `1c-analyst`, `1c-developer`).
-- После правки конфигурации — **перезапустить сессию Kilo** (или переключиться
-  через `/agents` заново), чтобы новая конфигурация прав вступила в силу. Kilo не
-  перечитывает `.kilo/agent/**` в рантайме — правка этих файлов в текущей сессии
+- После правки конфигурации — **перезапустить сессию инструмента** (или переключиться
+  через `/agents` заново), чтобы новая конфигурация прав вступила в силу. Инструмент не
+  перечитывает `{{AGENTS_DIR}}/**` в рантайме — правка этих файлов в текущей сессии
   создаёт рассинхрон действующих прав с файлом.
 - Если в ходе работы агент обнаружил, что ему нужна смена конфигурации (например,
   расширить scope прав, сменить модель) — он останавливается и просит пользователя
@@ -190,7 +193,7 @@ Per-project данные не входят в запретный список «
   системного контекста.
 - Этот же TASK-ID разработчик использует в комментариях BSL:
   `// ++ #<TASK-ID>` … `// -- #<TASK-ID>` (согласуется с
-  `.kilo/context/standards/level-standards.md`, раздел «Комментарии изменений»).
+  `{{CONTEXT_DIR}}/standards/level-standards.md`, раздел «Комментарии изменений»).
 
 ### Распределение прав на `specs/**`
 
@@ -200,25 +203,70 @@ Per-project данные не входят в запретный список «
 | `1c-analyst` | `01_context.md`, `03_solution_spec.md`, `05_test_scenarios.md` |
 | `1c-developer` | `06_change_report.md` (после реализации; + блок «Отклонения» при конфликте spec с кодом) |
 
-Файлы `specs/README.md`, `.kilo/agent/**`, `AGENTS.md`, `INSTRUCTIONS.md`, `kilo.json`
-правит только пользователь вручную вне сессии агента (см. раздел «Правка конфигурации
-агентов»).
+Файлы `specs/README.md`, `{{AGENTS_DIR}}/**`, `AGENTS.md`, `INSTRUCTIONS.md`, корневой
+конфиг инструмента правит только пользователь вручную вне сессии агента (см. раздел
+«Правка конфигурации агентов»).
 
 ### Gate «нет кода без spec»
 
 `1c-do` перед вызовом `1c-developer` через `glob`/`read` проверяет наличие непустого
 `specs/<TASK-ID>/03_solution_spec.md` (с ключевыми секциями: «Цель изменения», «Границы
-изменения», «Функциональные требования», «Критерии приёмки»). При отсутствии/неполноте
-— возвращает задачу `1c-analyst` один раз; при повторной неудаче — логирует
-`WARN sdd-spec-missing` и возвращает задачу пользователю.
+изменения», «Функциональные требования», «Критерии приёмки») **и машиночитаемого блока
+статуса/риска** (см. ниже). При отсутствии/неполноте — возвращает задачу `1c-analyst`
+один раз; при повторной неудаче — логирует `WARN sdd-spec-missing` и возвращает задачу
+пользователю.
 
 Дублирующий gate на стороне `1c-developer`: если `03_solution_spec.md` отсутствует/пуст
 при делегировании с task-папкой — остановиться, вернуть «spec отсутствует», код не
-менять.
+менять. `1c-developer` не начинает реализацию по spec со `status: draft` /
+`rejected` / без статуса — только `approved`.
+
+### Машиночитаемый блок статуса и риска (risk gates)
+
+Само наличие файла спецификации не разрешает разработку или применение. В
+`03_solution_spec.md` обязателен машиночитаемый блок в fenced-коде (`yaml`):
+
+```yaml
+status: draft | ready_for_review | approved | rejected
+risk: low | medium | high
+approved_by: null
+approved_at: null
+spec_version: 1
+scope_hash: null
+```
+
+Правила (согласованы во всех агентах, SDD-шаблонах, адаптерах, установщиках,
+документации и проверочных скриптах):
+- документ без блока статуса считается неподтверждённым;
+- `draft` не допускается в разработку;
+- `ready_for_review` ожидает проверки;
+- `rejected` блокирует работу;
+- `approved` разрешает следующий этап с учётом риска;
+- для `risk: high` требуется внешнее согласование + положительный verdict `1c-reviewer`;
+- автор не утверждает собственную high-risk спецификацию (`approved_by` ≠ сам агент);
+- изменение спецификации или scope аннулирует подтверждение (`status` → `draft`,
+  `approved_by`/`approved_at` → `null`);
+- `1c-developer` не начинает неподтверждённую реализацию;
+- `1c-applier` не применяет изменения без нужного статуса и review (проверяет
+  `applier_guard.py`);
+- `scope_hash` — sha256 от канонизированного текста «Границ изменения» + «Затрагиваемые
+  файлы»; `1c-applier` сверяет его с `06_change_report.md` (выход за scope блокируется).
+
+К высокому риску относятся: проведение документов; движения регистров; транзакции и
+блокировки; RLS и права; фоновые и регламентные задания; публичные экспортные
+процедуры; изменение метаданных; интеграционные контракты; изменение структуры базы;
+массовое изменение данных; обмены; финансовые расчёты.
+
+### Независимый review (`1c-reviewer`)
+
+Для `risk: high` и перед передачей результата в `1c-applier` `1c-do` делегирует
+`1c-reviewer` (`mode: subagent`) независимую проверку. Результат — `specs/<TASK-ID>/review.md`
+с `verdict: approved | changes_requested | blocked` и `findings`. `1c-applier` требует
+положительный verdict для high-risk; `applier_guard.py` проверяет его наличие.
 
 ### Связь с `requirements/`
 
-Каталог `.kilo/context/projects/<проект>/requirements/**` остаётся для **не-SDD задач** (быстрые наброски
+Каталог `{{CONTEXT_DIR}}/projects/<проект>/requirements/**` остаётся для **не-SDD задач** (быстрые наброски
 требований, уточнения по существующим объектам без полноценной spec). При запуске SDD
 `1c-analyst` может ссылаться на `requirements/<slug>.md` внутри `01_context.md` и при
 необходимости переносить уточнённые требования в `03_solution_spec.md`.
@@ -237,17 +285,17 @@ Language Server в рамках gate — заложены как точки ра
 
 Для экономии токенов используются локальные индексные файлы:
 
-- `.kilo/context/projects/<проект>/objects-index.md` — быстрый индекс объектов (поле `Проект:` в блоке
+- `{{CONTEXT_DIR}}/projects/<проект>/objects-index.md` — быстрый индекс объектов (поле `Проект:` в блоке
   указывает проект; путь в `Путь:` квалифицирован как `projects/<проект>/src/...`);
-- `.kilo/context/projects/<проект>/summaries/**` — краткие summaries объектов, per-project;
+- `{{CONTEXT_DIR}}/projects/<проект>/summaries/**` — краткие summaries объектов, per-project;
 - структурный индекс, если подключён отдельно.
 
 Summaries регенерируются скриптом `scripts/build_summaries.py`. Режимы:
 - `--objects "<список>"` — перестройка summaries по списку объектов (канонические
-  `Тип.Имя` или короткие имена, разрешаемые через `.kilo/context/projects/<проект>/objects-index.md`);
+  `Тип.Имя` или короткие имена, разрешаемые через `{{CONTEXT_DIR}}/projects/<проект>/objects-index.md`);
 - `--scan` — dry-run: отчёт об объектах, отсутствующих в индексе, без записи;
 - `--scan --objects "<список>"` — добавить skeleton-блоки для указанных канонических
-  заголовков в `.kilo/context/projects/<проект>/objects-index.md` и построить summaries (новые + перестроить изменённые
+  заголовков в `{{CONTEXT_DIR}}/projects/<проект>/objects-index.md` и построить summaries (новые + перестроить изменённые
   индексированные по hash);
 - `--subsystem "<Имя>"` — перестройка по объектам подсистемы 1С (парсит
   `Subsystems/<Name>.xml` + дочерние); комбинируется с `--force` для принудительной перестройки;
@@ -256,7 +304,7 @@ Summaries регенерируются скриптом `scripts/build_summaries
 
 Запуск автоматизирован через субагента `1c-tools` (по запросу через `1c-do`,
 авто-обновление post-SDD, либо авто-обнаружение новых объектов: если на шаге 6.5 в
-`06_change_report.md` найден объект, отсутствующий в `.kilo/context/projects/<проект>/objects-index.md`, `1c-do`
+`06_change_report.md` найден объект, отсутствующий в `{{CONTEXT_DIR}}/projects/<проект>/objects-index.md`, `1c-do`
 делегирует `1c-tools --scan --objects`); ручной запуск пользователем вне сессии также
 поддерживается. Требование окружения: Python 3.x в `PATH`.
 
@@ -269,25 +317,34 @@ Summaries регенерируются скриптом `scripts/build_summaries
 
 > `1c-do` — точка входа (маршрутизатор + SDD-оркестратор: определяет проект запроса
 > (шаг 1.5), для нетривиальных правок кода создаёт каркас `specs/<TASK-ID>/`,
-> делегирует аналитику подготовку spec, проверяет gate, затем делегирует разработчику);
+> делегирует аналитику подготовку spec, проверяет gate (status/risk), затем делегирует
+> разработчику; для high-risk и перед apply делегирует `1c-reviewer`);
 > `1c-analyst` — аналитик (вся конфигурация `projects/<источник>/src/**`, без кода; в SDD-режиме
-> заполняет `01/03/05` артефакты); `1c-developer` — разработчик (BSL-код; в SDD-режиме
-> реализует строго по `03_solution_spec.md` и пишет `06_change_report.md`); `1c-applier` —
-> апликер конфигурации (mode: all): применяет готовые правки из `projects/**` в живую ИБ
-> (db-load-xml → db-update, бэкап db-dump-dt), source не правит, делегируется `1c-do` ТОЛЬКО
-> по явному запросу пользователя применить правки в БД (авто-вызова после SDD нет; смешанный
-> запрос «код + применить в базу» — шаг 6.6); `1c-tools` —
-> узкий исполнитель утилит (запуск `scripts/build_summaries.py` по запросу через `1c-do`,
-> `mode: subagent`).
+> заполняет `01/03/05` артефакты, включая машиночитаемый блок status/risk);
+> `1c-developer` — разработчик (BSL-код; в SDD-режиме реализует строго по
+> `03_solution_spec.md` со `status: approved` и пишет `06_change_report.md`);
+> `1c-reviewer` — независимый ревьюер (mode: subagent): сверка реализации со спецификацией,
+> проверка scope, регрессий, транзакций/блокировок, запросов/производительности,
+> прав/RLS, интеграционных контрактов; пишет `specs/<TASK-ID>/review.md` (verdict +
+> findings); не меняет реализацию/spec/базу; не утверждает результат без доказательств;
+> `1c-applier` — апликер конфигурации (mode: all): применяет готовые правки из
+> `projects/**` в живую ИБ (db-load-xml → db-update, бэкап db-dump-dt) только после
+> успешного preflight-проверки `applier_guard.py` (environment, выбор базы, spec
+> `approved`, review verdict, scope_hash, файлы плана) и только для `environment` ∈
+> {local, test, staging}; `production` и отсутствие/неизвестное `environment` блокируют
+> изменяющие операции; source не правит; делегируется `1c-do` ТОЛЬКО по явному запросу
+> пользователя применить правки в БД (авто-вызова после SDD нет; смешанный запрос «код +
+> применить в базу» — шаг 6.6); `1c-tools` — узкий исполнитель утилит (запуск
+> `scripts/build_summaries.py` по запросу через `1c-do`, `mode: subagent`).
 > Per-project контекст (конфигурация, домен, модули, ключевые объекты) — в
-> `.kilo/context/projects/<проект>/context.md`; справочные индексы (`.kilo/context/projects/<проект>/analyst-scope.md`,
-> `.kilo/context/projects/<проект>/objects-index.md`) — не ограничение, а ускоритель поиска.
+> `{{CONTEXT_DIR}}/projects/<проект>/context.md`; справочные индексы (`{{CONTEXT_DIR}}/projects/<проект>/analyst-scope.md`,
+> `{{CONTEXT_DIR}}/projects/<проект>/objects-index.md`) — не ограничение, а ускоритель поиска.
 
 ## Логирование ошибок агентов
 
-Каталог `.kilo/logs/<agent>/<YYYY-MM-DD>/` содержит записи ошибок (`ERROR`) и
-предупреждений (`WARN`) агентов `1c-do`, `1c-analyst`, `1c-developer`, `1c-applier`, `1c-tools`.
-Успешные действия не логируются (минимум шума).
+Каталог `{{LOGS_DIR}}/<agent>/<YYYY-MM-DD>/` содержит записи ошибок (`ERROR`) и
+предупреждений (`WARN`) агентов `1c-do`, `1c-analyst`, `1c-developer`, `1c-reviewer`,
+`1c-applier`, `1c-tools`. Успешные действия не логируются (минимум шума).
 
 - Одна запись = один Markdown-файл: `<HHmmss>_<LEVEL>_<slug>.md`.
 - Формат записи: время, агент, уровень, тип события, «Что произошло», «Контекст»
@@ -299,8 +356,8 @@ Summaries регенерируются скриптом `scripts/build_summaries
   длинные запросы обрезать. Защита от stored prompt-injection при разборе логов
   агентом `1c-analyst`.
 - Права записи: каждый агент пишет только в свой подкаталог
-  (`.kilo/logs/<свой-agent>/**`).
-- Чтение для разбора: `1c-analyst` имеет read-доступ ко всем `.kilo/logs/**`.
+  (`{{LOGS_DIR}}/<свой-agent>/**`).
+- Чтение для разбора: `1c-analyst` имеет read-доступ ко всем `{{LOGS_DIR}}/**`.
   Запрос «проанализируй ошибки в логах» маршрутизируется через `1c-do` →
   `1c-analyst`.
 - Очистка старых логов — вручную пользователем (удаление папок за прошлые даты).

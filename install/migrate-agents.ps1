@@ -1,12 +1,21 @@
-$ErrorActionPreference = "Stop"
-$srcDir = "C:\Ramium\1c-vibe\.kilo\agent"
-$dstAgents = "C:\Ramium\1c-vibe\temp\1c_dev\core\agents"
-$dstFm = "C:\Ramium\1c-vibe\temp\1c_dev\adapters\kilo\frontmatter"
+﻿$ErrorActionPreference = "Stop"
+# Миграция агентов из .kilo/agent/ в core/agents/ + frontmatter в adapters/kilo/.
+# Запуск: powershell -File install/migrate-agents.ps1
+# Параметр -SourceRoot (по умолчанию C:\Ramium\1c-vibe) и -RepoRoot (по умолчанию .. репо).
+param(
+    [string]$SourceRoot = "C:\Ramium\1c-vibe",
+    [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot)
+)
+$srcDir = Join-Path $SourceRoot ".kilo\agent"
+$dstAgents = Join-Path $RepoRoot "core\agents"
+$dstFm = Join-Path $RepoRoot "adapters\kilo\frontmatter"
 
-$agents = @("1c-do","1c-analyst","1c-developer","1c-applier","1c-tools")
+$agents = @("1c-do","1c-analyst","1c-developer","1c-reviewer","1c-applier","1c-tools")
 
 foreach ($name in $agents) {
-    $raw = Get-Content -Path "$srcDir\$name.md" -Raw -Encoding UTF8
+    $srcFile = Join-Path $srcDir "$name.md"
+    if (-not (Test-Path $srcFile)) { Write-Host "SKIP (no source): $name"; continue }
+    $raw = [System.IO.File]::ReadAllText($srcFile, [System.Text.Encoding]::UTF8)
 
     # Split on first --- ... --- pair
     $lines = $raw -split "`r?`n"
@@ -35,8 +44,6 @@ foreach ($name in $agents) {
     if ($frontmatter -match '(?m)^model:\s*(.+)$') { $model = $matches[1].Trim() }
     $mode = ""
     if ($frontmatter -match '(?m)^mode:\s*(.+)$') { $mode = $matches[1].Trim() }
-    $desc = ""
-    if ($frontmatter -match '(?ms)^description:\s*(.+?)(?=\r?\n[a-z_-]+:|\Z)') { $desc = $matches[1].Trim() }
 
     $header = "<!-- Agent: $name | Mode: $mode | Model: $model -->`r`n"
     [System.IO.File]::WriteAllText("$dstAgents\$name.md", $header + $body, [System.Text.UTF8Encoding]::new($true))

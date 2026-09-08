@@ -1163,4 +1163,14 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        print("\nПрервано пользователем.", file=sys.stderr)
+        raise SystemExit(130)
+    except Exception as e:
+        # Дружественное сообщение без traceback для обычных ошибок выполнения.
+        print(f"Ошибка: {e}", file=sys.stderr)
+        raise SystemExit(1)
