@@ -1,5 +1,9 @@
 # 1C Dev — агентская схема разработки 1С
 
+> **Если ты ИИ-агент** и тебе нужно установить или обновить схему в проекте 1С —
+> перейди к [`AGENT-INSTALL.md`](AGENT-INSTALL.md) и следуй протоколу.
+> Текущий файл — обзор для разработчика.
+
 Мультиагентная схема для разработки конфигураций 1С:Предприятие 8.3 (BSL + XML-метаданные)
 поверх AI-кодинг-ассистентов. Tool-agnostic ядро + адаптеры под конкретный инструмент.
 
@@ -94,6 +98,19 @@ review (`1c-reviewer`, `specs/<TASK-ID>/review.md`) перед применен�
 └── docs/                    — adding-skills.md
 ```
 
+## Установка через ИИ-агента (рекомендуется)
+
+Откройте проект 1С в вашем ИИ-агенте (Kilo, Claude Code, Codex CLI, Open Works) и отправьте:
+
+> Установи схему 1C Dev из `{GITHUB_URL}` по `AGENT-INSTALL.md`.
+
+Агент клонирует harness, определит инструмент, запустит `install.ps1` (детерминированный
+движок), проверит через `doctor.py` + `validate.py` и сообщит следующие шаги.
+
+## Установка через PowerShell (движок / fallback)
+
+Если агент недоступен или нужен детерминированный CI-запуск:
+
 ## Быстрый старт
 
 1. Клонируйте репозиторий в рабочее пространство проекта 1С.
@@ -135,8 +152,12 @@ review (`1c-reviewer`, `specs/<TASK-ID>/review.md`) перед применен�
 
 ## Лицензия
 
-**Лицензия оригинальной части проекта НЕ определена владельцем** (файл `LICENSE` отсутствует;
-выбор лицензии — прерогатива владельца). Скиллы в `core/skills/**` — адаптация материалов из
-upstream-проекта [Nikolay-Shirokov/cc-1c-skills](https://github.com/Nikolay-Shirokov/cc-1c-skills)
-(лицензия MIT; выдержка — в `THIRD_PARTY_LICENSES.md`, атрибуция — в `NOTICE.md`). BSL Language
-Server (если используется) имеет лицензию LGPL-3.0.
+Оригинальная часть harness (агенты, адаптеры, установщик, скрипты, SDD, правила, контекст,
+документация) — **MIT License**, Copyright (c) 2025-2026 Kirill Pulyavin (см. `LICENSE`).
+
+Скиллы в `core/skills/**` — адаптация материалов из upstream-проекта
+[Nikolay-Shirokov/cc-1c-skills](https://github.com/Nikolay-Shirokov/cc-1c-skills) (лицензия MIT,
+Copyright (c) 2025-2026 Nick Shirokov; выдержка — в `THIRD_PARTY_LICENSES.md`, атрибуция —
+в `NOTICE.md`).
+
+BSL Language Server (если используется) имеет лицензию LGPL-3.0.

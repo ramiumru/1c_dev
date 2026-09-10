@@ -80,6 +80,8 @@ REQUIRED_FILES_SOURCE = [
     "THIRD_PARTY_LICENSES.md",
     "SECURITY.md",
     "CONTRIBUTING.md",
+    "LICENSE",
+    "AGENT-INSTALL.md",
     "examples/v8-project.example.json",
     "core/sdd/README.md",
     "core/scripts/applier_guard.py",
@@ -1003,6 +1005,53 @@ def check_manifest(rep: Report) -> None:
         rep.error(f"manifest: .ai-rules.json не читается: {e}")
 
 
+def check_license_and_copyright(rep: Report) -> None:
+    """Проверка: LICENSE существует и содержит MIT + Kirill Pulyavin."""
+    license_path = ROOT / "LICENSE"
+    if not license_path.exists():
+        rep.error("license: LICENSE не найден")
+        return
+    text = license_path.read_text(encoding="utf-8", errors="replace")
+    if "MIT License" in text:
+        rep.ok("license: LICENSE содержит MIT License")
+    else:
+        rep.error("license: LICENSE не содержит 'MIT License'")
+    if "Kirill Pulyavin" in text:
+        rep.ok("license: LICENSE содержит Copyright Kirill Pulyavin")
+    else:
+        rep.error("license: LICENSE не содержит 'Kirill Pulyavin'")
+
+
+def check_agent_install(rep: Report) -> None:
+    """Проверка: AGENT-INSTALL.md существует и содержит протокол + {GITHUB_URL}."""
+    ai_path = ROOT / "AGENT-INSTALL.md"
+    if not ai_path.exists():
+        rep.error("agent-install: AGENT-INSTALL.md не найден")
+        return
+    text = ai_path.read_text(encoding="utf-8", errors="replace")
+    checks = {
+        "{GITHUB_URL}": "{GITHUB_URL}" in text,
+        "протокол установки": "Протокол установки" in text,
+        "install.ps1": "install.ps1" in text,
+        "doctor.py": "doctor.py" in text,
+        "validate.py": "validate.py" in text,
+        "Что НЕ делать": "Что НЕ делать" in text,
+    }
+    for label, ok in checks.items():
+        if ok:
+            rep.ok(f"agent-install: содержит '{label}'")
+        else:
+            rep.error(f"agent-install: AGENT-INSTALL.md не содержит '{label}'")
+    # README agent-first blockquote
+    readme = ROOT / "README.md"
+    if readme.exists():
+        rm = readme.read_text(encoding="utf-8", errors="replace")
+        if "Если ты ИИ-агент" in rm or "AGENT-INSTALL.md" in rm:
+            rep.ok("agent-install: README содержит ссылку на AGENT-INSTALL.md")
+        else:
+            rep.error("agent-install: README не содержит ссылку на AGENT-INSTALL.md")
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1037,6 +1086,8 @@ def main() -> int:
     check_triage(rep)
     check_dev_env(rep)
     check_manifest(rep)
+    check_license_and_copyright(rep)
+    check_agent_install(rep)
     check_installer_smoke(rep, args.skip_smoke)
 
     print("\n=== VALIDATION REPORT ===")

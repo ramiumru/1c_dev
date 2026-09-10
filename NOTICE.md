@@ -5,22 +5,23 @@
 
 ## Оригинальная часть проекта
 
-Оригинальная часть репозитория создана для данного проекта и включает:
+Оригинальная часть репозитория разработана Кириллом Пулявиным (Kirill Pulyavin)
+и включает:
 
 - `core/agents/**` — тела агентов;
 - `adapters/**` — per-tool обвязка (kilo, claude, codex, openworks);
 - `install/**` — установщик и миграционные скрипты;
-- `core/scripts/**` — `bsl-check.py`, `build_summaries.py`;
+- `core/scripts/**` — `bsl-check.py`, `build_summaries.py`, `applier_guard.py`,
+  `safe_apply.py`, `validate.py`, `doctor.py`, `_root.py`;
 - `core/sdd/**` — шаблоны SDD;
-- `core/context/**` — `INSTRUCTIONS.md`, `BslChecklists.md`, `standards/`, `common/`, `projects/`;
+- `core/rules/**` — on-demand правила;
+- `core/context/**` — `INSTRUCTIONS.md`, `BslChecklists.md`, `standards/`, `common/`,
+  `projects/`, `.dev.env.example`;
 - `docs/**` — документация;
-- `README.md`, `NOTICE.md`, `THIRD_PARTY_LICENSES.md`.
+- `README.md`, `NOTICE.md`, `THIRD_PARTY_LICENSES.md`, `SECURITY.md`, `CONTRIBUTING.md`,
+  `AGENT-INSTALL.md`, `LICENSE`.
 
-**Лицензия оригинальной части НЕ определена владельцем.** В репозитории отсутствует файл
-`LICENSE` для оригинальной части. Выбор лицензии для оригинальной части — прерогатива
-владельца проекта; настоящий файл не устанавливает и не выбирает лицензию от имени
-владельца. До принятия решения владельцем лицензия оригинальной части считается
-неопределённой.
+**Лицензия:** MIT (см. `LICENSE`). Copyright (c) 2025-2026 Kirill Pulyavin.
 
 ## Сторонние материалы
 
@@ -99,5 +100,6 @@
    её текста.
 3. Сохраняйте существующие строки атрибуции (`# Source:`) в исходниках; не удаляйте и не
    изменяйте оригинальные copyright-заголовки.
-4. Не выбирайте лицензию для оригинальной части проекта от имени владельца — оставляйте
-   пометку «не определена», пока владелец не примет решение.
+4. Оригинальная часть harness — под лицензией MIT (Copyright (c) 2025-2026 Kirill Pulyavin,
+   см. `LICENSE`). При добавлении нового оригинального материала он автоматически попадает
+   под ту же лицензию MIT. Не добавляйте сторонние материалы без указания upstream и лицензии.
