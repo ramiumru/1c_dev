@@ -64,7 +64,7 @@
 - Платформа: **1С:Предприятие 8.3.27**, управляемые формы.
 - Источники (основа + расширения) — из Task-брифа (поле «Источники»). Исходники —
   `projects/<источник>/src/**` (только чтение).
-- Стандарты: `{{CONTEXT_DIR}}/standards/level-standards.md` (первичный), MCP `v8std`
+- Стандарты: `{{CONTEXT_DIR}}/standards/standards.example.md` (первичный), MCP `v8std`
   (вторичный), `AGENTS.md` (чек-лист).
 - Детали платформы и SDD — `INSTRUCTIONS.md`, `specs/README.md`.
 

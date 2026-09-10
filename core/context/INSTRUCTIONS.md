@@ -31,7 +31,7 @@ SDD, индексы, логирование. **Проект-специфичны
 в отдельной папке `{{CONTEXT_DIR}}/projects/<проект>/` (все per-project данные вместе:
 `context.md`, `objects-index.md`, `analyst-scope.md`, `summaries/`, `requirements/`):
 
-- `finance` → `{{CONTEXT_DIR}}/projects/finance/context.md` (БИТ.ФИНАНС / БИТ:Строительство КОРП 3.0);
+- `finance` → `{{CONTEXT_DIR}}/projects/finance/context.md`;
   источники: `finance` (основа) + `extfinance` (расширение, запланировано) — раздел «Источники» в `context.md`.
 - `trade` → `{{CONTEXT_DIR}}/projects/trade/context.md` (Управление торговлей 10.3).
 - `collector` → `{{CONTEXT_DIR}}/projects/collector/context.md` (Коллекционер, самописная на БСП).
@@ -97,7 +97,7 @@ Per-project данные не входят в запретный список «
 │   │   │   └── requirements/              — per-project требования
 │   │   ├── trade/      { context.md, objects-index.md, summaries/, requirements/ }
 │   │   └── collector/  { context.md, objects-index.md, summaries/, requirements/ }
-│   ├── standards/                         — стандарты компании (level-standards.md)
+│   ├── standards/                         — стандарты компании (standards.example.md — шаблон)
 │   └── logs/                              — логи агентов (по агентам + датам)
 ├── specs/                                 — SDD-спецификации задач (плоско по <TASK-ID>)
 │   ├── README.md                          — шаблоны артефактов + roadmap расширения
@@ -193,7 +193,7 @@ Per-project данные не входят в запретный список «
   системного контекста.
 - Этот же TASK-ID разработчик использует в комментариях BSL:
   `// ++ #<TASK-ID>` … `// -- #<TASK-ID>` (согласуется с
-  `{{CONTEXT_DIR}}/standards/level-standards.md`, раздел «Комментарии изменений»).
+  `{{CONTEXT_DIR}}/standards/standards.example.md`, раздел «Комментарии изменений»).
 
 ### Распределение прав на `specs/**`
 

@@ -26,6 +26,7 @@ specs/TASK-*/
 !.env.example
 .dev.env
 .ai-rules.json
+overlay/
 *.dt
 *.cf
 *.cfe

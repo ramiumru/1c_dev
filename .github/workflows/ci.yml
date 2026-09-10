@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Python compile check
+        run: python -m compileall -q core/scripts core/skills
+      - name: Doctor
+        run: python core/scripts/doctor.py
+      - name: Validate (with smoke)
+        run: python core/scripts/validate.py
+
+  validate-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Python compile check
+        run: python -m compileall -q core/scripts core/skills
+      - name: Validate (skip smoke — no PowerShell on Linux)
+        run: python core/scripts/validate.py --skip-smoke

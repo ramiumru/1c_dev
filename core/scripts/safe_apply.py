@@ -3,25 +3,15 @@
 """
 safe_apply.py — единая безопасная точка входа для опасных операций apply.
 
-Это wrapper: запускает applier_guard.py (preflight) и ТОЛЬКО при его успешном
+Wrapper: запускает applier_guard.py (preflight) и ТОЛЬКО при успешном
 прохождении вызывает skill-скрипт (db-load-xml / db-load-cf / db-update / ...).
 
-Назначение (8.5): агент 1c-applier не должен вызывать db-load-*/db-update напрямую
-через skill/bash — только через safe_apply.py. Права в frontmatter (1c-applier.yml)
-разрешают safe_apply.py и запрещают прямые db-load-*/db-update, поэтому обойти
-guard невозможно на уровне движка прав.
-
-Запуск:
-  python scripts/safe_apply.py --task <TASK-ID> --db <id> --op <load-xml|load-cf|load-dt|update|create> \\
-      --config-dir <ConfigSrc> --mode <Full|Partial> [--files <rel1,rel2,...>] [--extension <name>]
-
-Логика:
-  1. Запустить applier_guard.py --task <TASK-ID> --db <id> --op <op>
-     → ненулевой exit = СТОП, операция не выполняется.
-  2. Прочитать .v8-project.json, найти запись базы по --db.
-  3. Разрешить параметры подключения (путь/сервер/ref, v8path, username/password из env).
-  4. Найти skill-скрипт по --op (skills/<skill-name>/scripts/<skill-name>.ps1).
-  5. Запустить skill-скрипт через PowerShell с нужными параметрами.
+Безопасность секретов (P0-3):
+  - Пароль НИКОГДА не передаётся как аргумент PowerShell.
+  - Python передаёт имя env-переменной через -PasswordEnv <NAME>.
+  - PowerShell-скрипт читает значение из $env:<NAME> перед запуском платформы.
+  - Единая функция redaction() маскирует все чувствительные значения в выводе.
+  - Исключения и сообщения об ошибках проходят через redaction.
 
 Exit codes:
   0 — операция выполнена успешно
@@ -34,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -50,13 +41,11 @@ def _find_root(start: Path) -> Path:
         root = _find_root_shared(start)
         if root is not None:
             return root
-    cur = start.resolve()
-    return cur.parent.parent
+    return start.resolve().parent.parent
 
 
 ROOT = _find_root(Path(__file__).resolve())
 
-# Маппинг op → skill-имя
 OP_TO_SKILL = {
     "load-xml": "db-load-xml",
     "load-cf": "db-load-cf",
@@ -64,6 +53,27 @@ OP_TO_SKILL = {
     "update": "db-update",
     "create": "db-create",
 }
+
+# Параметры, значения которых маскируются в выводе
+SENSITIVE_PARAMS = {"-Password", "/P", "--password", "-PasswordEnv", "-UserName", "-V8Path"}
+
+
+def redact(text: str) -> str:
+    """Единая функция redaction: маскирует значения после чувствительных параметров."""
+    if not text:
+        return text
+    # Маскируем значения после чувствительных параметров
+    for param in SENSITIVE_PARAMS:
+        # Заменяем "param value" на "param ***REDACTED***"
+        text = re.sub(
+            rf"({re.escape(param)}\s+)([^\s-]+)",
+            r"\1***REDACTED***",
+            text,
+        )
+    # Маскируем строки подключения с учётными данными
+    text = re.sub(r"(Password=)[^;\s]+", r"\1***REDACTED***", text, flags=re.IGNORECASE)
+    text = re.sub(r"(Usr=)[^;\s]+", r"\1***REDACTED***", text, flags=re.IGNORECASE)
+    return text
 
 
 def find_skills_dir(root: Path) -> Path:
@@ -80,7 +90,7 @@ def find_skills_dir(root: Path) -> Path:
     return root / ".kilo" / "skills"
 
 
-def run_guard(task: str, db: str, op: str) -> int:
+def run_guard(task: str, db: str, op: str, mode: str, files: str) -> int:
     """Запустить applier_guard.py как subprocess. Возвращает exit code."""
     guard = ROOT / "scripts" / "applier_guard.py"
     if not guard.exists():
@@ -90,14 +100,17 @@ def run_guard(task: str, db: str, op: str) -> int:
         "--task", task,
         "--db", db,
         "--op", op,
+        "--mode", mode,
     ]
-    print(f"=== safe_apply: preflight guard ===")
-    print(f"  cmd: {' '.join(cmd)}")
+    if files:
+        cmd += ["--files", files]
+    print("=== safe_apply: preflight guard ===")
+    print(f"  cmd: {redact(' '.join(cmd))}")
     r = subprocess.run(cmd)
     if r.returncode != 0:
         print(f"=== safe_apply: GUARD ЗАБЛОКИРОВАЛ операцию (exit {r.returncode}) ===")
     else:
-        print(f"=== safe_apply: guard пройден, продолжаем ===")
+        print("=== safe_apply: guard пройден, продолжаем ===")
     return r.returncode
 
 
@@ -105,12 +118,12 @@ def load_db_config(db_id: str) -> dict:
     """Прочитать .v8-project.json и найти запись базы по id."""
     cfg_path = ROOT / ".v8-project.json"
     if not cfg_path.exists():
-        print(f"ERROR: .v8-project.json не найден: {cfg_path}", file=sys.stderr)
+        print("ERROR: .v8-project.json не найден", file=sys.stderr)
         return {}
     try:
         cfg = json.loads(cfg_path.read_text(encoding="utf-8-sig", errors="replace"))
     except Exception as e:
-        print(f"ERROR: .v8-project.json не читается: {e}", file=sys.stderr)
+        print(f"ERROR: .v8-project.json не читается: {redact(str(e))}", file=sys.stderr)
         return {}
     dbs = cfg.get("databases") or []
     matches = [d for d in dbs if isinstance(d, dict) and d.get("id") == db_id]
@@ -122,17 +135,11 @@ def load_db_config(db_id: str) -> dict:
     return db
 
 
-def resolve_credentials(db: dict) -> tuple[str, str]:
-    """Разрешить логин/пароль из env-переменных (по username_env/password_env)."""
-    username_env = db.get("username_env", "")
-    password_env = db.get("password_env", "")
-    username = os.environ.get(username_env, "") if username_env else ""
-    password = os.environ.get(password_env, "") if password_env else ""
-    return username, password
-
-
 def build_ps_args(db: dict, args) -> list[str]:
-    """Построить список аргументов для skill-скрипта PowerShell."""
+    """Построить список аргументов для skill-скрипта PowerShell.
+
+    Пароль и логин передаются как ИМЕНА env-переменных, а не значения.
+    """
     ps_args: list[str] = []
     v8path = db.get("__v8path", "")
     if v8path:
@@ -151,11 +158,13 @@ def build_ps_args(db: dict, args) -> list[str]:
         if path:
             ps_args.extend(["-InfoBasePath", str(path)])
 
-    username, password = resolve_credentials(db)
-    if username:
-        ps_args.extend(["-UserName", username])
-    if password:
-        ps_args.extend(["-Password", password])
+    # Передаём ИМЕНА env-переменных, а не значения
+    username_env = db.get("username_env", "")
+    password_env = db.get("password_env", "")
+    if username_env:
+        ps_args.extend(["-UserNameEnv", username_env])
+    if password_env:
+        ps_args.extend(["-PasswordEnv", password_env])
 
     if args.config_dir:
         ps_args.extend(["-ConfigDir", str(args.config_dir)])
@@ -180,7 +189,7 @@ def main() -> int:
         prog="safe_apply.py",
         description="Единая безопасная точка входа для опасных операций apply (guard + skill).",
     )
-    parser.add_argument("--task", required=True, help="TASK-ID (обязателен; без него guard блокирует)")
+    parser.add_argument("--task", required=True, help="TASK-ID (строгий формат TASK-<alnum>)")
     parser.add_argument("--db", required=True, help="id базы из .v8-project.json")
     parser.add_argument("--op", required=True, choices=sorted(OP_TO_SKILL.keys()),
                         help="класс операции")
@@ -193,7 +202,8 @@ def main() -> int:
     args = parser.parse_args()
 
     # 1. Preflight guard — обязателен
-    guard_exit = run_guard(args.task.strip(), args.db.strip(), args.op.strip())
+    guard_exit = run_guard(args.task.strip(), args.db.strip(), args.op.strip(),
+                          args.mode, args.files.strip())
     if guard_exit != 0:
         return 1
 
@@ -214,7 +224,7 @@ def main() -> int:
         print(f"ERROR: skill-скрипт не найден: {skill_script}", file=sys.stderr)
         return 2
 
-    # 4. Построить аргументы для PowerShell
+    # 4. Построить аргументы для PowerShell (секреты как env-имена)
     ps_args = build_ps_args(db, args)
 
     # 5. Запустить skill-скрипт
@@ -223,9 +233,7 @@ def main() -> int:
 
     print(f"\n=== safe_apply: запуск skill '{skill_name}' ===")
     print(f"  script: {skill_script}")
-    print(f"  args: {' '.join(ps_args[:6])}{'...' if len(ps_args) > 6 else ''}")
-    # Не выводим пароль
-    safe_args = [a if a != "-Password" else "-Password" for a in ps_args]
+    print(f"  args: {redact(' '.join(ps_args))}")
 
     try:
         r = subprocess.run(cmd)
@@ -239,7 +247,7 @@ def main() -> int:
         print(f"ERROR: PowerShell не найден ({pwsh})", file=sys.stderr)
         return 2
     except Exception as e:
-        print(f"ERROR: непредвиденная ошибка: {e}", file=sys.stderr)
+        print(f"ERROR: непредвиденная ошибка: {redact(str(e))}", file=sys.stderr)
         return 2
 
 

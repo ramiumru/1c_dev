@@ -21,7 +21,7 @@
 Если harness уже клонирован локально — используй существующий путь. Иначе:
 
 ```powershell
-git clone https://github.com/ramiumru/1c_dev "$env:TEMP\1c-dev-harness"
+git clone {GITHUB_URL} "$env:TEMP\1c-dev-harness"
 ```
 
 Запомни путь к клону (например, `$env:TEMP\1c-dev-harness`).
