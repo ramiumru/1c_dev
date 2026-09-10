@@ -6,15 +6,31 @@
     Собирает раскладку схемы из core/ + adapters/ в целевой каталог.
     Поддерживаемые инструменты: kilo, claude, codex, openworks.
 
+    Безопасность установки (P0-2):
+    - Корневые пользовательские файлы (AGENTS.md, CLAUDE.md, INSTRUCTIONS.md, kilo.json,
+      openworks.json, .ai-rules.json, .dev.env, LICENSE, specs/README.md) НЕ перезаписываются
+      без явного разрешения (-Force или подтверждение в install-режиме).
+    - LICENSE целевого проекта НИКОГДА не заменяется лицензией harness.
+    - При update: изменённые пользователем файлы (hash расходится) сохраняются.
+    - При -Force: перезапись разрешена, но LICENSE целевого проекта всё равно не трогается.
+    - Перед разрешённой заменой создаётся резервная копия с уникальным именем.
+
 .PARAMETER Tool
     Целевой инструмент: kilo | claude | codex | openworks
 
 .PARAMETER Target
     Целевой каталог (по умолчанию ".").
 
+.PARAMETER Mode
+    install | update
+
+.PARAMETER Force
+    Принудительная перезапись (кроме LICENSE целевого проекта).
+
 .EXAMPLE
     .\install.ps1 -Tool kilo
     .\install.ps1 -Tool claude -Target C:\MyProject
+    .\install.ps1 -Tool kilo -Mode update
 #>
 param(
     [Parameter(Mandatory=$true)][ValidateSet("kilo","claude","codex","openworks")]
@@ -25,62 +41,34 @@ param(
     [switch]$Force
 )
 $ErrorActionPreference = "Stop"
-$repo = Split-Path -Parent $PSScriptRoot   # корень репо (temp/1c_dev)
+$repo = Split-Path -Parent $PSScriptRoot   # корень репо
 $utf8Bom = [System.Text.UTF8Encoding]::new($true)
 
-# --- Проверка core/ ---
 if (-not (Test-Path "$repo\core\agents")) {
-    throw "core/agents не найден. Запускайте из корня репозитория 1c-dev."
+    throw "core/agents не найден. Запускайте из корня репозитория."
 }
 
 # --- Конфигурация путей по инструменту ---
 $config = @{
-    kilo = @{
-        skillDir = ".kilo/skills"
-        agentDir = ".kilo/agent"
-        contextDir = ".kilo/context"
-        logsDir = ".kilo/logs"
-        rootConfig = "kilo.json"
-        instructionsInRoot = $true
-        copySkills = $true
-        copyAgents = $true
-    }
-    claude = @{
-        skillDir = ".claude/skills"
-        agentDir = ".claude/agents"
-        contextDir = ".claude/context"
-        logsDir = ".claude/logs"
-        rootConfig = "CLAUDE.md"
-        instructionsInRoot = $false
-        copySkills = $true
-        copyAgents = $true
-    }
-    openworks = @{
-        skillDir = ".openworks/skills"
-        agentDir = ".openworks/agents"
-        contextDir = ".openworks/context"
-        logsDir = ".openworks/logs"
-        rootConfig = "openworks.json"
-        instructionsInRoot = $false
-        copySkills = $true
-        copyAgents = $true
-    }
-    codex = @{
-        skillDir = "skills"
-        agentDir = "agents"
-        contextDir = "context"
-        logsDir = "logs"
-        rootConfig = "AGENTS.md"
-        instructionsInRoot = $false
-        copySkills = $true
-        copyAgents = $true
-    }
+    kilo = @{ skillDir=".kilo/skills"; agentDir=".kilo/agent"; contextDir=".kilo/context"; logsDir=".kilo/logs"; rootConfig="kilo.json"; instructionsInRoot=$true; copySkills=$true; copyAgents=$true }
+    claude = @{ skillDir=".claude/skills"; agentDir=".claude/agents"; contextDir=".claude/context"; logsDir=".claude/logs"; rootConfig="CLAUDE.md"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
+    openworks = @{ skillDir=".openworks/skills"; agentDir=".openworks/agents"; contextDir=".openworks/context"; logsDir=".openworks/logs"; rootConfig="openworks.json"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
+    codex = @{ skillDir="skills"; agentDir="agents"; contextDir="context"; logsDir="logs"; rootConfig="AGENTS.md"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
 }[$Tool]
 
 $ctx = $config.contextDir
 $logs = $config.logsDir
 $skills = $config.skillDir
 $agents = $config.agentDir
+
+# --- Защищённые файлы: никогда не перезаписывать без явного разрешения ---
+$PROTECTED_ROOT_FILES = @(
+    "AGENTS.md", "CLAUDE.md", "INSTRUCTIONS.md", "kilo.json", "openworks.json",
+    ".ai-rules.json", ".dev.env", "LICENSE", "specs/README.md"
+)
+
+# Файлы, которые LICENSE никогда не заменяется (P0-2.2)
+$LICENSE_NEVER_OVERWRITE = @("LICENSE")
 
 Write-Host "=== Установка 1c-dev для '$Tool' в '$Target' (mode: $Mode) ==="
 
@@ -93,29 +81,65 @@ if ($Mode -eq "update") {
         try {
             $existingManifest = Get-Content $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
             foreach ($f in $existingManifest.files) {
-                $currentHash = (Get-FileHash -LiteralPath (Join-Path $Target $f.path) -Algorithm SHA256 -ErrorAction SilentlyContinue).Hash
+                $fp = Join-Path $Target $f.path
+                $currentHash = (Get-FileHash -LiteralPath $fp -Algorithm SHA256 -ErrorAction SilentlyContinue).Hash
                 if ($currentHash -and $currentHash -ne $f.installedHash) {
                     $userModifiedFiles[$f.path] = $true
                 }
             }
             Write-Host "  update: обнаружено $($userModifiedFiles.Count) user-modified файлов (будут сохранены)"
         } catch {
-            Write-Host "  update: .ai-rules.json не читается — полная установка"
+            Write-Host "  update: .ai-rules.json не читается — полная установка (манифест повреждён)"
         }
     } else {
         Write-Host "  update: .ai-rules.json не найден — полная установка"
     }
 }
 
-# Вспомогательная функция: проверить, нужно ли перезаписать файл в update-режиме
-function Should-Overwrite($relPath) {
-    if ($script:Mode -ne "update") { return $true }
-    if ($script:Force) { return $true }
-    if ($script:userModifiedFiles.ContainsKey($relPath)) {
-        Write-Host "    skip (user-modified): $relPath"
+# --- Вспомогательные функции ---
+
+function Test-ShouldOverwrite($relPath) {
+    # LICENSE целевого проекта — НИКОГДА не перезаписывается (P0-2.2)
+    if ($LICENSE_NEVER_OVERWRITE -contains $relPath) {
         return $false
     }
+    # Защищённые корневые файлы в install-режиме — не перезаписывать без -Force
+    if ($script:Mode -eq "install" -and -not $script:Force) {
+        if ($PROTECTED_ROOT_FILES -contains $relPath) {
+            $fullPath = Join-Path $script:Target $relPath
+            if (Test-Path $fullPath) {
+                Write-Host "    skip (protected, exists): $relPath"
+                return $false
+            }
+        }
+    }
+    # update-режим: user-modified файлы сохраняются без -Force
+    if ($script:Mode -eq "update" -and -not $script:Force) {
+        if ($script:userModifiedFiles.ContainsKey($relPath)) {
+            Write-Host "    skip (user-modified): $relPath"
+            return $false
+        }
+    }
     return $true
+}
+
+function Safe-CopyFile($srcPath, $dstPath, $relPath) {
+    # Проверка: нужно ли перезаписывать
+    if (-not (Test-ShouldOverwrite $relPath)) {
+        # Если файл существует и мы его не перезаписываем — создаём резервную копию при -Force
+        if ($script:Force -and (Test-Path $dstPath) -and ($LICENSE_NEVER_OVERWRITE -notcontains $relPath)) {
+            $bakPath = "$dstPath.bak"
+            $bakIdx = 1
+            while (Test-Path $bakPath) { $bakPath = "$dstPath.bak$bakIdx"; $bakIdx++ }
+            Copy-Item $dstPath $bakPath -Force
+            Write-Host "    backup: $relPath -> $(Split-Path $bakPath -Leaf)"
+            Copy-Item $srcPath $dstPath -Force
+        }
+        return
+    }
+    $dstDir = Split-Path $dstPath -Parent
+    if ($dstDir -and -not (Test-Path $dstDir)) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
+    Copy-Item $srcPath $dstPath -Force
 }
 
 # --- 1. Скиллы ---
@@ -126,7 +150,6 @@ if ($config.copySkills) {
         $name = $_.Name
         $dst = Join-Path $Target "$skills/$name"
         Copy-Item $_.FullName $dst -Recurse -Force
-        # Подстановка плейсхолдеров
         Get-ChildItem $dst -Recurse -File | ForEach-Object {
             $content = [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8)
             if ($content -match '\{\{SKILL') {
@@ -136,9 +159,7 @@ if ($config.copySkills) {
             }
         }
     }
-} else {
-    Write-Host "[1/7] Скиллы: пропуск (одноагентный режим)"
-}
+} else { Write-Host "[1/7] Скиллы: пропуск" }
 
 # --- 2. Агенты ---
 if ($config.copyAgents) {
@@ -149,58 +170,60 @@ if ($config.copyAgents) {
         $name = $_.BaseName
         $fmPath = "$fmSrc\$name.yml"
         $body = [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8)
-        # Подстановка путей в теле
         $body = $body -replace '\{\{CONTEXT_DIR\}\}', $ctx
         $body = $body -replace '\{\{LOGS_DIR\}\}', $logs
         $body = $body -replace '\{\{SKILLS_DIR\}\}', $skills
         $body = $body -replace '\{\{AGENTS_DIR\}\}', $agents
         if (Test-Path $fmPath) {
             $fm = [System.IO.File]::ReadAllText($fmPath, [System.Text.Encoding]::UTF8)
-            # Defense-in-depth: удалить существующие --- delimiters, чтобы избежать двойного frontmatter (8.9)
             $fm = $fm -replace '(?s)^\s*---\s*\r?\n', ''
             $fm = $fm -replace '(?s)\r?\n\s*---\s*$', ''
             $fm = $fm.TrimEnd("`r", "`n")
-            # Сборка: ---\n<FM>\n---\n\n<body>
             $combined = "---`r`n$fm`r`n---`r`n`r`n$body"
-        } else {
-            # Нет frontmatter (напр. Codex одноагентный режим) — тело как reference-док
-            $combined = $body
-        }
+        } else { $combined = $body }
         $dstPath = Join-Path $Target "$agents/$name.md"
         $relPath = "$agents/$name.md" -replace '\\','/'
-        if (-not (Should-Overwrite $relPath)) { continue }
+        if (-not (Test-ShouldOverwrite $relPath)) { return }
         $dstDir = Split-Path $dstPath -Parent
         New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
         [System.IO.File]::WriteAllText($dstPath, $combined, $utf8Bom)
     }
-} else {
-    Write-Host "[2/7] Агенты: пропуск (одноагентный режим)"
-}
+} else { Write-Host "[2/7] Агенты: пропуск" }
 
 # --- 3. Корневой конфиг ---
-    Write-Host "[3/7] Корневой конфиг -> $($config.rootConfig)"
+Write-Host "[3/7] Корневой конфиг -> $($config.rootConfig)"
 $tplPath = "$repo\adapters\$Tool\$($config.rootConfig).tpl"
 if (-not (Test-Path $tplPath)) {
-    # Fallback: kilo.json.tpl, openworks.json.tpl
     $tpls = Get-ChildItem "$repo\adapters\$Tool" -Filter "*.tpl" -ErrorAction SilentlyContinue
     if ($tpls) { $tplPath = $tpls[0].FullName }
 }
 if (Test-Path $tplPath) {
     $tplContent = [System.IO.File]::ReadAllText($tplPath, [System.Text.Encoding]::UTF8)
     $dstPath = Join-Path $Target $config.rootConfig
-    [System.IO.File]::WriteAllText($dstPath, $tplContent, $utf8Bom)
+    Safe-CopyFile $tplPath $dstPath $config.rootConfig
 }
 
 # --- 4. Контекст ---
-    Write-Host "[4/7] Контекст -> $ctx"
+Write-Host "[4/7] Контекст -> $ctx"
 $ctxSrc = "$repo\core\context"
 $ctxDst = Join-Path $Target $ctx
-Copy-Item $ctxSrc $ctxDst -Recurse -Force
-
-# Подстановка плейсхолдеров путей в контекст-файлах (INSTRUCTIONS.md, BslChecklists.md,
-# requirements-README.md и др.) — они используют {{CONTEXT_DIR}}/{{LOGS_DIR}}/
-# {{SKILLS_DIR}}/{{AGENTS_DIR}}, как и тела агентов.
-Get-ChildItem $ctxDst -Recurse -File -Filter "*.md" | ForEach-Object {
+# При update: не перезаписывать context-файлы целиком, а копировать пофайлово с защитой
+if ($Mode -eq "update") {
+    Get-ChildItem $ctxSrc -Recurse -File | ForEach-Object {
+        $rel = $_.FullName.Substring($ctxSrc.Length).TrimStart('\','/') -replace '\\','/'
+        $dstFile = Join-Path $ctxDst $rel
+        $relPath = "$ctx/$rel" -replace '\\','/'
+        if (Test-ShouldOverwrite $relPath) {
+            $dstDir = Split-Path $dstFile -Parent
+            if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
+            Copy-Item $_.FullName $dstFile -Force
+        }
+    }
+} else {
+    Copy-Item $ctxSrc $ctxDst -Recurse -Force
+}
+# Подстановка плейсхолдеров
+Get-ChildItem $ctxDst -Recurse -File -Filter "*.md" -ErrorAction SilentlyContinue | ForEach-Object {
     $content = [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8)
     if ($content -match '\{\{') {
         $content = $content -replace '\{\{CONTEXT_DIR\}\}', $ctx
@@ -210,11 +233,13 @@ Get-ChildItem $ctxDst -Recurse -File -Filter "*.md" | ForEach-Object {
         [System.IO.File]::WriteAllText($_.FullName, $content, $utf8Bom)
     }
 }
-
-# Для kilo: INSTRUCTIONS.md + BslChecklists.md в корень (kilo.json instructions: ["INSTRUCTIONS.md"])
 if ($config.instructionsInRoot) {
-    Copy-Item "$ctxDst\INSTRUCTIONS.md" (Join-Path $Target "INSTRUCTIONS.md") -Force
-    Copy-Item "$ctxDst\BslChecklists.md" (Join-Path $Target "AGENTS.md") -Force
+    $instrSrc = "$ctxDst\INSTRUCTIONS.md"
+    $instrDst = Join-Path $Target "INSTRUCTIONS.md"
+    if (Test-Path $instrSrc) { Safe-CopyFile $instrSrc $instrDst "INSTRUCTIONS.md" }
+    $bslSrc = "$ctxDst\BslChecklists.md"
+    $bslDst = Join-Path $Target "AGENTS.md"
+    if (Test-Path $bslSrc) { Safe-CopyFile $bslSrc $bslDst "AGENTS.md" }
 }
 
 # --- 5. On-demand правила ---
@@ -222,9 +247,21 @@ Write-Host "[5/7] On-demand правила -> $ctx/rules"
 $rulesSrc = "$repo\core\rules"
 $rulesDst = Join-Path $Target "$ctx/rules"
 if (Test-Path $rulesSrc) {
-    Copy-Item $rulesSrc $rulesDst -Recurse -Force
-    # Подстановка плейсхолдеров путей в rules/*.md
-    Get-ChildItem $rulesDst -Recurse -File -Filter "*.md" | ForEach-Object {
+    if ($Mode -eq "update") {
+        Get-ChildItem $rulesSrc -Recurse -File | ForEach-Object {
+            $rel = $_.FullName.Substring($rulesSrc.Length).TrimStart('\','/') -replace '\\','/'
+            $dstFile = Join-Path $rulesDst $rel
+            $relPath = "$ctx/rules/$rel" -replace '\\','/'
+            if (Test-ShouldOverwrite $relPath) {
+                $dstDir = Split-Path $dstFile -Parent
+                if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
+                Copy-Item $_.FullName $dstFile -Force
+            }
+        }
+    } else {
+        Copy-Item $rulesSrc $rulesDst -Recurse -Force
+    }
+    Get-ChildItem $rulesDst -Recurse -File -Filter "*.md" -ErrorAction SilentlyContinue | ForEach-Object {
         $content = [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8)
         if ($content -match '\{\{') {
             $content = $content -replace '\{\{CONTEXT_DIR\}\}', $ctx
@@ -234,19 +271,16 @@ if (Test-Path $rulesSrc) {
             [System.IO.File]::WriteAllText($_.FullName, $content, $utf8Bom)
         }
     }
-} else {
-    Write-Host "[5/7] On-demand правила: core/rules/ не найден — пропуск"
 }
 
-# Копировать AGENT-INSTALL.md и LICENSE в корень (для agent-first UX)
+# Копировать AGENT-INSTALL.md (но НЕ LICENSE — P0-2.2)
 if (Test-Path "$repo\AGENT-INSTALL.md") {
-    Copy-Item "$repo\AGENT-INSTALL.md" (Join-Path $Target "AGENT-INSTALL.md") -Force
+    Safe-CopyFile "$repo\AGENT-INSTALL.md" (Join-Path $Target "AGENT-INSTALL.md") "AGENT-INSTALL.md"
 }
-if (Test-Path "$repo\LICENSE") {
-    Copy-Item "$repo\LICENSE" (Join-Path $Target "LICENSE") -Force
-}
+# LICENSE harness НЕ копируется в корень целевого проекта (P0-2.2)
+# Сведения о лицензии harness — в NOTICE.md/THIRD_PARTY_LICENSES.md (копируются с контекстом)
 
-# --- 6. .dev.env (параметры проекта) ---
+# --- 6. .dev.env ---
 Write-Host "[6/7] .dev.env -> параметры проекта"
 $devEnvPath = Join-Path $Target ".dev.env"
 if (Test-Path $devEnvPath) {
@@ -255,7 +289,6 @@ if (Test-Path $devEnvPath) {
     $envExample = "$repo\core\context\.dev.env.example"
     if (Test-Path $envExample) {
         $envContent = [System.IO.File]::ReadAllText($envExample, [System.Text.Encoding]::UTF8)
-        # Автоопределение PLATFORM_VERSION из Configuration.xml
         $configXml = Join-Path $Target "projects\*\src\Configuration.xml"
         $configExtXml = Join-Path $Target "projects\*\src\ConfigurationExtension.xml"
         $detectedVersion = ""
@@ -266,13 +299,9 @@ if (Test-Path $devEnvPath) {
             $xmlContent = [System.IO.File]::ReadAllText((Get-ChildItem $configExtXml | Select-Object -First 1).FullName, [System.Text.Encoding]::UTF8)
             if ($xmlContent -match 'CompatibilityMode\s*>\s*([\d.]+)') { $detectedVersion = $matches[1] }
         }
-        if ($detectedVersion) {
-            $envContent = $envContent -replace 'PLATFORM_VERSION=8.3.27', "PLATFORM_VERSION=$detectedVersion"
-        }
-        # Автоопределение PLATFORM_PATH — скан C:\Program Files\1cv8\
+        if ($detectedVersion) { $envContent = $envContent -replace 'PLATFORM_VERSION=8.3.27', "PLATFORM_VERSION=$detectedVersion" }
         $detectedPath = ""
-        $v8Dirs = @("C:\Program Files\1cv8", "C:\Program Files (x86)\1cv8")
-        foreach ($baseDir in $v8Dirs) {
+        foreach ($baseDir in @("C:\Program Files\1cv8", "C:\Program Files (x86)\1cv8")) {
             if (Test-Path $baseDir) {
                 $candidates = Get-ChildItem $baseDir -Directory | Sort-Object Name -Descending
                 foreach ($cand in $candidates) {
@@ -282,104 +311,82 @@ if (Test-Path $devEnvPath) {
             }
             if ($detectedPath) { break }
         }
-        if ($detectedPath) {
-            $envContent = $envContent -replace 'PLATFORM_PATH=', "PLATFORM_PATH=$detectedPath"
-        }
-        # Автоопределение PREFIX из ConfigurationExtension.xml (NamePrefix)
+        if ($detectedPath) { $envContent = $envContent -replace 'PLATFORM_PATH=', "PLATFORM_PATH=$detectedPath" }
         $detectedPrefix = ""
         if (Test-Path $configExtXml) {
             $extFile = (Get-ChildItem $configExtXml | Select-Object -First 1).FullName
             $xmlContent = [System.IO.File]::ReadAllText($extFile, [System.Text.Encoding]::UTF8)
             if ($xmlContent -match 'NamePrefix\s*>\s*([A-Za-zА-Яа-яЁё_]+)') { $detectedPrefix = $matches[1] + "_" }
         }
-        if ($detectedPrefix) {
-            $envContent = $envContent -replace 'PREFIX=', "PREFIX=$detectedPrefix"
-        }
-        $envContent = $envContent -replace "`r`n", "`r`n"  # ensure CRLF
+        if ($detectedPrefix) { $envContent = $envContent -replace 'PREFIX=', "PREFIX=$detectedPrefix" }
         [System.IO.File]::WriteAllText($devEnvPath, $envContent, [System.Text.Encoding]::UTF8)
-        Write-Host "[6/7] .dev.env создан (автоопределение: $(if ($detectedVersion) {'version=' + $detectedVersion + ' '})$(if ($detectedPath) {'path=' + $detectedPath + ' '})$(if ($detectedPrefix) {'prefix=' + $detectedPrefix}))"
-    } else {
-        Write-Host "[6/7] .dev.env: шаблон не найден — пропуск"
-    }
+        Write-Host "[6/7] .dev.env создан $(if ($detectedVersion) {'(version=' + $detectedVersion + ')'})$(if ($detectedPath) {' (path autodetected)'})"
+    } else { Write-Host "[6/7] .dev.env: шаблон не найден — пропуск" }
 }
 
-# --- 7. Скрипты + SDD ---
+# --- 7. Скрипты + SDD + манифест ---
 Write-Host "[7/7] Скрипты + SDD + манифест"
 $scriptsDst = Join-Path $Target "scripts"
 Copy-Item "$repo\core\scripts" $scriptsDst -Recurse -Force
 
 $specsDst = Join-Path $Target "specs"
 New-Item -ItemType Directory -Force -Path $specsDst | Out-Null
-Copy-Item "$repo\core\sdd\README.md" (Join-Path $specsDst "README.md") -Force
-
-# Подстановка плейсхолдеров путей в specs/README.md (использует {{CONTEXT_DIR}} и др.)
-$specReadme = Join-Path $specsDst "README.md"
-if (Test-Path $specReadme) {
-    $content = [System.IO.File]::ReadAllText($specReadme, [System.Text.Encoding]::UTF8)
+$specsReadmeSrc = "$repo\core\sdd\README.md"
+$specsReadmeDst = Join-Path $specsDst "README.md"
+Safe-CopyFile $specsReadmeSrc $specsReadmeDst "specs/README.md"
+# Подстановка плейсхолдеров
+if (Test-Path $specsReadmeDst) {
+    $content = [System.IO.File]::ReadAllText($specsReadmeDst, [System.Text.Encoding]::UTF8)
     if ($content -match '\{\{') {
         $content = $content -replace '\{\{CONTEXT_DIR\}\}', $ctx
         $content = $content -replace '\{\{LOGS_DIR\}\}', $logs
         $content = $content -replace '\{\{SKILLS_DIR\}\}', $skills
         $content = $content -replace '\{\{AGENTS_DIR\}\}', $agents
-        [System.IO.File]::WriteAllText($specReadme, $content, $utf8Bom)
+        [System.IO.File]::WriteAllText($specsReadmeDst, $content, $utf8Bom)
     }
 }
 
-# Пример реестра баз (безопасный, без секретов)
 $examplesDst = Join-Path $Target "examples"
 New-Item -ItemType Directory -Force -Path $examplesDst | Out-Null
-Copy-Item "$repo\examples\v8-project.example.json" (Join-Path $examplesDst "v8-project.example.json") -Force
+Safe-CopyFile "$repo\examples\v8-project.example.json" (Join-Path $examplesDst "v8-project.example.json") "examples/v8-project.example.json"
 
 # --- Манифест .ai-rules.json ---
 Write-Host "[7/7] Генерация манифеста .ai-rules.json"
 $manifestPath = Join-Path $Target ".ai-rules.json"
 $utcNow = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $targetFull = (Get-Item $Target).FullName.TrimEnd('\','/')
-
-# Сбор списка размещённых файлов с sha256 hash
 $files = @()
 
+function Add-ManifestEntry($dirPath, $filter, $sourcePrefix) {
+    if (Test-Path $dirPath) {
+        Get-ChildItem $dirPath -Filter $filter | ForEach-Object {
+            $rel = $_.FullName.Substring($script:targetFull.Length).TrimStart('\','/') -replace '\\','/'
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+            $files += [PSCustomObject]@{ path=$rel; source="$sourcePrefix/$($_.BaseName)$($_.Extension)"; installedHash=$hash; userModified=$false }
+        }
+    }
+}
+
 # Агенты
-$agentDirFull = Join-Path $Target $agents
-if (Test-Path $agentDirFull) {
-    Get-ChildItem $agentDirFull -Filter "*.md" | ForEach-Object {
-        $rel = $_.FullName.Substring($targetFull.Length).TrimStart('\','/') -replace '\\','/'
-        $srcName = $_.BaseName
-        $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
-        $files += [PSCustomObject]@{ path = $rel; source = "core/agents/$srcName.md"; installedHash = $hash; userModified = $false }
-    }
-}
-
+Add-ManifestEntry (Join-Path $Target $agents) "*.md" "core/agents"
 # On-demand правила
-$rulesDirFull = Join-Path $Target "$ctx/rules"
-if (Test-Path $rulesDirFull) {
-    Get-ChildItem $rulesDirFull -Filter "*.md" | ForEach-Object {
-        $rel = $_.FullName.Substring($targetFull.Length).TrimStart('\','/') -replace '\\','/'
-        $srcName = $_.BaseName
-        $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
-        $files += [PSCustomObject]@{ path = $rel -replace '\\','/'; source = "core/rules/$srcName.md"; installedHash = $hash; userModified = $false }
-    }
-}
-
+Add-ManifestEntry (Join-Path $Target "$ctx/rules") "*.md" "core/rules"
 # Контекст (*.md в context/)
-$ctxDirFull = Join-Path $Target $ctx
-if (Test-Path $ctxDirFull) {
-    Get-ChildItem $ctxDirFull -Filter "*.md" | ForEach-Object {
-        $rel = $_.FullName.Substring($targetFull.Length).TrimStart('\','/') -replace '\\','/'
-        $srcName = $_.BaseName
-        $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
-        $files += [PSCustomObject]@{ path = $rel; source = "core/context/$srcName.md"; installedHash = $hash; userModified = $false }
-    }
-}
-
+Add-ManifestEntry (Join-Path $Target $ctx) "*.md" "core/context"
 # Скрипты (*.py)
-$scriptsDirFull = Join-Path $Target "scripts"
-if (Test-Path $scriptsDirFull) {
-    Get-ChildItem $scriptsDirFull -Filter "*.py" | ForEach-Object {
-        $rel = $_.FullName.Substring($targetFull.Length).TrimStart('\','/') -replace '\\','/'
-        $srcName = $_.BaseName
-        $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
-        $files += [PSCustomObject]@{ path = $rel; source = "core/scripts/$srcName.py"; installedHash = $hash; userModified = $false }
+Add-ManifestEntry (Join-Path $Target "scripts") "*.py" "core/scripts"
+# Skills (по одному каталогу на скилл)
+$skillsDirFull = Join-Path $Target $skills
+if (Test-Path $skillsDirFull) {
+    Get-ChildItem $skillsDirFull -Directory | ForEach-Object {
+        $skillName = $_.Name
+        $rel = "$skills/$skillName" -replace '\\','/'
+        $skillFiles = Get-ChildItem $_.FullName -Recurse -File
+        foreach ($sf in $skillFiles) {
+            $sfRel = $sf.FullName.Substring($targetFull.Length).TrimStart('\','/') -replace '\\','/'
+            $hash = (Get-FileHash -LiteralPath $sf.FullName -Algorithm SHA256).Hash
+            $files += [PSCustomObject]@{ path=$sfRel; source="core/skills/$skillName/$($sf.Name)"; installedHash=$hash; userModified=$false }
+        }
     }
 }
 
@@ -387,44 +394,33 @@ if (Test-Path $scriptsDirFull) {
 $specsReadmePath = Join-Path $Target "specs/README.md"
 if (Test-Path $specsReadmePath) {
     $hash = (Get-FileHash -LiteralPath $specsReadmePath -Algorithm SHA256).Hash
-    $files += [PSCustomObject]@{ path = "specs/README.md"; source = "core/sdd/README.md"; installedHash = $hash; userModified = $false }
+    $files += [PSCustomObject]@{ path="specs/README.md"; source="core/sdd/README.md"; installedHash=$hash; userModified=$false }
 }
-
-# examples/v8-project.example.json
+# examples
 $examplePath = Join-Path $Target "examples/v8-project.example.json"
 if (Test-Path $examplePath) {
     $hash = (Get-FileHash -LiteralPath $examplePath -Algorithm SHA256).Hash
-    $files += [PSCustomObject]@{ path = "examples/v8-project.example.json"; source = "examples/v8-project.example.json"; installedHash = $hash; userModified = $false }
+    $files += [PSCustomObject]@{ path="examples/v8-project.example.json"; source="examples/v8-project.example.json"; installedHash=$hash; userModified=$false }
 }
-
 # Корневой конфиг
 $rootConfigPath = Join-Path $Target $config.rootConfig
 if (Test-Path $rootConfigPath) {
     $hash = (Get-FileHash -LiteralPath $rootConfigPath -Algorithm SHA256).Hash
-    $files += [PSCustomObject]@{ path = $config.rootConfig; source = "adapters/$Tool/$($config.rootConfig).tpl"; installedHash = $hash; userModified = $false }
+    $files += [PSCustomObject]@{ path=$config.rootConfig; source="adapters/$Tool/$($config.rootConfig).tpl"; installedHash=$hash; userModified=$false }
 }
-
 # .dev.env
 if (Test-Path $devEnvPath) {
     $hash = (Get-FileHash -LiteralPath $devEnvPath -Algorithm SHA256).Hash
-    $files += [PSCustomObject]@{ path = ".dev.env"; source = "core/context/.dev.env.example"; installedHash = $hash; userModified = $false }
+    $files += [PSCustomObject]@{ path=".dev.env"; source="core/context/.dev.env.example"; installedHash=$hash; userModified=$false }
 }
-
 # AGENT-INSTALL.md
-$agentInstallPath = Join-Path $Target "AGENT-INSTALL.md"
-if (Test-Path $agentInstallPath) {
-    $hash = (Get-FileHash -LiteralPath $agentInstallPath -Algorithm SHA256).Hash
-    $files += [PSCustomObject]@{ path = "AGENT-INSTALL.md"; source = "AGENT-INSTALL.md"; installedHash = $hash; userModified = $false }
+$aiPath = Join-Path $Target "AGENT-INSTALL.md"
+if (Test-Path $aiPath) {
+    $hash = (Get-FileHash -LiteralPath $aiPath -Algorithm SHA256).Hash
+    $files += [PSCustomObject]@{ path="AGENT-INSTALL.md"; source="AGENT-INSTALL.md"; installedHash=$hash; userModified=$false }
 }
 
-# LICENSE
-$licensePath = Join-Path $Target "LICENSE"
-if (Test-Path $licensePath) {
-    $hash = (Get-FileHash -LiteralPath $licensePath -Algorithm SHA256).Hash
-    $files += [PSCustomObject]@{ path = "LICENSE"; source = "LICENSE"; installedHash = $hash; userModified = $false }
-}
-
-# Сериализация манифеста
+# Сериализация манифеста (не перезаписывать существующий без -Force в update-режиме)
 $manifest = [PSCustomObject]@{
     protocolVersion = "1.0"
     tool = $Tool
@@ -432,10 +428,16 @@ $manifest = [PSCustomObject]@{
     updatedAt = $utcNow
     files = $files
 }
+if ($Mode -eq "update" -and -not $Force -and (Test-Path $manifestPath)) {
+    # Сохраняем installedAt, обновляем только updatedAt
+    try {
+        $oldManifest = Get-Content $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $manifest.installedAt = $oldManifest.installedAt
+    } catch {}
+}
 $manifestJson = $manifest | ConvertTo-Json -Depth 4
 [System.IO.File]::WriteAllText($manifestPath, $manifestJson, $utf8Bom)
 
-# --- Итог ---
 Write-Host ""
 Write-Host "=== Готово! Схема установлена для '$Tool' в '$Target'. ==="
 Write-Host ""
