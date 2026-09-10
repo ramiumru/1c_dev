@@ -90,6 +90,21 @@ REQUIRED_FILES_SOURCE = [
     "core/scripts/doctor.py",
     "core/scripts/_root.py",
     "install/install.ps1",
+    "core/context/.dev.env.example",
+]
+
+EXPECTED_RULES = [
+    "bsl-standards.md",
+    "sdd-implementation.md",
+    "skill-reference.md",
+    "developer-verification.md",
+    "sdd-orchestration.md",
+    "summaries-auto-update.md",
+    "task-brief.md",
+    "sdd-spec-authoring.md",
+    "review-checklist.md",
+    "apply-procedure.md",
+    "triage.md",
 ]
 
 REQUIRED_FILES_INSTALLED = [
@@ -852,6 +867,142 @@ def _parse_frontmatter(content: str) -> dict:
     return result
 
 
+def check_rules_directory(rep: Report) -> None:
+    """Проверка: core/rules/ существует и содержит ожидаемые файлы."""
+    if IS_SOURCE_REPO:
+        rules_dir = ROOT / "core" / "rules"
+    else:
+        # Установленная раскладка: ищем rules/ в context dirs
+        rules_dir = None
+        for d in [".kilo/context/rules", ".claude/context/rules", ".openworks/context/rules", "context/rules"]:
+            rp = ROOT / d
+            if rp.is_dir():
+                rules_dir = rp
+                break
+    if rules_dir is None or not rules_dir.is_dir():
+        rep.error("rules: каталог rules/ не найден (core/rules/ или {{CONTEXT_DIR}}/rules/)")
+        return
+    for rule in EXPECTED_RULES:
+        rp = rules_dir / rule
+        if rp.exists() and rp.stat().st_size > 0:
+            rep.ok(f"rules: {rule}")
+        else:
+            rep.error(f"rules: отсутствует/пуст: {rule}")
+
+
+def check_agent_trigger_tables(rep: Report) -> None:
+    """Проверка: тела агентов (кроме 1c-tools) содержат секцию 'On-demand правила'."""
+    if IS_SOURCE_REPO:
+        agents_dir = ROOT / "core" / "agents"
+    else:
+        agents_dir = None
+        for d in [".kilo/agent", ".claude/agents", ".openworks/agents", "agents"]:
+            ap = ROOT / d
+            if ap.is_dir():
+                agents_dir = ap
+                break
+    if agents_dir is None or not agents_dir.is_dir():
+        return
+    for agent in EXPECTED_AGENTS:
+        p = agents_dir / f"{agent}.md"
+        if not p.exists():
+            continue
+        text = p.read_text(encoding="utf-8", errors="replace")
+        if agent == "1c-tools":
+            if "On-demand правила" in text:
+                rep.warn(f"trigger-table: {agent} содержит on-demand секцию (ожидалось отсутствие)")
+            else:
+                rep.ok(f"trigger-table: {agent} без on-demand (корректно)")
+        else:
+            if "On-demand правила" in text:
+                rep.ok(f"trigger-table: {agent} имеет секцию on-demand")
+            else:
+                rep.error(f"trigger-table: {agent} не имеет секции 'On-demand правила'")
+
+
+def check_triage(rep: Report) -> None:
+    """Проверка: triage.md существует и содержит ключевые слова; 1c-do routing содержит triage-уровни."""
+    triage_found = False
+    for d in ["core/rules", ".kilo/context/rules", ".claude/context/rules", ".openworks/context/rules", "context/rules"]:
+        tp = ROOT / d / "triage.md"
+        if tp.exists():
+            triage_found = True
+            text = tp.read_text(encoding="utf-8", errors="replace")
+            for kw in ["quick-fix", "promotion", "QUICKFIX_MAX_LINES", "docs-fix"]:
+                if kw not in text:
+                    rep.error(f"triage: triage.md не содержит '{kw}'")
+            else:
+                rep.ok("triage: triage.md содержит ключевые слова")
+            break
+    if not triage_found:
+        rep.error("triage: triage.md не найден")
+    # 1c-do routing table
+    do_path = None
+    for d in ["core/agents", ".kilo/agent", ".claude/agents", ".openworks/agents", "agents"]:
+        dp = ROOT / d / "1c-do.md"
+        if dp.exists():
+            do_path = dp
+            break
+    if do_path:
+        text = do_path.read_text(encoding="utf-8", errors="replace")
+        for kw in ["docs-fix", "quick-fix"]:
+            if kw in text:
+                rep.ok(f"triage: 1c-do.md содержит '{kw}'")
+            else:
+                rep.error(f"triage: 1c-do.md не содержит '{kw}'")
+
+
+def check_dev_env(rep: Report) -> None:
+    """Проверка: .dev.env.example (source) или .dev.env (installed) существует."""
+    if IS_SOURCE_REPO:
+        env_ex = ROOT / "core" / "context" / ".dev.env.example"
+        if env_ex.exists() and env_ex.stat().st_size > 0:
+            rep.ok("dev-env: core/context/.dev.env.example существует")
+            text = env_ex.read_text(encoding="utf-8", errors="replace")
+            for kw in ["PREFIX=", "COMPANY=", "PLATFORM_VERSION=", "PLATFORM_PATH=", "QUICKFIX_MAX_LINES="]:
+                if kw in text:
+                    rep.ok(f"dev-env: .dev.env.example содержит '{kw}'")
+                else:
+                    rep.error(f"dev-env: .dev.env.example не содержит '{kw}'")
+        else:
+            rep.error("dev-env: core/context/.dev.env.example отсутствует/пуст")
+    else:
+        env_path = ROOT / ".dev.env"
+        if env_path.exists():
+            rep.ok("dev-env: .dev.env найден (установленная раскладка)")
+        else:
+            rep.warn("dev-env: .dev.env не найден (создаётся install.ps1)")
+
+
+def check_manifest(rep: Report) -> None:
+    """Проверка: .ai-rules.json (если существует) имеет корректную структуру."""
+    manifest_path = ROOT / ".ai-rules.json"
+    if not manifest_path.exists():
+        rep.ok("manifest: .ai-rules.json не найден (создаётся install.ps1 — норма для source repo)")
+        return
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig", errors="replace"))
+        if "protocolVersion" not in manifest:
+            rep.error("manifest: .ai-rules.json без 'protocolVersion'")
+        else:
+            rep.ok(f"manifest: protocolVersion={manifest['protocolVersion']}")
+        files = manifest.get("files") or []
+        if not files:
+            rep.warn("manifest: .ai-rules.json с пустым списком files")
+        else:
+            missing = []
+            for f in files:
+                fp = f.get("path", "")
+                if fp and not (ROOT / fp).exists():
+                    missing.append(fp)
+            if missing:
+                rep.error(f"manifest: файлы из манифеста отсутствуют: {missing[:5]}")
+            else:
+                rep.ok(f"manifest: {len(files)} файлов, все существуют")
+    except Exception as e:
+        rep.error(f"manifest: .ai-rules.json не читается: {e}")
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -880,6 +1031,12 @@ def main() -> int:
     check_do_rights(rep)
     check_claude_frontmatter_parse(rep)
     check_summaries_line_numbers(rep)
+    # Phase 1 checks
+    check_rules_directory(rep)
+    check_agent_trigger_tables(rep)
+    check_triage(rep)
+    check_dev_env(rep)
+    check_manifest(rep)
     check_installer_smoke(rep, args.skip_smoke)
 
     print("\n=== VALIDATION REPORT ===")
