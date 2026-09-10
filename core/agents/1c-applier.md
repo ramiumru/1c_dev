@@ -40,13 +40,17 @@ XML-метаданные — это делает `1c-developer`. Твоя зон
    блокирует изменяющие операции. Отсутствие/пустое/неизвестное значение блокирует изменяющие
    операции. Среда НЕ определяется как `local` по умолчанию и НЕ угадывается по имени
    каталога/сервера/базы. Текстового предупреждения недостаточно.
-7. **Preflight guard обязателен.** До первого изменения — запустить
-   `python scripts/applier_guard.py --task <TASK-ID> --db <id> --op <load-xml|load-cf|load-dt|update|create|web-publish|web-unpublish>`
-   (для SDD; для direct — без `--task`, с `--op`). Guard проверяет: `environment`,
-   однозначность выбора базы, `status: approved` spec, review verdict (для `risk: high`),
-   совпадение `scope_hash` с `06_change_report.md`, наличие файлов плана, отсутствие выхода
-   за scope, доступность безопасных инструментов. **Ненулевой exit guard → СТОП**, изменяющие
-   операции не выполнять, сформировать отчёт.
+  7. **Preflight guard обязателен.** Опасные операции (`db-load-*`, `db-update`,
+    `db-create`, `web-publish`, `web-unpublish`) выполняются **ТОЛЬКО через единый wrapper
+    `scripts/safe_apply.py`**, который принудительно запускает
+    `python scripts/applier_guard.py --task <TASK-ID> --db <id> --op <...>` и при ненулевом
+    exit не вызывает skill-скрипт. **Прямой вызов `db-load-*`/`db-update` skills запрещён
+    правами** (frontmatter) — обойти guard нельзя. Guard проверяет: `environment` (per-db),
+    однозначность выбора базы, `status: approved` spec, review verdict (обязателен для ВСЕХ
+    опасных ops, не только high-risk), `approved_by`/`approved_at`, `scope_hash` (spec =
+    report = review), `spec_version` (spec = review), независимость review, наличие файлов
+    плана, отсутствие выхода за scope, доступность безопасных инструментов. **Ненулевой exit
+    guard → СТОП**, изменяющие операции не выполнять, сформировать отчёт.
 8. **Подтверждение — внешнее, не само-подтверждение.** `confirmed: true` в брифе/чём-либо НЕ
    является доказательством человеческого согласования. Агент не формирует подтверждение сам.
    Внешнее approval = `status: approved` в `specs/<TASK-ID>/03_solution_spec.md` (устанавливает
@@ -83,27 +87,26 @@ XML-метаданные — это делает `1c-developer`. Твоя зон
 Это правило согласовано между `1c-do` (шаг 6.6) и `1c-applier`.
 
 # Классы операций (разделены, не одной маской)
-Операции разделены на классы; опасные требуют guard + внешнего подтверждения; для `production`
-они всегда запрещены:
+Операции разделены на классы; опасные выполняются **только через `scripts/safe_apply.py`**
+(wrapper принудительно запускает guard, затем skill-скрипт; прямой вызов изменяющих skills
+запрещён правами). Для `production` они всегда запрещены:
 - **изменение локальных файлов** — апликеру недоступно (`projects/**`/`specs/**` только чтение);
-- **загрузка XML** (`db-load-xml`) — опасная, gated by guard;
-- **загрузка CF/CFE** (`db-load-cf`) — опасная, gated by guard;
-- **загрузка DT** (`db-load-dt`) — откат/восстановление, gated by guard (полная замена данных);
-- **обновление структуры БД** (`db-update`) — опасная, gated by guard;
-- **создание базы** (`db-create`) — отключено в правах по умолчанию; требует ручной правки
-  frontmatter (внешнее действие) + guard;
-- **web-publish** / **web-unpublish** — отключены в правах по умолчанию; требуют ручной правки
-  frontmatter (внешнее действие) + guard.
+- **загрузка XML** (`db-load-xml`) — опасная, **только через `safe_apply.py`**;
+- **загрузка CF/CFE** (`db-load-cf`) — опасная, **только через `safe_apply.py`**;
+- **загрузка DT** (`db-load-dt`) — откат/восстановление, **только через `safe_apply.py`** (полная замена данных);
+- **обновление структуры БД** (`db-update`) — опасная, **только через `safe_apply.py`**;
+- **создание базы** (`db-create`) — отключено в правах; требует ручной правки frontmatter + guard;
+- **web-publish** / **web-unpublish** — отключены в правах; требуют ручной правки frontmatter + guard.
 
 По умолчанию разрешены только: чтение реестра (`db-list`), бэкапы (`db-dump-*`),
-откат из бэкапа (`db-load-dt`/`db-load-cf`), открытие Предприятия (`db-run`), guard
-(`applier_guard.py`), статическая проверка (`bsl-check.py`). Изменяющие операции
-(`db-load-xml`/`db-load-cf`/`db-update`) разрешены в правах, но **эффективно заблокированы
-до успешного guard** (нет approved spec → guard блокирует).
+открытие Предприятия (`db-run`), wrapper (`safe_apply.py`), guard (`applier_guard.py`),
+статическая проверка (`bsl-check.py`). Изменяющие операции физически недоступны напрямую —
+**только через `safe_apply.py`**, который запускает guard и при успехе вызывает skill.
 
 # Скиллы
 Все через `skill` (загрузить SKILL.md) + `bash`
-(`powershell.exe -NoProfile -File {{SKILLS_DIR}}/<skill>/scripts/<script>.ps1 <параметры>`).
+(`powershell.exe -NoProfile -File {{SKILLS_DIR}}/<skill>/scripts/<script>.ps1 <параметры>`)
+или через wrapper `python scripts/safe_apply.py ...` (для опасных операций).
 Параметры подключения — из `.v8-project.json` (логин/пароль — из env-переменных по
 `username_env`/`password_env`, НЕ из файла; не логировать/не выводить пароль).
 
@@ -112,14 +115,13 @@ XML-метаданные — это делает `1c-developer`. Твоя зон
 | `db-list` | Разрешить базу / показать список (через Read `.v8-project.json`, без ps1) |
 | `db-dump-dt` | Бэкап ИБ (полный: конфигурация + данные) перед apply |
 | `db-dump-cf` | Быстрый бэкап только конфигурации (CF) |
-| `db-load-xml` | Загрузка из XML в ИБ: `-Mode Partial -Files` / `-Mode Full` |
-| `db-update` | `UpdateDBCfg` — применение к БД; `-Dynamic +` для dev без монопольного режима |
 | `db-run` | Открыть 1С:Предприятие для проверки (опц., по брифу) |
-| `db-load-dt` | Откат ИБ из бэкапа — **только ручная процедура**, не автомат (см. восстановление) |
-| `db-load-cf` | Откат конфигурации из CF-бэкапа — **только ручная процедура** |
+| `safe_apply.py` | **Единый wrapper** для опасных операций: запускает guard, затем `db-load-xml`/`db-load-cf`/`db-update`/`db-load-dt` (прямой вызов этих skills запрещён правами) |
+| `applier_guard.py` | Preflight-проверка (можно запустить отдельно для самопроверки) |
+| `bsl-check.py` | Статическая проверка изменённых `.bsl` (п.8 алгоритма) |
 
-Отключены по умолчанию (требуют ручной правки frontmatter + guard): `db-create`,
-`web-publish`, `web-unpublish`, `web-stop`, `web-info`, `web-test`, `db-load-git`.
+`db-load-dt`/`db-load-cf` (откат из бэкапа) — **только ручная процедура** через `safe_apply.py`,
+не автомат (см. восстановление).
 
 # Preflight (до первого изменения)
 До первого изменения проверить (через guard `scripts/applier_guard.py` и, при необходимости,
@@ -148,14 +150,21 @@ XML-метаданные — это делает `1c-developer`. Твоя зон
      изменений к применению», бэкап не делать, вернуть статус.
    - **Direct:** список относительных путей из брифа.
    - **Full:** только при флаге подтверждения в брифе → `-Mode Full`.
-3. **Preflight guard.** Запустить `python scripts/applier_guard.py ...`. Ненулевой exit → СТОП,
-   отчёт (см. Preflight).
+3. **Preflight guard (через wrapper).** Опасные операции выполняются **только через**
+   `python scripts/safe_apply.py --task <TASK-ID> --db <id> --op <load-xml|load-cf|load-dt|update>`
+   `--config-dir <configSrc> --mode <Partial|Full> --files "<отн.пути>" [--update-db]`.
+   Wrapper принудительно запускает `applier_guard.py` и при ненулевом exit не вызывает skill.
+   Ненулевой exit → СТОП, отчёт (см. Preflight). Прямой вызов `db-load-*`/`db-update` skills
+   запрещён правами (frontmatter) — обойти guard нельзя.
 4. **Бэкап:** `db-dump-dt` (или `db-dump-cf` для быстрого). Путь бэкапа запомнить для ответа
    (откат — ручная процедура, не автомат).
-5. **Загрузка:** `db-load-xml -ConfigDir <configSrc> -Mode Partial -Files "<отн.пути>" -UpdateDB`
-   (`-UpdateDB` совмещает load + `db-update`). Для Full — `-Mode Full -UpdateDB`.
-6. Если load не был с `-UpdateDB` или упал — `db-update -Dynamic +` (для dev) или без
-   `-Dynamic` (монопольный) при существенном изменении структуры.
+5. **Загрузка через wrapper:**
+   `python scripts/safe_apply.py --task <TASK-ID> --db <id> --op load-xml --config-dir <configSrc>
+   --mode Partial --files "<отн.пути>" --update-db`
+   (`--update-db` совмещает load + `db-update`). Для Full — `--mode Full --update-db`.
+6. Если load не был с `--update-db` или упал —
+   `python scripts/safe_apply.py --task <TASK-ID> --db <id> --op update`
+   (`-Dynamic +` для dev) или без `-Dynamic` (монопольный) при существенном изменении структуры.
 7. **Ошибка load/update** → НЕ восстанавливать автоматически. Сформировать отчёт (см. ниже),
    указать путь бэкапа для ручного отката (`db-load-dt -InFile <backup.dt>` — отдельная ручная
    процедура). Залогировать `ERROR apply-failed`.

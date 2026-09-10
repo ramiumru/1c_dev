@@ -6,7 +6,7 @@
 ## Скиллы (core/skills/**) — upstream Nikolay-Shirokov/cc-1c-skills
 
 - **Upstream-проект:** https://github.com/Nikolay-Shirokov/cc-1c-skills
-- **Автор:** Nikolay Shirokov
+- **Автор:** Nick Shirokov
 - **Лицензия upstream:** MIT
 - **Затронутые каталоги:** `core/skills/**` (адаптированные/заимствованные скиллы:
   `SKILL.md`, `scripts/*.ps1`, `scripts/*.py`, `scripts/*.mjs` для `web-test`,
@@ -19,7 +19,7 @@
 ```
 MIT License
 
-Copyright (c) <год> Nikolay Shirokov
+Copyright (c) 2025-2026 Nick Shirokov
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -40,8 +40,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-> Точный год copyright upstream из локальных файлов не определяется (в файлах
-> присутствует только строка атрибуции `# Source:`, без блока copyright/лицензии).
+> Год copyright (2025-2026) и имя (Nick Shirokov) — из upstream LICENSE:
+> https://github.com/Nikolay-Shirokov/cc-1c-skills/blob/main/LICENSE
 
 ## BSL Language Server (опционально, не входит в репозиторий)
 

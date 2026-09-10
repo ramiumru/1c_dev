@@ -1,5 +1,5 @@
 {
-  "_comment": "Безопасный пример реестра информационных баз 1С. Все данные вымышленные. НЕ коммитить — создайте свой .v8-project.json из этого примера. Логин и пароль НИКОГДА не хранятся в файле — только имена переменных окружения (username_env / password_env), из которых 1c-applier и db-* скиллы читают секреты во время выполнения. Поле environment обязательно: local | test | staging | production. Отсутствие/пустое/неизвестное/production значение блокирует изменяющие операции (см. 1c-applier, applier_guard.py).",
+  "_comment": "Безопасный пример реестра информационных баз 1С. Все данные вымышленные. НЕ коммитить — создайте свой .v8-project.json из этого примера. Логин и пароль НИКОГДА не хранятся в файле — только имена переменных окружения (username_env / password_env), из которых 1c-applier и db-* скиллы читают секреты во время выполнения. Поле environment обязательно PER-DB (local | test | staging | production): отсутствие/пустое/неизвестное/production значение блокирует изменяющие операции (см. 1c-applier, applier_guard.py). Глобальный environment (на верхнем уровне) — только fallback для файловых баз; серверные базы требуют per-db environment + allow_apply: true.",
   "environment": "local",
   "v8path": "C:\\Program Files\\1cv8\\8.3.27.0000\\bin",
   "databases": [
@@ -8,6 +8,7 @@
       "name": "Локальная демо-база (тестовая)",
       "type": "file",
       "path": ".\\example-base",
+      "environment": "local",
       "username_env": "V8_USERNAME",
       "password_env": "V8_PASSWORD",
       "aliases": ["demo", "демо"],
@@ -19,6 +20,8 @@
       "type": "server",
       "server": "test-sandbox.example.test",
       "ref": "Example_Test",
+      "environment": "test",
+      "allow_apply": true,
       "username_env": "V8_TEST_USERNAME",
       "password_env": "V8_TEST_PASSWORD",
       "aliases": ["test", "тест"],

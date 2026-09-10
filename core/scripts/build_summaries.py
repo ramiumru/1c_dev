@@ -42,8 +42,29 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+# Импорт общего модуля детекции корня (8.10)
+import sys as _sys
+_script_dir = Path(__file__).resolve().parent
+_sys.path.insert(0, str(_script_dir))
+try:
+    from _root import find_project_root as _find_root_shared
+except ImportError:
+    _find_root_shared = None
 
-ROOT = Path(__file__).resolve().parents[1]
+
+def _find_root_build() -> Path:
+    """Автоопределение корня РАБОЧЕГО ПРОЕКТА (не harness) через _root.find_project_root.
+    build_summaries.py работает с исходниками 1С в projects/<источник>/src/**,
+    а не со схемной разработкой (harness)."""
+    if _find_root_shared is not None:
+        root = _find_root_shared(_script_dir)
+        if root is not None:
+            return root
+    # Fallback: core/scripts -> parents[1] = core/ (исходный репо) или scripts/ -> parents[1] = корень
+    return _script_dir.parents[1] if len(_script_dir.parents) > 1 else _script_dir.parent
+
+
+ROOT = _find_root_build()
 
 # Default: Kilo layout (.kilo/context/projects). Override with --context-dir.
 PROJECTS_CONTEXT_DIR = ROOT / ".kilo" / "context" / "projects"
@@ -217,8 +238,8 @@ class ObjectContext:
     bsl_files: list[Path]
     xml_text: str
     bsl_text: str
-    procedures: list[str]
-    functions: list[str]
+    procedures: list  # list[tuple[name, rel_file, line_in_file]] — имя, путь файла, номер строки (1-indexed)
+    functions: list  # list[tuple[name, rel_file, line_in_file]]
     file_hash: str
 
 
@@ -407,17 +428,44 @@ def find_files(obj_path: Path) -> tuple[list[Path], list[Path]]:
     return xml_files, bsl_files
 
 
-def extract_procedures_and_functions(bsl_text: str) -> tuple[list[str], list[str]]:
-    procedures = re.findall(
-        r"(?im)^\s*Процедура\s+([A-Za-zА-Яа-яЁё0-9_]+)\s*\(",
-        bsl_text,
-    )
-    functions = re.findall(
-        r"(?im)^\s*Функция\s+([A-Za-zА-Яа-яЁё0-9_]+)\s*\(",
-        bsl_text,
-    )
+def _rel_to_root(p: Path) -> str:
+    """Безопасный relative_to(ROOT) с fallback на str(p) (для установленной раскладки
+    и случая, когда исходники вне ROOT скрипта)."""
+    try:
+        return str(p.relative_to(ROOT))
+    except Exception:
+        return str(p)
 
-    return sorted(set(procedures)), sorted(set(functions))
+
+def extract_procedures_and_functions(bsl_files: list[Path]) -> tuple[list, list]:
+    """Извлекает процедуры/функции с номерами строк в каждом файле.
+
+    Парсит каждый BSL-файл отдельно (не объединённый текст), чтобы номера строк
+    были корректны относительно исходного файла. Номера строк НЕ входят в file_hash
+    (он уже зависит от bsl_text целиком → при любом изменении BSL хеш меняется →
+    summary перестраивается → номера автоматически актуальны).
+
+    Возвращает: (procedures, functions) — list[tuple[name, rel_file, line]].
+    line — 1-indexed номер строки начала процедуры/функции в файле.
+    """
+    procedures: list = []
+    functions: list = []
+    proc_re = re.compile(r"(?im)^\s*Процедура\s+([A-Za-zА-Яа-яЁё0-9_]+)\s*\(")
+    func_re = re.compile(r"(?im)^\s*Функция\s+([A-Za-zА-Яа-яЁё0-9_]+)\s*\(")
+    for file in bsl_files:
+        text = read_text_safe(file)
+        if not text.strip():
+            continue
+        rel = _rel_to_root(file)
+        for m in proc_re.finditer(text):
+            line = text.count("\n", 0, m.start()) + 1
+            procedures.append((m.group(1), rel, line))
+        for m in func_re.finditer(text):
+            line = text.count("\n", 0, m.start()) + 1
+            functions.append((m.group(1), rel, line))
+    procedures.sort(key=lambda t: t[0])
+    functions.sort(key=lambda t: t[0])
+    return procedures, functions
 
 
 def collect_object_context(
@@ -429,14 +477,14 @@ def collect_object_context(
 
     xml_parts = []
     for file in xml_files:
-        rel = file.relative_to(ROOT)
+        rel = _rel_to_root(file)
         text = read_text_safe(file, max_chars=max_xml_chars)
         if text.strip():
             xml_parts.append(f"\n\n### FILE: {rel}\n{text}")
 
     bsl_parts = []
     for file in bsl_files:
-        rel = file.relative_to(ROOT)
+        rel = _rel_to_root(file)
         text = read_text_safe(file, max_chars=max_bsl_chars)
         if text.strip():
             bsl_parts.append(f"\n\n### FILE: {rel}\n{text}")
@@ -444,7 +492,7 @@ def collect_object_context(
     xml_text = "\n".join(xml_parts)
     bsl_text = "\n".join(bsl_parts)
 
-    procedures, functions = extract_procedures_and_functions(bsl_text)
+    procedures, functions = extract_procedures_and_functions(bsl_files)
 
     combined_hash = sha256_text(
         obj.title
@@ -487,10 +535,10 @@ def save_cache(cache: dict, cache_path: Path) -> None:
 
 def build_heuristic_summary(ctx: ObjectContext) -> str:
     obj = ctx.obj
-    rel_path = obj.path.relative_to(ROOT) if obj.path.exists() else obj.path
+    rel_path = _rel_to_root(obj.path) if obj.path.exists() else str(obj.path)
 
-    xml_rel = [str(p.relative_to(ROOT)) for p in ctx.xml_files[:20]]
-    bsl_rel = [str(p.relative_to(ROOT)) for p in ctx.bsl_files[:20]]
+    xml_rel = [_rel_to_root(p) for p in ctx.xml_files[:20]]
+    bsl_rel = [_rel_to_root(p) for p in ctx.bsl_files[:20]]
 
     procedures = ctx.procedures[:50]
     functions = ctx.functions[:50]
@@ -535,15 +583,15 @@ def build_heuristic_summary(ctx: ObjectContext) -> str:
 
     result += "\n## Процедуры\n\n"
     if procedures:
-        for name in procedures:
-            result += f"- `{name}`\n"
+        for name, rel_file, line in procedures:
+            result += f"- `{name}` ({rel_file}:L{line})\n"
     else:
         result += "Процедуры не найдены или BSL не анализировался.\n"
 
     result += "\n## Функции\n\n"
     if functions:
-        for name in functions:
-            result += f"- `{name}`\n"
+        for name, rel_file, line in functions:
+            result += f"- `{name}` ({rel_file}:L{line})\n"
     else:
         result += "Функции не найдены или BSL не анализировался.\n"
 
@@ -617,7 +665,7 @@ def call_litellm(prompt: str, model: str, api_base: str, api_key: str) -> str:
 
 def build_llm_prompt(ctx: ObjectContext, max_context_chars: int) -> str:
     obj = ctx.obj
-    rel_path = obj.path.relative_to(ROOT) if obj.path.exists() else obj.path
+    rel_path = _rel_to_root(obj.path) if obj.path.exists() else str(obj.path)
 
     xml_text = ctx.xml_text[: max_context_chars // 2]
     bsl_text = ctx.bsl_text[: max_context_chars // 2]
@@ -763,7 +811,7 @@ def scan_projects_for_objects(
                 continue
             xmls, bsls = find_files(obj_dir)
             if not xmls and not bsls:
-                print(f"  WARN scan-empty-dir: {obj_dir.relative_to(ROOT)}")
+                print(f"  WARN scan-empty-dir: {_rel_to_root(obj_dir)}")
                 continue
             new_objects.append((title, obj_dir))
         return new_objects
@@ -801,7 +849,7 @@ def scan_projects_for_objects(
 def build_skeleton_block(title: str, obj_path: Path, project: str) -> str:
     """Skeleton-блок для objects-index/<project>.md: проект, путь и заглушку назначения.
     Семантику (Назначение/Связанные) уточняет аналитик позже."""
-    rel_path = obj_path.relative_to(ROOT) if obj_path.exists() else obj_path
+    rel_path = _rel_to_root(obj_path) if obj_path.exists() else str(obj_path)
     return (
         f"---\n\n# {title}\n\n"
         f"Проект:\n`{project}`\n\n"
@@ -1040,7 +1088,7 @@ def main() -> int:
             candidates = scan_projects_for_objects(index_titles, project=project)
             print(f"Кандидатов на добавление (dry-run): {len(candidates)}")
             for title, obj_dir in candidates:
-                print(f"  candidate: {title}  ({obj_dir.relative_to(ROOT)})")
+                print(f"  candidate: {title}  ({_rel_to_root(obj_dir)})")
             if len(candidates) == FULL_SCAN_REPORT_LIMIT:
                 print(f"  ... список ограничен {FULL_SCAN_REPORT_LIMIT}; фактически кандидатов может быть больше")
             print("Чтобы добавить конкретные объекты, выполните:")
@@ -1146,18 +1194,18 @@ def main() -> int:
 
             cache[obj.title] = {
                 "hash": ctx.file_hash,
-                "summary": str(output_file.relative_to(ROOT)),
-                "path": str(obj.path.relative_to(ROOT)) if obj.path.exists() else str(obj.path),
+                "summary": _rel_to_root(output_file),
+                "path": _rel_to_root(obj.path) if obj.path.exists() else str(obj.path),
             }
 
-            print(f"  ok: {output_file.relative_to(ROOT)}")
+            print(f"  ok: {_rel_to_root(output_file)}")
             processed += 1
 
         save_cache(cache, proj_cache_path)
 
     print()
     print(f"Готово. Обработано: {processed}, пропущено: {skipped}.")
-    print(f"Summaries: {PROJECTS_CONTEXT_DIR.relative_to(ROOT)}/<project>/summaries/")
+    print(f"Summaries: {_rel_to_root(PROJECTS_CONTEXT_DIR)}/<project>/summaries/")
 
     return 0
 

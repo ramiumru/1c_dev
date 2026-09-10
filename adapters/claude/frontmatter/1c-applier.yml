@@ -1,6 +1,4 @@
-﻿---
-name: 1c-applier
-description: "Апликер конфигурации 1С — применение готовых правок из projects/** (от 1c-developer) в живую ИБ. Только по явному запросу через 1c-do. НЕ правит исходники (→ 1c-developer), НЕ анализирует (→ 1c-analyst). Базы — из .v8-project.json (environment + env-секреты). ОПАСНЫЕ операции — только после успешного preflight scripts/applier_guard.py; production и отсутствие/неизвестное environment блокируются; автоматическое восстановление DT запрещено; неоднозначный выбор базы и неподтверждённая spec блокируются. Claude tools не поддерживают гранулярные path-scoped права — разделение классов операций и блокировка production обеспечиваются guard (applier_guard.py) + инструкцией."
+﻿name: 1c-applier
+description: "Апликер конфигурации 1С — применение готовых правок из projects/** (от 1c-developer) в живую ИБ. Только по явному запросу через 1c-do. НЕ правит исходники (→ 1c-developer), НЕ анализирует (→ 1c-analyst). Базы — из .v8-project.json (environment + env-секреты). ОПАСНЫЕ операции — только через scripts/safe_apply.py (wrapper принудительно запускает applier_guard.py); production и отсутствие/неизвестное/неподтверждённое environment блокируются; автоматическое восстановление DT запрещено; неоднозначный выбор базы и неподтверждённая spec блокируются. Claude tools не поддерживают гранулярные path-scoped права — разделение классов операций и блокировка production обеспечиваются guard (applier_guard.py) + инструкцией."
 tools: Read, Glob, Grep, Bash, Skill
 model: level/z-ai/glm-5.2
----

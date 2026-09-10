@@ -42,22 +42,6 @@ permission:
     "specs/**": allow
     ".kilo/logs/1c-do/**": allow
   bash:
-    "powershell.exe -NoProfile -File .kilo/skills/meta-*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/form-*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/mxl-*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/skd-*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/role-*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/subsystem-*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/xdto-*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/interface-*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/template-*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/help-*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/support-*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/cf-*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/cfe-*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/epf-init/scripts/*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/epf-validate/scripts/*": allow
-    "powershell.exe -NoProfile -File .kilo/skills/erf-init/scripts/*": allow
     "python scripts/build_summaries.py --project *": allow
     "python scripts/build_summaries.py --project * --objects *": allow
     "python scripts/build_summaries.py --project * --force": allow
@@ -84,25 +68,6 @@ permission:
   semantic_search: deny
   external_directory: deny
   skill:
-    "meta-*": allow
-    "form-*": allow
-    "mxl-*": allow
-    "skd-*": allow
-    "role-*": allow
-    "subsystem-*": allow
-    "xdto-*": allow
-    "interface-*": allow
-    "template-*": allow
-    "help-*": allow
-    "support-*": allow
-    "cf-*": allow
-    "cfe-*": allow
-    "epf-init": allow
-    "epf-validate": allow
-    "epf-bsp-init": allow
-    "epf-bsp-add-command": allow
-    "erf-init": allow
-    "erf-validate": allow
     "*": deny
   mcp:
     "v8std_*": allow
