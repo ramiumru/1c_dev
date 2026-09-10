@@ -40,14 +40,21 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
+# Импорт общего модуля детекции корня
+import sys as _sys
+_sys.path.insert(0, str(SCRIPT_DIR))
+try:
+    from _root import find_root as _find_root_shared
+except ImportError:
+    _find_root_shared = None
+
 
 def _find_root(start: Path) -> Path:
-    """Автоопределение корня: первый родитель (включая текущий) с README.md.
-    Исходный репо: core/scripts/doctor.py -> ai-environment/; установка: scripts/doctor.py -> корень."""
-    cur = start.resolve()
-    for cand in [cur, *cur.parents]:
-        if (cand / "README.md").exists():
-            return cand
+    """Автоопределение корня через общий модуль _root или fallback."""
+    if _find_root_shared is not None:
+        root = _find_root_shared(start)
+        if root is not None:
+            return root
     return SCRIPT_DIR.parent.parent
 
 
@@ -174,7 +181,7 @@ def doctor(root: Path, d: Doc) -> None:
 
     # --- Скрипты ---
     d.section("Скрипты")
-    for s in ["bsl-check.py", "build_summaries.py", "applier_guard.py"]:
+    for s in ["bsl-check.py", "build_summaries.py", "applier_guard.py", "safe_apply.py", "validate.py", "doctor.py", "_root.py"]:
         p = SCRIPT_DIR / s
         if p.exists():
             d.ok(f"scripts/{s}")

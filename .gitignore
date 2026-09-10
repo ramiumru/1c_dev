@@ -21,6 +21,14 @@ specs/TASK-*/
 
 # Чувствительное / тяжёлое
 .v8-project.json
+.env
+.env.*
+!.env.example
+*.dt
+*.cf
+*.cfe
+*.bak
+*.backup
 tools/*.zip
 tools/*.jar
 bsl-diagnostics.json
@@ -32,3 +40,6 @@ sandbox.bsl
 # IDE
 .vscode/
 .assistant/
+.idea/
+.DS_Store
+Thumbs.db

@@ -5,7 +5,7 @@ permission:
   read:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agent/1c-applier.md": allow
+    ".openworks/agents/1c-applier.md": allow
     ".v8-project.json": allow
     ".openworks/context/projects/**": allow
     "projects/**": allow
@@ -15,7 +15,7 @@ permission:
   glob:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agent/1c-applier.md": allow
+    ".openworks/agents/1c-applier.md": allow
     ".v8-project.json": allow
     ".openworks/context/projects/**": allow
     "projects/**": allow
@@ -25,7 +25,7 @@ permission:
   grep:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agent/1c-applier.md": allow
+    ".openworks/agents/1c-applier.md": allow
     ".openworks/context/projects/**": allow
     "projects/**": allow
     "specs/**": allow
@@ -33,7 +33,7 @@ permission:
   list:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agent/1c-applier.md": allow
+    ".openworks/agents/1c-applier.md": allow
     ".v8-project.json": allow
     ".openworks/context/projects/**": allow
     "projects/**": allow
@@ -44,16 +44,13 @@ permission:
     ".openworks/logs/1c-applier/**": allow
     "*": deny
   bash:
+    "python scripts/safe_apply.py *": allow
     "python scripts/applier_guard.py *": allow
     "python scripts/bsl-check.py *": allow
     "powershell.exe -NoProfile -File .openworks/skills/db-list/scripts/*": allow
     "powershell.exe -NoProfile -File .openworks/skills/db-dump-dt/scripts/*": allow
     "powershell.exe -NoProfile -File .openworks/skills/db-dump-cf/scripts/*": allow
     "powershell.exe -NoProfile -File .openworks/skills/db-dump-xml/scripts/*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/db-load-xml/scripts/*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/db-load-cf/scripts/*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/db-load-dt/scripts/*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/db-update/scripts/*": allow
     "powershell.exe -NoProfile -File .openworks/skills/db-run/scripts/*": allow
     "*": deny
   task: deny
@@ -67,10 +64,6 @@ permission:
     "db-dump-xml": allow
     "db-dump-dt": allow
     "db-dump-cf": allow
-    "db-load-xml": allow
-    "db-load-cf": allow
-    "db-load-dt": allow
-    "db-update": allow
     "db-run": allow
     "*": deny
   mcp:

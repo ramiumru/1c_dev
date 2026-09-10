@@ -119,8 +119,12 @@ if ($config.copyAgents) {
         $body = $body -replace '\{\{AGENTS_DIR\}\}', $agents
         if (Test-Path $fmPath) {
             $fm = [System.IO.File]::ReadAllText($fmPath, [System.Text.Encoding]::UTF8)
+            # Defense-in-depth: удалить существующие --- delimiters, чтобы избежать двойного frontmatter (8.9)
+            $fm = $fm -replace '(?s)^\s*---\s*\r?\n', ''
+            $fm = $fm -replace '(?s)\r?\n\s*---\s*$', ''
+            $fm = $fm.TrimEnd("`r", "`n")
             # Сборка: ---\n<FM>\n---\n\n<body>
-            $combined = "---`r`n$fm---`r`n`r`n$body"
+            $combined = "---`r`n$fm`r`n---`r`n`r`n$body"
         } else {
             # Нет frontmatter (напр. Codex одноагентный режим) — тело как reference-док
             $combined = $body

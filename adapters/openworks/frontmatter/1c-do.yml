@@ -42,22 +42,6 @@ permission:
     "specs/**": allow
     ".openworks/logs/1c-do/**": allow
   bash:
-    "powershell.exe -NoProfile -File .openworks/skills/meta-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/form-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/mxl-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/skd-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/role-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/subsystem-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/xdto-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/interface-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/template-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/help-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/support-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/cf-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/cfe-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/epf-init/scripts/*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/epf-validate/scripts/*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/erf-init/scripts/*": allow
     "python scripts/build_summaries.py --project *": allow
     "python scripts/build_summaries.py --project * --objects *": allow
     "python scripts/build_summaries.py --project * --force": allow
@@ -83,24 +67,5 @@ permission:
   lsp: deny
   external_directory: deny
   skill:
-    "meta-*": allow
-    "form-*": allow
-    "mxl-*": allow
-    "skd-*": allow
-    "role-*": allow
-    "subsystem-*": allow
-    "xdto-*": allow
-    "interface-*": allow
-    "template-*": allow
-    "help-*": allow
-    "support-*": allow
-    "cf-*": allow
-    "cfe-*": allow
-    "epf-init": allow
-    "epf-validate": allow
-    "epf-bsp-init": allow
-    "epf-bsp-add-command": allow
-    "erf-init": allow
-    "erf-validate": allow
     "*": deny
-# MCP permissions: configured at server level in openworks.json (mcp key)
+  # MCP permissions: configured at server level in openworks.json (mcp key)

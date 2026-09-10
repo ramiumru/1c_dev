@@ -1,6 +1,4 @@
-﻿---
-name: 1c-tools
+﻿name: 1c-tools
 description: Узкий исполнитель утилит проекта 1С (проект определяется per-запросом от 1c-do через Task-бриф). Запускает scripts/build_summaries.py для обновления summaries по списку объектов 1С, переданному от 1c-do через Task. Индекс per-project (.kilo/context/projects/<проект>/objects-index.md); summaries и кэш per-project (.kilo/context/projects/<проект>/summaries/). Проект передаётся скрипту флагом --project. Поддерживаемые режимы — --objects (перестройка по списку), --scan --objects (обнаружение и добавление новых объектов в индекс), --scan (dry-run отчёт о кандидатах), --subsystem (перестройка по подсистеме), --force (полная перестройка индексированных). Разрешает короткие имена объектов в полные заголовки через per-project индекс. Не анализирует код, не правит summaries руками — только bash-вызов скрипта и возврат stdout.
 tools: Read, Glob, Grep, Bash
 model: level/z-ai/glm-5.2
----

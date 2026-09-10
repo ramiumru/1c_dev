@@ -7,7 +7,7 @@
 
 | Инструмент | Установка | Режим | Механика |
 |---|---|---|---|
-| **Kilo** | `install.ps1 -Tool kilo` | Multi-agent | `.kilo/agents`, `.kilo/skills`, `kilo.json` |
+| **Kilo** | `install.ps1 -Tool kilo` | Multi-agent | `.kilo/agent`, `.kilo/skills`, `kilo.json` |
 | **Claude Code** | `install.ps1 -Tool claude` | Multi-agent | `.claude/agents`, `.claude/skills`, `CLAUDE.md` |
 | **Open Works** | `install.ps1 -Tool openworks` | Multi-agent | `.openworks/agents`, `.openworks/skills`, `openworks.json` |
 | **Codex CLI** | `install.ps1 -Tool codex` | Single-agent | `AGENTS.md` + скрипты (одноагентный режим) |
