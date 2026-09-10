@@ -58,6 +58,20 @@ Playwright, лицензия Apache-2.0) скачиваются пользова
 
 ## Оригинальная часть проекта
 
-Лицензия оригинальной части (`core/agents`, `adapters`, `install`, `core/scripts`,
-`core/sdd`, `core/context`, `docs`) **не определена владельцем**. Выбор лицензии —
-прерогатива владельца; настоящий файл не выбирает лицензию от имени владельца.
+- **Автор:** Kirill Pulyavin (Кирилл Пулявин)
+- **Лицензия:** MIT (см. `LICENSE` в корне репозитория)
+- **Copyright:** Copyright (c) 2025-2026 Kirill Pulyavin
+- **Затронутые каталоги:** `core/agents`, `adapters`, `install`, `core/scripts`, `core/sdd`,
+  `core/rules`, `core/context`, `docs`, корневые файлы (`README.md`, `NOTICE.md`,
+  `THIRD_PARTY_LICENSES.md`, `SECURITY.md`, `CONTRIBUTING.md`, `AGENT-INSTALL.md`, `LICENSE`)
+
+### Выдержка лицензии MIT (оригинальная часть)
+
+Полный текст — в `LICENSE` в корне репозитория. Краткая выдержка:
+
+```
+MIT License
+
+Copyright (c) 2025-2026 Kirill Pulyavin
+...
+```

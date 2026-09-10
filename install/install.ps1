@@ -238,6 +238,14 @@ if (Test-Path $rulesSrc) {
     Write-Host "[5/7] On-demand правила: core/rules/ не найден — пропуск"
 }
 
+# Копировать AGENT-INSTALL.md и LICENSE в корень (для agent-first UX)
+if (Test-Path "$repo\AGENT-INSTALL.md") {
+    Copy-Item "$repo\AGENT-INSTALL.md" (Join-Path $Target "AGENT-INSTALL.md") -Force
+}
+if (Test-Path "$repo\LICENSE") {
+    Copy-Item "$repo\LICENSE" (Join-Path $Target "LICENSE") -Force
+}
+
 # --- 6. .dev.env (параметры проекта) ---
 Write-Host "[6/7] .dev.env -> параметры проекта"
 $devEnvPath = Join-Path $Target ".dev.env"
@@ -400,6 +408,20 @@ if (Test-Path $rootConfigPath) {
 if (Test-Path $devEnvPath) {
     $hash = (Get-FileHash -LiteralPath $devEnvPath -Algorithm SHA256).Hash
     $files += [PSCustomObject]@{ path = ".dev.env"; source = "core/context/.dev.env.example"; installedHash = $hash; userModified = $false }
+}
+
+# AGENT-INSTALL.md
+$agentInstallPath = Join-Path $Target "AGENT-INSTALL.md"
+if (Test-Path $agentInstallPath) {
+    $hash = (Get-FileHash -LiteralPath $agentInstallPath -Algorithm SHA256).Hash
+    $files += [PSCustomObject]@{ path = "AGENT-INSTALL.md"; source = "AGENT-INSTALL.md"; installedHash = $hash; userModified = $false }
+}
+
+# LICENSE
+$licensePath = Join-Path $Target "LICENSE"
+if (Test-Path $licensePath) {
+    $hash = (Get-FileHash -LiteralPath $licensePath -Algorithm SHA256).Hash
+    $files += [PSCustomObject]@{ path = "LICENSE"; source = "LICENSE"; installedHash = $hash; userModified = $false }
 }
 
 # Сериализация манифеста

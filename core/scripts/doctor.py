@@ -114,6 +114,16 @@ def doctor(root: Path, d: Doc) -> None:
             # В целевой установке core/ может не быть (раскладка по .kilo/...) — предупреждаем
             d.warn(f"{sub}/ не найден (для исходного репо — ошибка; для целевой установки может быть нормой)")
 
+    # --- Корневые файлы (LICENSE, AGENT-INSTALL.md) ---
+    d.section("Корневые файлы")
+    for rf in ["LICENSE", "AGENT-INSTALL.md"]:
+        p = root / rf
+        if p.exists():
+            d.ok(f"{rf}")
+        else:
+            # В установленной раскладке может не быть — warn, не err
+            d.warn(f"{rf} не найден (создаётся install.ps1 при установке)")
+
     # Установленная раскладка: ищем агентов по известным путям адаптеров
     d.section("Установленная раскладка (агенты)")
     installed_layout_found = False
