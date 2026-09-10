@@ -217,6 +217,66 @@ def doctor(root: Path, d: Doc) -> None:
     else:
         d.warn(".v8-project.json не найден (создайте из examples/v8-project.example.json)")
 
+    # --- .dev.env ---
+    d.section("Параметры проекта (.dev.env)")
+    dev_env_path = root / ".dev.env"
+    if dev_env_path.exists():
+        try:
+            env_text = dev_env_path.read_text(encoding="utf-8", errors="replace")
+            platform_path = ""
+            for line in env_text.splitlines():
+                if line.startswith("PLATFORM_PATH="):
+                    platform_path = line.split("=", 1)[1].strip()
+            if platform_path:
+                if Path(platform_path).exists():
+                    d.ok(f"PLATFORM_PATH={platform_path} (1cv8.exe найден)")
+                else:
+                    d.warn(f"PLATFORM_PATH={platform_path} (1cv8.exe не найден по указанному пути)")
+            else:
+                d.info("PLATFORM_PATH пуст — скиллы db-* используют автопоиск")
+            d.ok(".dev.env найден")
+        except Exception as e:
+            d.err(f".dev.env не читается: {e}")
+    else:
+        # В исходном репо проверяем шаблон
+        env_example = root / "core" / "context" / ".dev.env.example"
+        if env_example.exists():
+            d.ok("core/context/.dev.env.example (шаблон; .dev.env создаётся при установке)")
+        else:
+            d.warn(".dev.env не найден (создаётся install.ps1 при установке)")
+
+    # --- .ai-rules.json ---
+    d.section("Манифест установки (.ai-rules.json)")
+    manifest_path = root / ".ai-rules.json"
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig", errors="replace"))
+            files = manifest.get("files") or []
+            user_mod = sum(1 for f in files if f.get("userModified"))
+            d.ok(f".ai-rules.json: {len(files)} файлов, {user_mod} user-modified")
+        except Exception as e:
+            d.err(f".ai-rules.json не читается: {e}")
+    else:
+        d.info(".ai-rules.json не найден (создаётся install.ps1 при установке)")
+
+    # --- On-demand правила ---
+    d.section("On-demand правила (rules/)")
+    rules_dirs = [
+        root / "core" / "rules",
+        root / ".kilo" / "context" / "rules",
+        root / ".claude" / "context" / "rules",
+        root / ".openworks" / "context" / "rules",
+        root / "context" / "rules",
+    ]
+    rules_found = False
+    for rd in rules_dirs:
+        if rd.is_dir():
+            rules_found = True
+            n = len(list(rd.glob("*.md")))
+            d.ok(f"{rd.relative_to(root) if rd.is_relative_to(root) else rd}: {n} правил")
+    if not rules_found:
+        d.warn("rules/ не найден (core/rules/ в исходном репо или {{CONTEXT_DIR}}/rules/ после установки)")
+
     # --- SDD ---
     d.section("SDD-статусы (specs/)")
     specs = root / "specs"

@@ -24,6 +24,8 @@ specs/TASK-*/
 .env
 .env.*
 !.env.example
+.dev.env
+.ai-rules.json
 *.dt
 *.cf
 *.cfe
