@@ -11,6 +11,7 @@ permission:
     "projects/**": allow
     "specs/**": allow
     "scripts/**": allow
+    "pilot-control/**": allow
     ".kilo/logs/1c-applier/**": allow
   glob:
     "INSTRUCTIONS.md": allow
@@ -21,6 +22,7 @@ permission:
     "projects/**": allow
     "specs/**": allow
     "scripts/**": allow
+    "pilot-control/**": allow
     ".kilo/logs/1c-applier/**": allow
   grep:
     "INSTRUCTIONS.md": allow
@@ -30,6 +32,7 @@ permission:
     "projects/**": allow
     "specs/**": allow
     "scripts/**": allow
+    "pilot-control/**": allow
   list:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
@@ -39,6 +42,7 @@ permission:
     "projects/**": allow
     "specs/**": allow
     "scripts/**": allow
+    "pilot-control/**": allow
     ".kilo/logs/1c-applier/**": allow
   edit:
     ".kilo/logs/1c-applier/**": allow

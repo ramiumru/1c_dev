@@ -45,6 +45,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -333,25 +334,32 @@ def check_applier_guards(rep: Report) -> None:
         rep.error("safe_apply.py: отсутствует (8.5 — единый wrapper не найден)")
 
 
-# ==================== ADVERSARIAL TESTS (8.11) ====================
+# ==================== ADVERSARIAL TESTS ====================
 
-# Импорт scope_hash для вычисления реального хеша в тестах
 try:
     sys.path.insert(0, str(ROOT / "core" / "scripts") if IS_SOURCE_REPO else str(ROOT / "scripts"))
     from scope_hash import compute_scope_hash
 except ImportError:
     compute_scope_hash = None
 
+import hashlib as _hashlib
 
-def _run_guard(guard_path: Path, cfg: dict, specs_dir: Path, task: str, db: str, op: str,
-               mode: str = "Partial", files: str = "") -> int:
-    """Запустить guard с заданным конфигом и specs, вернуть exit code."""
+# Canary secrets для проверки redaction
+CANARY_SECRET = "TEST_SECRET_MUST_NOT_APPEAR"
+CANARY_USERNAME = "TEST_USERNAME_MUST_NOT_APPEAR"
+
+
+def _run_guard(guard_path: Path, project_root: Path, cfg: dict,
+               specs_dir: Path, control_dir: Path,
+               task: str, db: str, op: str, mode: str = "Partial",
+               files: str = "") -> int:
+    """Запустить guard с явным project-root и control-dir."""
     with tempfile.TemporaryDirectory(prefix="adv_guard_") as td:
-        tdpath = Path(td)
-        cfg_path = tdpath / "cfg.json"
+        cfg_path = Path(td) / "cfg.json"
         cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
         cmd = [sys.executable, str(guard_path), "--config", str(cfg_path),
-               "--specs-dir", str(specs_dir), "--mode", mode]
+               "--specs-dir", str(specs_dir), "--control-dir", str(control_dir),
+               "--project-root", str(project_root), "--mode", mode]
         if task:
             cmd += ["--task", task]
         if files:
@@ -362,20 +370,21 @@ def _run_guard(guard_path: Path, cfg: dict, specs_dir: Path, task: str, db: str,
 
 
 def _make_spec_file(specs_dir: Path, task: str, **yaml_fields) -> str:
-    """Создать синтетический spec с реальными секциями scope. Возвращает вычисленный hash."""
     task_dir = specs_dir / task
     task_dir.mkdir(parents=True, exist_ok=True)
+    # Вычислить hash из секций БЕЗ yaml-блока (scope_hash исключается из hash)
+    # Сначала создаём контент БЕЗ scope_hash в yaml
     yaml_lines = []
     for k, v in yaml_fields.items():
         if v is None:
             yaml_lines.append(f"{k}: null")
         else:
             yaml_lines.append(f"{k}: {v}")
-    yaml_block = "\n".join(yaml_lines)
-    content = f"""# Solution Spec: {task}
+    yaml_block_no_hash = "\n".join(yaml_lines)
+    content_no_hash = f"""# Solution Spec: {task}
 
 ```yaml
-{yaml_block}
+{yaml_block_no_hash}
 ```
 
 ## Границы изменения
@@ -388,21 +397,48 @@ def _make_spec_file(specs_dir: Path, task: str, **yaml_fields) -> str:
 ## Критерии приёмки
 - тест
 """
-    spec_path = task_dir / "03_solution_spec.md"
-    spec_path.write_text(content, encoding="utf-8")
-    # Вычислить реальный hash
+    # Вычислить hash из контента (scope_hash.py исключает yaml-блок)
     if compute_scope_hash:
-        return compute_scope_hash(content)
-    return "abc123"
+        h = compute_scope_hash(content_no_hash)
+    else:
+        h = "abc123"
+    # Теперь записать spec с scope_hash в yaml-блоке
+    if "scope_hash" not in yaml_fields:
+        yaml_fields["scope_hash"] = h
+    yaml_lines2 = []
+    for k, v in yaml_fields.items():
+        if v is None:
+            yaml_lines2.append(f"{k}: null")
+        else:
+            yaml_lines2.append(f"{k}: {v}")
+    yaml_block2 = "\n".join(yaml_lines2)
+    content = f"""# Solution Spec: {task}
+
+```yaml
+{yaml_block2}
+```
+
+## Границы изменения
+- тестовый scope A
+- тестовый scope B
+
+## Затрагиваемые файлы
+- projects/test/src/test.bsl
+
+## Критерии приёмки
+- тест
+"""
+    (task_dir / "03_solution_spec.md").write_text(content, encoding="utf-8")
+    return h
 
 
-def _make_report_file(specs_dir: Path, task: str, scope_hash: str) -> Path:
-    """Создать синтетический 06_change_report.md."""
+def _make_report_file(specs_dir: Path, task: str, scope_hash: str, spec_version: str = "1") -> Path:
     task_dir = specs_dir / task
     report = f"""# Отчёт об изменениях: {task}
 
 ```yaml
 scope_hash: {scope_hash}
+spec_version: {spec_version}
 ```
 
 ## Изменённые файлы
@@ -416,11 +452,12 @@ scope_hash: {scope_hash}
     return report_path
 
 
-def _make_review_file(specs_dir: Path, task: str, scope_hash: str, verdict: str = "approved",
-                      reviewed_by: str = "1c-reviewer", reviewed_at: str = "2026-01-01",
-                      spec_version: str = "1") -> Path:
-    """Создать синтетический review.md."""
-    task_dir = specs_dir / task
+def _make_review_file(control_dir: Path, task: str, scope_hash: str,
+                      spec_version: str = "1", verdict: str = "approved",
+                      reviewed_by: str = "1c-reviewer",
+                      reviewed_at: str = "2026-01-01T12:00:00+00:00") -> Path:
+    task_dir = control_dir / task
+    task_dir.mkdir(parents=True, exist_ok=True)
     review = f"""# Review: {task}
 
 ```yaml
@@ -430,27 +467,34 @@ reviewed_at: {reviewed_at}
 spec_version: {spec_version}
 scope_hash: {scope_hash}
 ```
-
-## Сверка со спецификацией
-ОК
 """
     review_path = task_dir / "review.md"
     review_path.write_text(review, encoding="utf-8")
     return review_path
 
 
-def _make_backup_file(specs_dir: Path, task: str, db_id: str, env: str = "local",
-                      artifact: str = "backups/test.dt", status: str = "success") -> Path:
-    """Создать синтетический backup.md."""
-    task_dir = specs_dir / task
+def _make_backup_file(control_dir: Path, task: str, db_id: str, env: str,
+                      project_root: Path, artifact_rel: str = "backups/test.dt",
+                      status: str = "success",
+                      created_at: str = "2026-01-01T12:00:00+00:00") -> Path:
+    """Создать backup.md с artifact_sha256."""
+    task_dir = control_dir / task
+    task_dir.mkdir(parents=True, exist_ok=True)
+    # Создать artifact файл
+    artifact_path = project_root / artifact_rel
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_content = b"fake backup content for testing"
+    artifact_path.write_bytes(artifact_content)
+    artifact_sha = _hashlib.sha256(artifact_content).hexdigest()
     backup = f"""# Backup: {task}
 
 ```yaml
 backup_version: 1
 database_id: {db_id}
 environment: {env}
-created_at: 2026-01-01T12:00:00Z
-artifact: {artifact}
+created_at: {created_at}
+artifact: {artifact_rel}
+artifact_sha256: {artifact_sha}
 status: {status}
 ```
 """
@@ -459,210 +503,173 @@ status: {status}
     return backup_path
 
 
-def _make_approval_file(specs_dir: Path, task: str, db_id: str, env: str, op: str,
-                        mode: str, scope_hash: str) -> Path:
-    """Создать синтетический approval.md для особо опасных операций."""
-    task_dir = specs_dir / task
-    approval = f"""# Approval: {task}
-
-```yaml
-approval_version: 1
-task_id: {task}
-database_id: {db_id}
-environment: {env}
-operation: {op}
-mode: {mode}
-scope_hash: {scope_hash}
-approved_by: user
-approved_at: 2026-01-01T12:00:00Z
-expires_at: 2026-12-31T23:59:59Z
-```
-"""
-    approval_path = task_dir / "approval.md"
-    approval_path.write_text(approval, encoding="utf-8")
-    return approval_path
+def _setup_positive_env(tdpath: Path, task: str = "TOK") -> tuple:
+    """Создать полное окружение для позитивного теста. Возвращает (specs_dir, control_dir, hash, cfg)."""
+    specs_dir = tdpath / "specs"
+    control_dir = tdpath / "pilot-control"
+    # Создать план-файл
+    proj_dir = tdpath / "projects" / "test" / "src"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    (proj_dir / "test.bsl").write_text("// test\n", encoding="utf-8")
+    # Создать spec с реальным hash
+    h = _make_spec_file(specs_dir, task, status="approved", risk="low",
+                        approved_by="user", approved_at="2026-01-01T12:00:00+00:00",
+                        spec_version="1")
+    _make_report_file(specs_dir, task, h, "1")
+    _make_review_file(control_dir, task, h, "1", reviewed_by="1c-reviewer")
+    _make_backup_file(control_dir, task, "local-demo", "local", tdpath)
+    cfg = {
+        "environment": "local", "v8path": "C:\\fake",
+        "databases": [{"id": "local-demo", "type": "file", "path": ".\\base",
+                       "environment": "local",
+                       "username_env": "V8_USER", "password_env": "V8_PASS"}],
+    }
+    return specs_dir, control_dir, h, cfg
 
 
 def check_adversarial_guard(rep: Report) -> None:
-    """Негативные тесты guard — должны падать на сломанных данных."""
+    """Все негативные + позитивные тесты guard."""
     g = ROOT / "core" / "scripts" / "applier_guard.py" if IS_SOURCE_REPO else ROOT / "scripts" / "applier_guard.py"
     if not g.exists():
         rep.error("adversarial: applier_guard.py не найден")
         return
 
     base_cfg = {
-        "environment": "local",
-        "v8path": "C:\\fake",
-        "databases": [
-            {"id": "local-demo", "type": "file", "path": ".\\base", "environment": "local",
-             "username_env": "V8_USER", "password_env": "V8_PASS"},
-        ],
-    }
-
-    # --- direct-bypass: без --task → exit 1 ---
-    with tempfile.TemporaryDirectory(prefix="adv_") as td:
-        tdpath = Path(td)
-        cfg_path = tdpath / "cfg.json"
-        cfg_path.write_text(json.dumps(base_cfg), encoding="utf-8")
-        specs_dir = tdpath / "specs"
-        specs_dir.mkdir()
-        r = subprocess.run(
-            [sys.executable, str(g), "--config", str(cfg_path), "--specs-dir", str(specs_dir),
-             "--mode", "Partial", "--db", "local-demo", "--op", "update"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-        )
-        rep.ok("adversarial: direct-bypass без --task заблокирован") if r.returncode != 0 else rep.error("adversarial: direct-bypass НЕ заблокирован")
-
-    # --- review-missing: нет review.md → exit 1 ---
-    with tempfile.TemporaryDirectory(prefix="adv_") as td:
-        tdpath = Path(td)
-        specs_dir = tdpath / "specs"
-        h = _make_spec_file(specs_dir, "T2", status="approved", risk="low",
-                            approved_by="user", approved_at="2026-01-01", spec_version="1")
-        _make_report_file(specs_dir, "T2", h)
-        r = _run_guard(g, base_cfg, specs_dir, "T2", "local-demo", "update")
-        rep.ok("adversarial: review-missing заблокирован") if r != 0 else rep.error("adversarial: review-missing НЕ заблокирован")
-
-    # --- empty approved_at → exit 1 ---
-    with tempfile.TemporaryDirectory(prefix="adv_") as td:
-        tdpath = Path(td)
-        specs_dir = tdpath / "specs"
-        h = _make_spec_file(specs_dir, "T3a", status="approved", risk="low",
-                            approved_by="user", approved_at="", spec_version="1")
-        _make_report_file(specs_dir, "T3a", h)
-        _make_review_file(specs_dir, "T3a", h)
-        r = _run_guard(g, base_cfg, specs_dir, "T3a", "local-demo", "update")
-        rep.ok("adversarial: пустой approved_at заблокирован") if r != 0 else rep.error("adversarial: пустой approved_at НЕ заблокирован")
-
-    # --- self-approval high-risk → exit 1 ---
-    with tempfile.TemporaryDirectory(prefix="adv_") as td:
-        tdpath = Path(td)
-        specs_dir = tdpath / "specs"
-        h = _make_spec_file(specs_dir, "T3b", status="approved", risk="high",
-                            approved_by="1c-developer", approved_at="2026-01-01", spec_version="1")
-        _make_report_file(specs_dir, "T3b", h)
-        _make_review_file(specs_dir, "T3b", h, reviewed_by="1c-reviewer")
-        r = _run_guard(g, base_cfg, specs_dir, "T3b", "local-demo", "update")
-        rep.ok("adversarial: self-approval high-risk заблокирован") if r != 0 else rep.error("adversarial: self-approval НЕ заблокирован")
-
-    # --- scope-hash drift (фальшивый hash в report) → exit 1 ---
-    with tempfile.TemporaryDirectory(prefix="adv_") as td:
-        tdpath = Path(td)
-        specs_dir = tdpath / "specs"
-        h = _make_spec_file(specs_dir, "T3c", status="approved", risk="low",
-                            approved_by="user", approved_at="2026-01-01", spec_version="1")
-        _make_report_file(specs_dir, "T3c", "FAKE_HASH_NOT_MATCHING")  # не совпадает!
-        _make_review_file(specs_dir, "T3c", h)
-        r = _run_guard(g, base_cfg, specs_dir, "T3c", "local-demo", "update")
-        rep.ok("adversarial: scope-hash drift заблокирован") if r != 0 else rep.error("adversarial: scope-hash drift НЕ заблокирован")
-
-    # --- review independence violation → exit 1 ---
-    with tempfile.TemporaryDirectory(prefix="adv_") as td:
-        tdpath = Path(td)
-        specs_dir = tdpath / "specs"
-        h = _make_spec_file(specs_dir, "T3d", status="approved", risk="low",
-                            approved_by="1c-reviewer", approved_at="2026-01-01", spec_version="1")
-        _make_report_file(specs_dir, "T3d", h)
-        _make_review_file(specs_dir, "T3d", h, reviewed_by="1c-reviewer")
-        r = _run_guard(g, base_cfg, specs_dir, "T3d", "local-demo", "update")
-        rep.ok("adversarial: independence violation заблокирован") if r != 0 else rep.error("adversarial: independence НЕ заблокирован")
-
-    # --- server DB without per-db env → exit 1 ---
-    server_cfg = {
         "environment": "local", "v8path": "C:\\fake",
-        "databases": [{"id": "srv1", "type": "server", "server": "srv", "ref": "db",
-                        "username_env": "V8_USER", "password_env": "V8_PASS"}],
+        "databases": [{"id": "local-demo", "type": "file", "path": ".\\base",
+                       "environment": "local",
+                       "username_env": "V8_USER", "password_env": "V8_PASS"}],
     }
-    with tempfile.TemporaryDirectory(prefix="adv_") as td:
-        tdpath = Path(td)
-        specs_dir = tdpath / "specs"
-        h = _make_spec_file(specs_dir, "T4", status="approved", risk="low",
-                            approved_by="user", approved_at="2026-01-01", spec_version="1")
-        _make_report_file(specs_dir, "T4", h)
-        _make_review_file(specs_dir, "T4", h)
-        r = _run_guard(g, server_cfg, specs_dir, "T4", "srv1", "update")
-        rep.ok("adversarial: server DB без per-db env заблокирован") if r != 0 else rep.error("adversarial: server DB НЕ заблокирован")
 
-    # --- production → exit 1 ---
-    prod_cfg = {"environment": "production", "v8path": "C:\\fake",
-                "databases": [{"id": "prod1", "type": "file", "path": ".\\prod", "environment": "production"}]}
-    with tempfile.TemporaryDirectory(prefix="adv_") as td:
-        tdpath = Path(td)
-        specs_dir = tdpath / "specs"
-        specs_dir.mkdir()
-        r = _run_guard(g, prod_cfg, specs_dir, "T5", "prod1", "update")
-        rep.ok("adversarial: production заблокирован") if r != 0 else rep.error("adversarial: production НЕ заблокирован")
+    def _test(name: str, expected_fail: bool, func) -> None:
+        with tempfile.TemporaryDirectory(prefix="adv_") as td:
+            tdpath = Path(td)
+            specs_dir = tdpath / "specs"
+            control_dir = tdpath / "pilot-control"
+            rc = func(tdpath, specs_dir, control_dir)
+            if expected_fail:
+                rep.ok(f"adversarial: {name} заблокирован") if rc != 0 else rep.error(f"adversarial: {name} НЕ заблокирован")
+            else:
+                rep.ok(f"adversarial: {name} → exit 0") if rc == 0 else rep.error(f"adversarial: {name} НЕ прошёл (exit {rc})")
 
-    # --- unknown DB → exit 1 ---
-    with tempfile.TemporaryDirectory(prefix="adv_") as td:
-        tdpath = Path(td)
-        specs_dir = tdpath / "specs"
-        specs_dir.mkdir()
-        r = _run_guard(g, base_cfg, specs_dir, "T6", "nonexistent", "update")
-        rep.ok("adversarial: unknown DB заблокирован") if r != 0 else rep.error("adversarial: unknown DB НЕ заблокирован")
-
-    # --- load-dt без approval → exit 1 (особо опасная) ---
-    with tempfile.TemporaryDirectory(prefix="adv_") as td:
-        tdpath = Path(td)
-        specs_dir = tdpath / "specs"
-        h = _make_spec_file(specs_dir, "T7", status="approved", risk="low",
-                            approved_by="user", approved_at="2026-01-01", spec_version="1")
-        _make_report_file(specs_dir, "T7", h)
-        _make_review_file(specs_dir, "T7", h)
-        _make_backup_file(specs_dir, "T7", "local-demo")
-        # НЕТ approval.md
-        r = _run_guard(g, base_cfg, specs_dir, "T7", "local-demo", "load-dt")
-        rep.ok("adversarial: load-dt без approval заблокирован") if r != 0 else rep.error("adversarial: load-dt без approval НЕ заблокирован")
-
-    # --- backup-missing → exit 1 ---
-    with tempfile.TemporaryDirectory(prefix="adv_") as td:
-        tdpath = Path(td)
-        specs_dir = tdpath / "specs"
-        h = _make_spec_file(specs_dir, "T8", status="approved", risk="low",
-                            approved_by="user", approved_at="2026-01-01", spec_version="1")
-        _make_report_file(specs_dir, "T8", h)
-        _make_review_file(specs_dir, "T8", h)
-        # НЕТ backup.md
-        r = _run_guard(g, base_cfg, specs_dir, "T8", "local-demo", "update")
-        rep.ok("adversarial: backup-missing заблокирован") if r != 0 else rep.error("adversarial: backup-missing НЕ заблокирован")
-
-    # --- некорректный TASK-ID → exit 1 ---
-    with tempfile.TemporaryDirectory(prefix="adv_") as td:
-        tdpath = Path(td)
-        specs_dir = tdpath / "specs"
-        specs_dir.mkdir()
-        r = _run_guard(g, base_cfg, specs_dir, "../etc/passwd", "local-demo", "update")
-        rep.ok("adversarial: path traversal TASK-ID заблокирован") if r != 0 else rep.error("adversarial: path traversal TASK-ID НЕ заблокирован")
-
-    # --- Позитивный кейс: всё корректно (load-xml Partial) → exit 0 ---
-    with tempfile.TemporaryDirectory(prefix="adv_") as td:
-        tdpath = Path(td)
-        # Создать тестовый файл для plan-files проверки
+    def _setup_and_guard(tdpath, specs_dir, control_dir, spec_kwargs, report_hash=None,
+                         review=True, backup=True, op="update", mode="Partial", files="",
+                         cfg=None, task_id="TASK-T"):
+        """Создать SDD окружение и запустить guard. Возвращает exit code."""
+        cfg = cfg or base_cfg
+        # Создать план-файл (projects/test/src/test.bsl) относительно tdpath
         proj_dir = tdpath / "projects" / "test" / "src"
         proj_dir.mkdir(parents=True, exist_ok=True)
         (proj_dir / "test.bsl").write_text("// test\n", encoding="utf-8")
-        # Установить ROOT через --config (guard использует ROOT для plan-files)
-        cfg_with_root = dict(base_cfg)
-        cfg_path = tdpath / "cfg.json"
-        cfg_path.write_text(json.dumps(base_cfg), encoding="utf-8")
-        specs_dir = tdpath / "specs"
-        h = _make_spec_file(specs_dir, "TOK", status="approved", risk="low",
-                            approved_by="user", approved_at="2026-01-01", spec_version="1")
-        _make_report_file(specs_dir, "TOK", h)
-        _make_review_file(specs_dir, "TOK", h, reviewed_by="1c-reviewer")
-        _make_backup_file(specs_dir, "TOK", "local-demo", artifact=str(tdpath / "backup.dt"))
-        # Создать файл backup
-        (tdpath / "backup.dt").write_text("fake backup", encoding="utf-8")
-        # Создать план-файл
-        (tdpath / "projects" / "test" / "src" / "test.bsl").write_text("// test\n", encoding="utf-8")
-        r = _run_guard(g, base_cfg, specs_dir, "TOK", "local-demo", "load-xml", "Partial",
-                       files="projects/test/src/test.bsl")
-        # Note: guard uses ROOT (harness) for plan-files check, which won't have projects/test/src/test.bsl
-        # So this test may fail on plan-files. Let's check exit code and handle gracefully.
-        if r == 0:
-            rep.ok("adversarial: позитивный кейс (load-xml Partial) → exit 0")
-        else:
-            rep.warn(f"adversarial: позитивный кейс не прошёл (exit {r}) — возможно plan-files ROOT mismatch в test env")
+        h = _make_spec_file(specs_dir, task_id, **spec_kwargs)
+        sv = spec_kwargs.get("spec_version", "1")
+        _make_report_file(specs_dir, task_id, report_hash or h, sv)
+        if review:
+            _make_review_file(control_dir, task_id, h, sv)
+        if backup:
+            # Использовать свежий timestamp (текущее время)
+            now_ts = datetime.now(timezone.utc).isoformat()
+            _make_backup_file(control_dir, task_id, "local-demo", "local", tdpath, created_at=now_ts)
+        return _run_guard(g, tdpath, cfg, specs_dir, control_dir, task_id, "local-demo", op, mode, files)
+
+    # --- Негативные тесты ---
+
+    _test("direct-bypass без --task", True,
+          lambda td, sd, cd: _run_guard(g, td, base_cfg, sd, cd, "", "local-demo", "update"))
+
+    _test("review-missing", True,
+          lambda td, sd, cd: _setup_and_guard(td, sd, cd,
+              {"status": "approved", "risk": "low", "approved_by": "user",
+               "approved_at": "2026-01-01T12:00:00+00:00", "spec_version": "1"}, review=False))
+
+    _test("empty approved_at", True,
+          lambda td, sd, cd: _setup_and_guard(td, sd, cd,
+              {"status": "approved", "risk": "low", "approved_by": "user",
+               "approved_at": "", "spec_version": "1"}))
+
+    _test("self-approval high-risk", True,
+          lambda td, sd, cd: _setup_and_guard(td, sd, cd,
+              {"status": "approved", "risk": "high", "approved_by": "1c-developer",
+               "approved_at": "2026-01-01T12:00:00+00:00", "spec_version": "1"}))
+
+    _test("scope-hash drift", True,
+          lambda td, sd, cd: _setup_and_guard(td, sd, cd,
+              {"status": "approved", "risk": "low", "approved_by": "user",
+               "approved_at": "2026-01-01T12:00:00+00:00", "spec_version": "1"},
+              report_hash="FAKE_HASH"))
+
+    _test("independence violation", True,
+          lambda td, sd, cd: _setup_and_guard(td, sd, cd,
+              {"status": "approved", "risk": "low", "approved_by": "1c-reviewer",
+               "approved_at": "2026-01-01T12:00:00+00:00", "spec_version": "1"}))
+
+    _test("server DB без per-db env", True,
+          lambda td, sd, cd: _run_guard(g, td,
+              {"environment": "local", "v8path": "C:\\fake",
+               "databases": [{"id": "srv1", "type": "server", "server": "srv", "ref": "db",
+               "username_env": "V8_USER", "password_env": "V8_PASS"}]},
+              sd, cd, "TASK-T", "srv1", "update"))
+
+    _test("production", True,
+          lambda td, sd, cd: _run_guard(g, td,
+              {"environment": "production", "v8path": "C:\\fake",
+               "databases": [{"id": "prod1", "type": "file", "path": ".\\prod",
+               "environment": "production"}]}, sd, cd, "TASK-T", "prod1", "update"))
+
+    _test("unknown DB", True,
+          lambda td, sd, cd: _run_guard(g, td, base_cfg, sd, cd, "TASK-T", "nonexistent", "update"))
+
+    _test("load-dt заблокирована", True,
+          lambda td, sd, cd: _run_guard(g, td, base_cfg, sd, cd, "TASK-T", "local-demo", "load-dt"))
+
+    _test("create заблокирована", True,
+          lambda td, sd, cd: _run_guard(g, td, base_cfg, sd, cd, "TASK-T", "local-demo", "create"))
+
+    _test("load-cf заблокирована", True,
+          lambda td, sd, cd: _run_guard(g, td, base_cfg, sd, cd, "TASK-T", "local-demo", "load-cf"))
+
+    _test("Full mode заблокирован", True,
+          lambda td, sd, cd: _run_guard(g, td, base_cfg, sd, cd, "TASK-T", "local-demo", "load-xml", "Full"))
+
+    _test("web-publish заблокирована", True,
+          lambda td, sd, cd: _run_guard(g, td, base_cfg, sd, cd, "TASK-T", "local-demo", "web-publish"))
+
+    _test("path traversal TASK-ID", True,
+          lambda td, sd, cd: _run_guard(g, td, base_cfg, sd, cd, "../etc/passwd", "local-demo", "update"))
+
+    _test("backup-missing", True,
+          lambda td, sd, cd: _setup_and_guard(td, sd, cd,
+              {"status": "approved", "risk": "low", "approved_by": "user",
+               "approved_at": "2026-01-01T12:00:00+00:00", "spec_version": "1"}, backup=False))
+
+    _test("invalid timestamp (no timezone)", True,
+          lambda td, sd, cd: _setup_and_guard(td, sd, cd,
+              {"status": "approved", "risk": "low", "approved_by": "user",
+               "approved_at": "2026-01-01", "spec_version": "1"}))
+
+    _test("unknown risk", True,
+          lambda td, sd, cd: _setup_and_guard(td, sd, cd,
+              {"status": "approved", "risk": "critical", "approved_by": "user",
+               "approved_at": "2026-01-01T12:00:00+00:00", "spec_version": "1"}))
+
+    _test("missing spec_version", True,
+          lambda td, sd, cd: _setup_and_guard(td, sd, cd,
+              {"status": "approved", "risk": "low", "approved_by": "user",
+               "approved_at": "2026-01-01T12:00:00+00:00"}))
+
+    # --- Позитивные тесты (MUST pass with exit 0) ---
+
+    _test("позитивный load-xml Partial", False,
+          lambda td, sd, cd: _setup_and_guard(td, sd, cd,
+              {"status": "approved", "risk": "low", "approved_by": "user",
+               "approved_at": "2026-01-01T12:00:00+00:00", "spec_version": "1"},
+              op="load-xml", mode="Partial", files="projects/test/src/test.bsl"))
+
+    _test("позитивный update", False,
+          lambda td, sd, cd: _setup_and_guard(td, sd, cd,
+              {"status": "approved", "risk": "low", "approved_by": "user",
+               "approved_at": "2026-01-01T12:00:00+00:00", "spec_version": "1"},
+              op="update"))
 
 
 def check_applier_self_path(rep: Report) -> None:
