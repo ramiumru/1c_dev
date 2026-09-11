@@ -4,19 +4,24 @@
 safe_apply.py — единая безопасная точка входа для опасных операций apply.
 
 Wrapper: запускает applier_guard.py (preflight) и ТОЛЬКО при успешном
-прохождении вызывает skill-скрипт (db-load-xml / db-load-cf / db-update / ...).
+прохождении вызывает skill-скрипт.
 
-Безопасность секретов (P0-3):
+Безопасность секретов (P0-5):
   - Пароль НИКОГДА не передаётся как аргумент PowerShell.
-  - Python передаёт имя env-переменной через -PasswordEnv <NAME>.
+  - Python передаёт имя env-переменной через -UserNameEnv/-PasswordEnv.
   - PowerShell-скрипт читает значение из $env:<NAME> перед запуском платформы.
-  - Единая функция redaction() маскирует все чувствительные значения в выводе.
-  - Исключения и сообщения об ошибках проходят через redaction.
+  - Единая функция redact() маскирует все чувствительные значения в выводе.
+
+P0-6: load-xml и update разделены. --update-db удалён.
+  - load-xml загружает только XML, без обновления БД.
+  - update — отдельная операция с отдельным guard.
+
+P0-7: особо опасные операции (load-dt, create, load-cf, web-*) заблокированы.
 
 Exit codes:
   0 — операция выполнена успешно
-  1 — guard заблокировал операцию (или операция завершилась ошибкой)
-  2 — ошибка аргументов / конфигурации / корень не найден
+  1 — guard заблокировал операцию
+  2 — ошибка аргументов / конфигурации
 """
 
 from __future__ import annotations
@@ -46,6 +51,11 @@ def _find_root(start: Path) -> Path:
 
 ROOT = _find_root(Path(__file__).resolve())
 
+# P0-7: только разрешённые операции для первого пилота
+ALLOWED_OPS = {"load-xml", "update"}
+# Особо опасные — заблокированы независимо от approval
+BLOCKED_OPS = {"load-dt", "create", "load-cf", "web-publish", "web-unpublish"}
+
 OP_TO_SKILL = {
     "load-xml": "db-load-xml",
     "load-cf": "db-load-cf",
@@ -54,30 +64,25 @@ OP_TO_SKILL = {
     "create": "db-create",
 }
 
-# Параметры, значения которых маскируются в выводе
-SENSITIVE_PARAMS = {"-Password", "/P", "--password", "-PasswordEnv", "-UserName", "-V8Path"}
+SENSITIVE_PARAMS = {"-Password", "/P", "--password", "-PasswordEnv", "-UserName", "-UserNameEnv", "-V8Path"}
 
 
 def redact(text: str) -> str:
     """Единая функция redaction: маскирует значения после чувствительных параметров."""
     if not text:
         return text
-    # Маскируем значения после чувствительных параметров
     for param in SENSITIVE_PARAMS:
-        # Заменяем "param value" на "param ***REDACTED***"
         text = re.sub(
             rf"({re.escape(param)}\s+)([^\s-]+)",
             r"\1***REDACTED***",
             text,
         )
-    # Маскируем строки подключения с учётными данными
     text = re.sub(r"(Password=)[^;\s]+", r"\1***REDACTED***", text, flags=re.IGNORECASE)
     text = re.sub(r"(Usr=)[^;\s]+", r"\1***REDACTED***", text, flags=re.IGNORECASE)
     return text
 
 
 def find_skills_dir(root: Path) -> Path:
-    """Найти каталог skills в установленной раскладке (адаптер-зависимый)."""
     candidates = [
         root / ".kilo" / "skills",
         root / ".claude" / "skills",
@@ -90,8 +95,8 @@ def find_skills_dir(root: Path) -> Path:
     return root / ".kilo" / "skills"
 
 
-def run_guard(task: str, db: str, op: str, mode: str, files: str) -> int:
-    """Запустить applier_guard.py как subprocess. Возвращает exit code."""
+def run_guard(task: str, db: str, op: str, mode: str, files: str, project_root: str) -> int:
+    """Запустить applier_guard.py как subprocess."""
     guard = ROOT / "scripts" / "applier_guard.py"
     if not guard.exists():
         guard = ROOT / "core" / "scripts" / "applier_guard.py"
@@ -104,6 +109,8 @@ def run_guard(task: str, db: str, op: str, mode: str, files: str) -> int:
     ]
     if files:
         cmd += ["--files", files]
+    if project_root:
+        cmd += ["--project-root", project_root]
     print("=== safe_apply: preflight guard ===")
     print(f"  cmd: {redact(' '.join(cmd))}")
     r = subprocess.run(cmd)
@@ -115,7 +122,6 @@ def run_guard(task: str, db: str, op: str, mode: str, files: str) -> int:
 
 
 def load_db_config(db_id: str) -> dict:
-    """Прочитать .v8-project.json и найти запись базы по id."""
     cfg_path = ROOT / ".v8-project.json"
     if not cfg_path.exists():
         print("ERROR: .v8-project.json не найден", file=sys.stderr)
@@ -135,48 +141,47 @@ def load_db_config(db_id: str) -> dict:
     return db
 
 
-def build_ps_args(db: dict, args) -> list[str]:
-    """Построить список аргументов для skill-скрипта PowerShell.
-
-    Пароль и логин передаются как ИМЕНА env-переменных, а не значения.
-    """
+def build_ps_args_load_xml(db: dict, args) -> list[str]:
+    """Аргументы для db-load-xml (P0-5: per-op, P0-6: без -UpdateDB)."""
     ps_args: list[str] = []
     v8path = db.get("__v8path", "")
     if v8path:
         ps_args.extend(["-V8Path", v8path])
-
     db_type = str(db.get("type", "")).strip().lower()
     if db_type == "server":
-        server = db.get("server", "")
-        ref = db.get("ref", "")
-        if server:
-            ps_args.extend(["-InfoBaseServer", str(server)])
-        if ref:
-            ps_args.extend(["-InfoBaseRef", str(ref)])
+        if db.get("server"): ps_args.extend(["-InfoBaseServer", str(db["server"])])
+        if db.get("ref"): ps_args.extend(["-InfoBaseRef", str(db["ref"])])
     else:
-        path = db.get("path", "")
-        if path:
-            ps_args.extend(["-InfoBasePath", str(path)])
-
-    # Передаём ИМЕНА env-переменных, а не значения
+        if db.get("path"): ps_args.extend(["-InfoBasePath", str(db["path"])])
     username_env = db.get("username_env", "")
     password_env = db.get("password_env", "")
-    if username_env:
-        ps_args.extend(["-UserNameEnv", username_env])
-    if password_env:
-        ps_args.extend(["-PasswordEnv", password_env])
+    if username_env: ps_args.extend(["-UserNameEnv", username_env])
+    if password_env: ps_args.extend(["-PasswordEnv", password_env])
+    if args.config_dir: ps_args.extend(["-ConfigDir", str(args.config_dir)])
+    ps_args.extend(["-Mode", args.mode])
+    if args.files: ps_args.extend(["-Files", args.files])
+    if args.extension: ps_args.extend(["-Extension", args.extension])
+    return ps_args
 
-    if args.config_dir:
-        ps_args.extend(["-ConfigDir", str(args.config_dir)])
-    if args.mode:
-        ps_args.extend(["-Mode", args.mode])
-    if args.files:
-        ps_args.extend(["-Files", args.files])
-    if args.extension:
-        ps_args.extend(["-Extension", args.extension])
-    if args.update_db:
-        ps_args.append("-UpdateDB")
 
+def build_ps_args_update(db: dict, args) -> list[str]:
+    """Аргументы для db-update (P0-5: per-op)."""
+    ps_args: list[str] = []
+    v8path = db.get("__v8path", "")
+    if v8path:
+        ps_args.extend(["-V8Path", v8path])
+    db_type = str(db.get("type", "")).strip().lower()
+    if db_type == "server":
+        if db.get("server"): ps_args.extend(["-InfoBaseServer", str(db["server"])])
+        if db.get("ref"): ps_args.extend(["-InfoBaseRef", str(db["ref"])])
+    else:
+        if db.get("path"): ps_args.extend(["-InfoBasePath", str(db["path"])])
+    username_env = db.get("username_env", "")
+    password_env = db.get("password_env", "")
+    if username_env: ps_args.extend(["-UserNameEnv", username_env])
+    if password_env: ps_args.extend(["-PasswordEnv", password_env])
+    if args.extension: ps_args.extend(["-Extension", args.extension])
+    if args.dynamic: ps_args.extend(["-Dynamic", args.dynamic])
     return ps_args
 
 
@@ -187,23 +192,31 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(
         prog="safe_apply.py",
-        description="Единая безопасная точка входа для опасных операций apply (guard + skill).",
+        description="Единая безопасная точка входа для опасных операций apply.",
     )
     parser.add_argument("--task", required=True, help="TASK-ID (строгий формат TASK-<alnum>)")
     parser.add_argument("--db", required=True, help="id базы из .v8-project.json")
-    parser.add_argument("--op", required=True, choices=sorted(OP_TO_SKILL.keys()),
-                        help="класс операции")
+    parser.add_argument("--op", required=True, choices=sorted(ALLOWED_OPS),
+                        help="класс операции (load-xml или update)")
     parser.add_argument("--config-dir", default="", help="ConfigDir (каталог XML-исходников)")
     parser.add_argument("--mode", default="Partial", choices=["Full", "Partial"], help="режим загрузки")
     parser.add_argument("--files", default="", help="относительные пути через запятую (для Partial)")
     parser.add_argument("--extension", default="", help="имя расширения")
-    parser.add_argument("--update-db", action="store_true", help="совместить load + db-update (-UpdateDB)")
+    parser.add_argument("--dynamic", default="", choices=["+", "-"], help="динамическое обновление (для update)")
+    parser.add_argument("--project-root", default="", help="явный корень проекта (для тестов)")
     parser.add_argument("--dry-run", action="store_true", help="только guard, без вызова skill")
     args = parser.parse_args()
 
-    # 1. Preflight guard — обязателен
-    guard_exit = run_guard(args.task.strip(), args.db.strip(), args.op.strip(),
-                          args.mode, args.files.strip())
+    op = args.op.strip()
+
+    # P0-7: проверка, что операция не заблокирована
+    if op in BLOCKED_OPS:
+        print(f"ERROR: операция '{op}' заблокирована — особо опасная операция недоступна через wrapper", file=sys.stderr)
+        return 1
+
+    # 1. Preflight guard
+    guard_exit = run_guard(args.task.strip(), args.db.strip(), op, args.mode, args.files.strip(),
+                          args.project_root.strip())
     if guard_exit != 0:
         return 1
 
@@ -217,15 +230,21 @@ def main() -> int:
         return 2
 
     # 3. Найти skill-скрипт
-    skill_name = OP_TO_SKILL[args.op]
+    skill_name = OP_TO_SKILL[op]
     skills_dir = find_skills_dir(ROOT)
     skill_script = skills_dir / skill_name / "scripts" / f"{skill_name}.ps1"
     if not skill_script.exists():
         print(f"ERROR: skill-скрипт не найден: {skill_script}", file=sys.stderr)
         return 2
 
-    # 4. Построить аргументы для PowerShell (секреты как env-имена)
-    ps_args = build_ps_args(db, args)
+    # 4. Построить аргументы (per-op)
+    if op == "load-xml":
+        ps_args = build_ps_args_load_xml(db, args)
+    elif op == "update":
+        ps_args = build_ps_args_update(db, args)
+    else:
+        print(f"ERROR: операция '{op}' не поддерживается wrapper", file=sys.stderr)
+        return 2
 
     # 5. Запустить skill-скрипт
     pwsh = os.environ.get("PWSH", "powershell")

@@ -75,6 +75,12 @@ param(
     [Parameter(Mandatory=$false)]
     [string]$Password,
 
+    [Parameter(Mandatory=$false)]
+    [string]$UserNameEnv,
+
+    [Parameter(Mandatory=$false)]
+    [string]$PasswordEnv,
+
     [Parameter(Mandatory=$true)]
     [string]$ConfigDir,
 
@@ -97,9 +103,6 @@ param(
     [Parameter(Mandatory=$false)]
     [ValidateSet("Hierarchical", "Plain")]
     [string]$Format = "Hierarchical",
-
-    [Parameter(Mandatory=$false)]
-    [switch]$UpdateDB,
 
     [Parameter(Mandatory=$false)]
     [switch]$StrictLog
@@ -228,6 +231,22 @@ if ($Mode -eq "Partial" -and -not $Files -and -not $ListFile) {
     exit 1
 }
 
+# --- Resolve credentials from env-variables (P0-5: secrets never passed as values) ---
+if (-not $UserName -and $UserNameEnv) {
+    $UserName = [Environment]::GetEnvironmentVariable($UserNameEnv)
+    if (-not $UserName) {
+        Write-Host "Error: environment variable '$UserNameEnv' is not set or empty" -ForegroundColor Red
+        exit 1
+    }
+}
+if (-not $Password -and $PasswordEnv) {
+    $Password = [Environment]::GetEnvironmentVariable($PasswordEnv)
+    if (-not $Password) {
+        Write-Host "Error: environment variable '$PasswordEnv' is not set or empty" -ForegroundColor Red
+        exit 1
+    }
+}
+
 # --- Temp dir ---
 $tempDir = Join-Path $env:TEMP "db_load_xml_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
@@ -280,22 +299,6 @@ try {
         Write-Host "Configuration loaded successfully from: $ConfigDir" -ForegroundColor Green
         if ($output) { Write-Host ($output | Out-String) }
 
-        if ($UpdateDB) {
-            $applyArgs = @("infobase", "config", "apply", "--db-path=$InfoBasePath", "--force")
-            if ($UserName) { $applyArgs += "--user=$UserName" }
-            if ($Password) { $applyArgs += "--password=$Password" }
-            $applyArgs += "--data=$tempDir"
-            Write-Host "Running: ibcmd $(Protect-Secrets ($applyArgs -join ' ') @($Password, $UserName))"
-            $__ib = Invoke-IbcmdProcess $V8Path $applyArgs
-            $applyOut = $__ib.Output
-            $exitCode = $__ib.ExitCode
-            if ($exitCode -eq 0) {
-                Write-Host "Database configuration updated successfully" -ForegroundColor Green
-            } else {
-                Write-Host "Error updating database configuration (code: $exitCode)$(Get-ExitAnnotation $exitCode)" -ForegroundColor Red
-            }
-            if ($applyOut) { Write-Host ($applyOut | Out-String) }
-        }
         exit $exitCode
     }
 
@@ -362,11 +365,6 @@ try {
         $arguments += "-Extension", "`"$Extension`""
     } elseif ($AllExtensions) {
         $arguments += "-AllExtensions"
-    }
-
-    # --- UpdateDB ---
-    if ($UpdateDB) {
-        $arguments += "/UpdateDBCfg"
     }
 
     # --- Output ---

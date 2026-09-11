@@ -38,7 +38,8 @@ param(
     [string]$Target = ".",
     [ValidateSet("install","update")]
     [string]$Mode = "install",
-    [switch]$Force
+    [switch]$Force,
+    [string]$OverlayPath
 )
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot   # корень репо
@@ -278,7 +279,54 @@ if (Test-Path "$repo\AGENT-INSTALL.md") {
     Safe-CopyFile "$repo\AGENT-INSTALL.md" (Join-Path $Target "AGENT-INSTALL.md") "AGENT-INSTALL.md"
 }
 # LICENSE harness НЕ копируется в корень целевого проекта (P0-2.2)
-# Сведения о лицензии harness — в NOTICE.md/THIRD_PARTY_LICENSES.md (копируются с контекстом)
+
+# --- 5.5. External overlay (если указан -OverlayPath) ---
+if ($OverlayPath) {
+    Write-Host "[5.5/7] External overlay -> $OverlayPath"
+    if (-not (Test-Path $OverlayPath)) {
+        Write-Host "[5.5/7] OverlayPath не найден — пропуск"
+    } else {
+        # Проверка path safety
+        $overlayFull = (Get-Item $OverlayPath).FullName
+        # Копировать standards/ -> <context>/standards/standards.md
+        $overlayStandards = Join-Path $OverlayPath "standards"
+        if (Test-Path $overlayStandards) {
+            $stdDst = Join-Path $ctxDst "standards"
+            New-Item -ItemType Directory -Force -Path $stdDst | Out-Null
+            Get-ChildItem $overlayStandards -File | ForEach-Object {
+                Safe-CopyFile $_.FullName (Join-Path $stdDst $_.Name) "$ctx/standards/$($_.Name)"
+            }
+            Write-Host "[5.5/7] Корпоративные стандарты установлены"
+        }
+        # Копировать projects/ -> <context>/projects/<project>/
+        $overlayProjects = Join-Path $OverlayPath "projects"
+        if (Test-Path $overlayProjects) {
+            Get-ChildItem $overlayProjects -Directory | ForEach-Object {
+                $projName = $_.Name
+                $projDst = Join-Path $ctxDst "projects/$projName"
+                New-Item -ItemType Directory -Force -Path $projDst | Out-Null
+                Get-ChildItem $_.FullName -Recurse -File | ForEach-Object {
+                    $rel = $_.FullName.Substring($overlayProjects.Length).TrimStart('\','/')
+                    $dstFile = Join-Path $ctxDst "projects/$projName/$rel"
+                    $relPath = "$ctx/projects/$projName/$rel" -replace '\\','/'
+                    if (Test-ShouldOverwrite $relPath) {
+                        $dstDir = Split-Path $dstFile -Parent
+                        if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
+                        Copy-Item $_.FullName $dstFile -Force
+                    }
+                }
+            }
+            Write-Host "[5.5/7] Per-project контексты установлены"
+        }
+    }
+}
+
+# Создать pilot-control/ каталог (read-only для агентов)
+$pilotControlDir = Join-Path $Target "pilot-control"
+if (-not (Test-Path $pilotControlDir)) {
+    New-Item -ItemType Directory -Force -Path $pilotControlDir | Out-Null
+    Write-Host "[5.5/7] pilot-control/ создан (для review.md, backup.md — read-only для агентов)"
+}
 
 # --- 6. .dev.env ---
 Write-Host "[6/7] .dev.env -> параметры проекта"
