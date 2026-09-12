@@ -175,7 +175,7 @@ def main() -> int:
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     artifact_rel = f"{BACKUP_ROOT}/{db_id}_{task_id}_{ts}.dt"
     artifact_path = project_root / artifact_rel
-    ps_args.extend(["-OutFile", str(artifact_path)])
+    ps_args.extend(["-OutputFile", str(artifact_path)])
 
     # 7. Запустить backup skill
     pwsh = os.environ.get("PWSH", "powershell")
