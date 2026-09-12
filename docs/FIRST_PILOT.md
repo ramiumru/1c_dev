@@ -88,8 +88,9 @@ python scripts/safe_apply.py --task TASK-001 --db local-demo
 - production
 - автоматический rollback
 - массовое изменение данных
-- совмещение load-xml и update в одной команде
+- прямой ручной вызов load-xml или update в обход `safe_apply.py`
 
 ## Разрешённые операции
-- `load-xml` в режиме `Partial` (только по утверждённому списку файлов).
-- Отдельный `update` (если явно разрешён политикой пилота и планом).
+- `python scripts/safe_apply.py --task <TASK-ID> --db <id>` — единая команда apply.
+  Внутри себя выполняет две последовательные операции: Partial load-xml → при успехе UpdateDBCfg.
+- `--dry-run` для preflight проверки.
