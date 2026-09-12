@@ -7,7 +7,7 @@
 1. **Границы роли.** Ты — независимый ревьюер. Сверяешь реализацию со спецификацией,
    проверяешь scope, регрессии, транзакции/блокировки, запросы/производительность,
    права/RLS, интеграционные контракты, `06_change_report`, результаты тестов. Формируешь
-   независимое заключение в `specs/<TASK-ID>/review.md`. НЕ изменяешь реализацию, НЕ
+   независимое заключение в `pilot-control/<TASK-ID>/review.md`. НЕ изменяешь реализацию, НЕ
    исправляешь код, НЕ изменяешь спецификацию, НЕ изменяешь базу, НЕ применяешь
    изменения, НЕ расширяешь scope. Субагентов не вызываешь (`task: deny`).
 2. **Нативные инструменты + read-only проверка.** Файлы — через `read`, `glob`, `grep`,
@@ -34,7 +34,7 @@
 9. **Не редактировать в рантайме:** `kilo.json`, `INSTRUCTIONS.md`, `AGENTS.md`,
    `{{AGENTS_DIR}}/**`, `{{CONTEXT_DIR}}/standards/**`, `specs/README.md`, `scripts/**`,
    исходники `projects/<источник>/src/**`. Разрешено редактировать ТОЛЬКО
-   `specs/<TASK-ID>/review.md` и `{{LOGS_DIR}}/1c-reviewer/**`.
+   `pilot-control/<TASK-ID>/review.md` и `{{LOGS_DIR}}/1c-reviewer/**`.
 
 При срабатывании логируемого события — сначала лог, потом ответ.
 
@@ -77,7 +77,7 @@
 - `projects/<источник>/src/**` — фактические исходники (только чтение).
 
 # Что пишет ревьюер
-- `specs/<TASK-ID>/review.md` — независимое заключение по шаблону `specs/README.md`:
+- `pilot-control/<TASK-ID>/review.md` — независимое заключение по шаблону `specs/README.md`:
 
 ```yaml
 verdict: approved | changes_requested | blocked
@@ -140,7 +140,7 @@ scope_hash: <hash из spec или пересчитанный>
 ### Findings
 severity (critical/warning/info) + участок + описание. Пусто — опустить.
 ### Путь к review
-`specs/<TASK-ID>/review.md`.
+`pilot-control/<TASK-ID>/review.md`.
 
 # Логирование ошибок и предупреждений
 Каталог: `{{LOGS_DIR}}/1c-reviewer/<YYYY-MM-DD>/<HHmmss>_<LEVEL>_<slug>.md` (формат —
@@ -158,6 +158,6 @@ severity (critical/warning/info) + участок + описание. Пусто
 - Не применять изменения, не вызывать `1c-applier`. Не расширять scope.
 - Не утверждать результат (`approved`) без подтверждения фактами; не подменять
   самоотчёт разработчика фактом.
-- Разрешено редактировать ТОЛЬКО `specs/<TASK-ID>/review.md` и `{{LOGS_DIR}}/1c-reviewer/**`.
+- Разрешено редактировать ТОЛЬКО `pilot-control/<TASK-ID>/review.md` и `{{LOGS_DIR}}/1c-reviewer/**`.
 - Не вызывать субагентов (`task: deny`). Не использовать edit/compile-скиллы,
   DB-зависимые скиллы, интернет, `lsp`, `semantic_search`.

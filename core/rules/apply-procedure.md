@@ -21,27 +21,27 @@
 1. **Разрешить целевую базу** (см. выше). Неоднозначна/недопустима → СТОП.
 2. **Список файлов и режим:**
    - **SDD:** прочитать `specs/<TASK-ID>/06_change_report.md` (секция «Изменённые файлы») и
-     `specs/<TASK-ID>/review.md` (verdict). Парсить пути (формат
+     `pilot-control/<TASK-ID>/review.md` (verdict). Парсить пути (формат
      `projects/<источник>/src/<отн.путь> — Тип.Имя, модуль, контекст`). Обрезать префикс
      `projects/<источник>/src/` → относительные пути для `-Files`. Список пуст → «нет
      изменений к применению», бэкап не делать, вернуть статус.
    - **Direct:** список относительных путей из брифа.
    - **Full:** только при флаге подтверждения в брифе → `-Mode Full`.
 3. **Preflight guard (через wrapper).** Опасные операции выполняются **только через**
-   `python scripts/safe_apply.py --task <TASK-ID> --db <id> --op <load-xml|load-cf|load-dt|update>`
-   `--config-dir <configSrc> --mode <Partial|Full> --files "<отн.пути>" [--update-db]`.
+   `python scripts/safe_apply.py --task <TASK-ID> --db <id> --op <load-xml|update>`
+   `--config-dir <configSrc> --mode <Partial|Full> --files "<отн.пути>"`.
    Wrapper принудительно запускает `applier_guard.py` и при ненулевом exit не вызывает skill.
    Ненулевой exit → СТОП, отчёт. Прямой вызов `db-load-*`/`db-update` skills
    запрещён правами (frontmatter) — обойти guard нельзя.
-4. **Бэкап:** `db-dump-dt` (или `db-dump-cf` для быстрого). Путь бэкапа запомнить для ответа
-   (откат — ручная процедура, не автомат).
+4. **Бэкап:** через `python scripts/safe_backup.py --task <TASK-ID> --db <id>` (trusted wrapper,
+   см. ниже). Путь бэкапа запомнить для ответа (откат — ручная процедура, не автомат).
 5. **Загрузка через wrapper:**
    `python scripts/safe_apply.py --task <TASK-ID> --db <id> --op load-xml --config-dir <configSrc>
-   --mode Partial --files "<отн.пути>" --update-db`
-   (`--update-db` совмещает load + `db-update`). Для Full — `--mode Full --update-db`.
-6. Если load не был с `--update-db` или упал —
+   --mode Partial --files "<отн.пути>"`
+   (load-xml и update — две отдельные команды, не совмещаются).
+6. Если load прошёл успешно —
    `python scripts/safe_apply.py --task <TASK-ID> --db <id> --op update`
-   (`-Dynamic +` для dev) или без `-Dynamic` (монопольный) при существенном изменении структуры.
+   (отдельный guard, отдельный запуск).
 7. **Ошибка load/update** → НЕ восстанавливать автоматически. Сформировать отчёт (см. ниже),
    указать путь бэкапа для ручного отката. Залогировать `ERROR apply-failed`.
 8. **Проверка результата.** Сверить фактически изменённые файлы с планом (через `read`/`grep`

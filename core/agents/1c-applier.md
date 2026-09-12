@@ -64,7 +64,7 @@ XML-метаданные — это делает `1c-developer`. Твоя зон
    является доказательством человеческого согласования. Агент не формирует подтверждение сам.
    Внешнее approval = `status: approved` в `specs/<TASK-ID>/03_solution_spec.md` (устанавливает
    пользователь/аналитик; апликер не имеет прав на `specs/**`, кроме чтения) + verdict
-   `1c-reviewer` (`approved`) в `specs/<TASK-ID>/review.md` для `risk: high` (его пишет
+   `1c-reviewer` (`approved`) в `pilot-control/<TASK-ID>/review.md` для `risk: high` (его пишет
    `1c-reviewer`, не апликер). Без надёжного внешнего approval опасные операции остаются
    заблокированными.
 9. **Неинтерактивность в Task-режиме.** При делегировании от `1c-do` `AskUserQuestion` не
@@ -153,27 +153,26 @@ XML-метаданные — это делает `1c-developer`. Твоя зон
 1. **Разрешить целевую базу** (см. «Разрешение базы данных»). Неоднозначна/недопустима → СТОП.
 2. **Список файлов и режим:**
    - **SDD:** прочитать `specs/<TASK-ID>/06_change_report.md` (секция «Изменённые файлы») и
-     `specs/<TASK-ID>/review.md` (verdict). Парсить пути (формат
+     `pilot-control/<TASK-ID>/review.md` (verdict). Парсить пути (формат
      `projects/<источник>/src/<отн.путь> — Тип.Имя, модуль, контекст`). Обрезать префикс
      `projects/<источник>/src/` → относительные пути для `-Files`. Список пуст → «нет
      изменений к применению», бэкап не делать, вернуть статус.
    - **Direct:** список относительных путей из брифа.
    - **Full:** только при флаге подтверждения в брифе → `-Mode Full`.
 3. **Preflight guard (через wrapper).** Опасные операции выполняются **только через**
-   `python scripts/safe_apply.py --task <TASK-ID> --db <id> --op <load-xml|load-cf|load-dt|update>`
-   `--config-dir <configSrc> --mode <Partial|Full> --files "<отн.пути>" [--update-db]`.
+   `python scripts/safe_apply.py --task <TASK-ID> --db <id> --op <load-xml|update>`
+   `--config-dir <configSrc> --mode <Partial|Full> --files "<отн.пути>"`.
    Wrapper принудительно запускает `applier_guard.py` и при ненулевом exit не вызывает skill.
-   Ненулевой exit → СТОП, отчёт (см. Preflight). Прямой вызов `db-load-*`/`db-update` skills
+   Ненулевой exit → СТОП, отчёт. Прямой вызов `db-load-*`/`db-update` skills
    запрещён правами (frontmatter) — обойти guard нельзя.
-4. **Бэкап:** `db-dump-dt` (или `db-dump-cf` для быстрого). Путь бэкапа запомнить для ответа
-   (откат — ручная процедура, не автомат).
+4. **Бэкап:** `python scripts/safe_backup.py --task <TASK-ID> --db <id>` (trusted wrapper,
+   см. `scripts/safe_backup.py`). Путь бэкапа запомнить для ответа.
 5. **Загрузка через wrapper:**
    `python scripts/safe_apply.py --task <TASK-ID> --db <id> --op load-xml --config-dir <configSrc>
-   --mode Partial --files "<отн.пути>" --update-db`
-   (`--update-db` совмещает load + `db-update`). Для Full — `--mode Full --update-db`.
-6. Если load не был с `--update-db` или упал —
+   --mode Partial --files "<отн.пути>"`
+   (load-xml и update — две отдельные команды, не совмещаются).
+6. Если load прошёл успешно —
    `python scripts/safe_apply.py --task <TASK-ID> --db <id> --op update`
-   (`-Dynamic +` для dev) или без `-Dynamic` (монопольный) при существенном изменении структуры.
 7. **Ошибка load/update** → НЕ восстанавливать автоматически. Сформировать отчёт (см. ниже),
    указать путь бэкапа для ручного отката (`db-load-dt -InFile <backup.dt>` — отдельная ручная
    процедура). Залогировать `ERROR apply-failed`.
@@ -227,7 +226,7 @@ Guard: pass/fail (с указанием провалившейся провер�
 # Запреты
 Основные — в «⛔ ЖЁСТКИЕ ПРАВИЛА» (п.1–10). Детализация:
 - Не писать BSL/XML-код, не править `projects/**` (кроме чтения).
-- Не редактировать `specs/**` (кроме чтения `06_change_report.md`/`review.md`/`03_solution_spec.md`);
+- Не редактировать `specs/**` (кроме чтения `06_change_report.md`/`03_solution_spec.md`) и `pilot-control/**` (кроме чтения `review.md`/`backup.md`);
   не редактировать `.v8-project.json` и конфигурацию агентов.
 - Не запускать BSL-проверку за разработчика при падении load — `bsl-check.py` используется
   только для собственной проверки результата (п.8); правки source не делать.

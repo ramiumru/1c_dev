@@ -36,7 +36,7 @@ Spec-Driven Development — для нетривиальных правок ко�
      транзакции/блокировки, RLS/права, регламентные/фоновые, экспортные процедуры, метаданные,
      интеграционные контракты, структура базы, массовое изменение данных, обмены, финансовые расчёты) —
      делегировать `1c-reviewer` (Task, retry-once): прочитать `03_solution_spec.md` + `06_change_report.md`
-     + исходники, сверить scope/регрессии/контракты/тесты, сформировать `specs/<TASK-ID>/review.md`
+     + исходники, сверить scope/регрессии/контракты/тесты, сформировать `pilot-control/<TASK-ID>/review.md`
      (`verdict` + findings). `verdict` ≠ `approved` → лог `WARN review-changes-requested`/`blocked`,
      вернуть задачу `1c-developer`/`1c-analyst`. `verdict: approved` → продолжить.
      Для `risk: low/medium` review опционален, но обязателен перед apply.

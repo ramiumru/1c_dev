@@ -87,6 +87,7 @@ REQUIRED_FILES_SOURCE = [
     "core/sdd/README.md",
     "core/scripts/applier_guard.py",
     "core/scripts/safe_apply.py",
+    "core/scripts/safe_backup.py",
     "core/scripts/scope_hash.py",
     "core/scripts/bsl-check.py",
     "core/scripts/build_summaries.py",
@@ -538,7 +539,7 @@ def check_adversarial_guard(rep: Report) -> None:
         "environment": "local", "v8path": "C:\\fake",
         "databases": [{"id": "local-demo", "type": "file", "path": ".\\base",
                        "environment": "local",
-                       "username_env": "V8_USER", "password_env": "V8_PASS"}],
+                       "username_env": "V8_USER", "password_mode": "none"}],
     }
 
     def _test(name: str, expected_fail: bool, func) -> None:
@@ -1142,6 +1143,72 @@ def check_agent_install(rep: Report) -> None:
             rep.error("agent-install: README не содержит ссылку на AGENT-INSTALL.md")
 
 
+def check_no_update_db(rep: Report) -> None:
+    """Проверка: --update-db не должен присутствовать в действующих инструкциях."""
+    import re as _re
+    scan_dirs = []
+    if IS_SOURCE_REPO:
+        scan_dirs = [ROOT / "core" / "agents", ROOT / "core" / "rules", ROOT / "core" / "sdd"]
+    else:
+        for d in [".kilo/agent", ".kilo/context", ".claude/agents", ".claude/context",
+                   ".openworks/agents", ".openworks/context", "agents", "context"]:
+            sp = ROOT / d
+            if sp.is_dir():
+                scan_dirs.append(sp)
+    found = []
+    for sd in scan_dirs:
+        if not sd.is_dir():
+            continue
+        for f in sd.rglob("*"):
+            if not f.is_file() or f.suffix not in (".md", ".py", ".ps1", ".yml"):
+                continue
+            if f.name == "validate.py":
+                continue
+            text = f.read_text(encoding="utf-8", errors="replace")
+            # Ищем --update-db как флаг safe_apply (не /UpdateDBCfg — это платформенная команда)
+            if _re.search(r"--update-db", text):
+                found.append(str(f.relative_to(ROOT)))
+    if found:
+        for item in found[:5]:
+            rep.error(f"update-db: '{item}' содержит --update-db")
+    else:
+        rep.ok("update-db: --update-db отсутствует в действующих инструкциях")
+
+
+def check_no_old_review_path(rep: Report) -> None:
+    """Проверка: specs/<TASK-ID>/review.md не должен использоваться как действующий путь."""
+    import re as _re
+    scan_dirs = []
+    if IS_SOURCE_REPO:
+        scan_dirs = [ROOT / "core" / "agents", ROOT / "core" / "rules", ROOT / "core" / "sdd",
+                     ROOT / "core" / "context"]
+    else:
+        for d in [".kilo/agent", ".kilo/context", ".claude/agents", ".claude/context",
+                   ".openworks/agents", ".openworks/context", "agents", "context"]:
+            sp = ROOT / d
+            if sp.is_dir():
+                scan_dirs.append(sp)
+    found = []
+    for sd in scan_dirs:
+        if not sd.is_dir():
+            continue
+        for f in sd.rglob("*"):
+            if not f.is_file() or f.suffix not in (".md", ".py"):
+                continue
+            if f.name == "validate.py":
+                continue
+            text = f.read_text(encoding="utf-8", errors="replace")
+            # Ищем specs/<TASK-ID>/review.md как действующий путь (не migration note)
+            matches = _re.findall(r"specs/<TASK-ID>/review\.md", text)
+            if matches:
+                found.append(str(f.relative_to(ROOT)))
+    if found:
+        for item in found[:5]:
+            rep.error(f"old-review-path: '{item}' использует specs/<TASK-ID>/review.md вместо pilot-control/")
+    else:
+        rep.ok("old-review-path: specs/<TASK-ID>/review.md не используется в действующих инструкциях")
+
+
 def check_no_corporate_markers(rep: Report) -> None:
     """P1-11: проверка отсутствия корпоративных маркеров в публичной части core/."""
     import re as _re
@@ -1222,6 +1289,8 @@ def main() -> int:
     check_license_and_copyright(rep)
     check_agent_install(rep)
     check_no_corporate_markers(rep)
+    check_no_update_db(rep)
+    check_no_old_review_path(rep)
     check_installer_smoke(rep, args.skip_smoke)
 
     print("\n=== VALIDATION REPORT ===")

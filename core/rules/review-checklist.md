@@ -11,7 +11,7 @@
 - `projects/<источник>/src/**` — фактические исходники (только чтение).
 
 ## Что пишет ревьюер
-- `specs/<TASK-ID>/review.md` — независимое заключение:
+- `pilot-control/<TASK-ID>/review.md` — независимое заключение:
 
 ```yaml
 verdict: approved | changes_requested | blocked

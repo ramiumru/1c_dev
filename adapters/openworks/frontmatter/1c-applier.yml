@@ -45,6 +45,7 @@ permission:
     "*": deny
   bash:
     "python scripts/safe_apply.py *": allow
+    "python scripts/safe_backup.py *": allow
     "python scripts/applier_guard.py *": allow
     "python scripts/bsl-check.py *": allow
     "powershell.exe -NoProfile -File .openworks/skills/db-list/scripts/*": allow

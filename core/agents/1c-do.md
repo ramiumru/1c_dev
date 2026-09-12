@@ -52,7 +52,7 @@
 - **`1c-developer`** — разработчик 1С. Написание, правка, ревью, рефакторинг BSL-кода. В SDD
   читает spec (gate: `status: approved`), реализует в границах, пишет `06_change_report.md` (с `scope_hash`).
 - **`1c-reviewer`** — независимый ревьюер (`mode: subagent`). Сверка реализации со спецификацией,
-  проверка scope/регрессий/транзакций/запросов/прав/RLS/контрактов. Пишет `specs/<TASK-ID>/review.md`
+  проверка scope/регрессий/транзакций/запросов/прав/RLS/контрактов. Пишет `pilot-control/<TASK-ID>/review.md`
   (`verdict` + findings). Не меняет реализацию/spec/базу. Обязателен для `risk: high` и перед передачей
   результата в `1c-applier`.
 - **`1c-tools`** — узкий исполнитель утилит (`mode: subagent`). Запуск `scripts/build_summaries.py`
@@ -183,7 +183,7 @@ Triage: docs-fix / quick-fix / SDD — критерии и promotion-тригг�
     транзакции/блокировки, RLS/права, регламентные/фоновые, экспортные процедуры, метаданные,
     интеграционные контракты, структура базы, массовое изменение данных, обмены, финансовые расчёты) —
     делегировать `1c-reviewer` (Task, retry-once): прочитать `03_solution_spec.md` + `06_change_report.md`
-    + исходники, сверить scope/регрессии/контракты/тесты, сформировать `specs/<TASK-ID>/review.md`
+    + исходники, сверить scope/регрессии/контракты/тесты, сформировать `pilot-control/<TASK-ID>/review.md`
     (`verdict` + findings). `verdict` ≠ `approved` → лог `WARN review-changes-requested`/`blocked`,
     вернуть задачу `1c-developer`/`1c-analyst` (не продолжать к summaries/apply). `verdict: approved`
     → продолжить. Для `risk: low/medium` review опционален, но обязателен перед apply. Транспортная
@@ -234,7 +234,7 @@ Triage: docs-fix / quick-fix / SDD — критерии и promotion-тригг�
           зарегистрирована / `environment` недопустимо (`production`/отсутствует) → вернуть
           «зарегистрируйте базу через /db-list add или правкой .v8-project.json; проверьте
           `environment`», apply не запускать. `1c-do` НЕ редактирует `.v8-project.json`.
-       2. Для high-risk — проверить наличие `specs/<TASK-ID>/review.md` с `verdict: approved`
+       2. Для high-risk — проверить наличие `pilot-control/<TASK-ID>/review.md` с `verdict: approved`
           (из шага 6.4). Отсутствует / `verdict ≠ approved` → apply **НЕ запускать**: лог
           `WARN review-required-for-high-risk`, вернуть задачу на review.
        3. Режим Full (пользователь явно просил «всю конфигурацию») → подтвердить у пользователя
