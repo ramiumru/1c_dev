@@ -27,20 +27,20 @@
      изменений к применению», бэкап не делать, вернуть статус.
    - **Direct:** список относительных путей из брифа.
    - **Full:** только при флаге подтверждения в брифе → `-Mode Full`.
-3. **Preflight guard (через wrapper).** Опасные операции выполняются **только через**
-   `python scripts/safe_apply.py --task <TASK-ID> --db <id> --op <load-xml|update>`
-   `--config-dir <configSrc> --mode <Partial|Full> --files "<отн.пути>"`.
-   Wrapper принудительно запускает `applier_guard.py` и при ненулевом exit не вызывает skill.
-   Ненулевой exit → СТОП, отчёт. Прямой вызов `db-load-*`/`db-update` skills
+3. **Preflight guard (через wrapper).** Apply выполняется **одной командой**:
+   `python scripts/safe_apply.py --task <TASK-ID> --db <id>`
+   Wrapper сам: находит базу и configSrc, запускает guard, читает файлы из
+   `06_change_report.md`, проверяет существование и scope, вызывает `db-load-xml.ps1`
+   в режиме `Partial`, при успехе вызывает `db-update.ps1` для `UpdateDBCfg`.
+   Ненулевой exit → СТОП. Прямой вызов `db-load-*`/`db-update` skills
    запрещён правами (frontmatter) — обойти guard нельзя.
-4. **Бэкап:** через `python scripts/safe_backup.py --task <TASK-ID> --db <id>` (trusted wrapper,
-   см. ниже). Путь бэкапа запомнить для ответа (откат — ручная процедура, не автомат).
-5. **Загрузка через wrapper:**
-   `python scripts/safe_apply.py --task <TASK-ID> --db <id> --op load-xml --config-dir <configSrc>
-   --mode Partial --files "<отн.пути>"`
-   (load-xml и update — две отдельные команды, не совмещаются).
-6. Если load прошёл успешно —
-   `python scripts/safe_apply.py --task <TASK-ID> --db <id> --op update`
+4. **Бэкап:** если `backup_mode: external` — не требуется (владелец сделал внешний backup).
+   Если `backup_mode` не задан — `python scripts/safe_backup.py --task <TASK-ID> --db <id>`
+   (trusted wrapper).
+5. **Загрузка + обновление:** `python scripts/safe_apply.py --task <TASK-ID> --db <id>`
+   (wrapper выполняет load-xml Partial, затем update — отдельными последовательными
+   операциями внутри одной команды).
+6. При ошибке load — update не запускается. При ошибке update — ненулевой exit.
    (отдельный guard, отдельный запуск).
 7. **Ошибка load/update** → НЕ восстанавливать автоматически. Сформировать отчёт (см. ниже),
    указать путь бэкапа для ручного отката. Залогировать `ERROR apply-failed`.

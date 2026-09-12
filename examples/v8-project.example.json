@@ -9,8 +9,9 @@
       "type": "file",
       "path": ".\\example-base",
       "environment": "local",
-      "username_env": "V8_USERNAME",
+      "username": "local-user",
       "password_mode": "none",
+      "backup_mode": "external",
       "aliases": ["demo", "демо"],
       "configSrc": "projects/example/src"
     },
@@ -25,6 +26,7 @@
       "username_env": "V8_TEST_USERNAME",
       "password_mode": "env",
       "password_env": "V8_TEST_PASSWORD",
+      "backup_mode": "external",
       "aliases": ["test", "тест"],
       "configSrc": "projects/example/src"
     }
