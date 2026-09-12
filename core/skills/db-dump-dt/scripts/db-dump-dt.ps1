@@ -53,6 +53,12 @@ param(
     [Parameter(Mandatory=$false)]
     [string]$Password,
 
+    [Parameter(Mandatory=$false)]
+    [string]$UserNameEnv,
+
+    [Parameter(Mandatory=$false)]
+    [string]$PasswordEnv,
+
     [Parameter(Mandatory=$true)]
     [string]$OutputFile
 )
@@ -156,6 +162,22 @@ if ($engine -eq "ibcmd") {
 } elseif (-not $InfoBasePath -and (-not $InfoBaseServer -or -not $InfoBaseRef)) {
     Write-Host "Error: specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef" -ForegroundColor Red
     exit 1
+}
+
+# --- Resolve credentials from env-variables ---
+if (-not $UserName -and $UserNameEnv) {
+    $UserName = [Environment]::GetEnvironmentVariable($UserNameEnv)
+    if (-not $UserName) {
+        Write-Host "Error: environment variable '$UserNameEnv' is not set or empty" -ForegroundColor Red
+        exit 1
+    }
+}
+if (-not $Password -and $PasswordEnv) {
+    $Password = [Environment]::GetEnvironmentVariable($PasswordEnv)
+    if (-not $Password) {
+        Write-Host "Error: environment variable '$PasswordEnv' is not set or empty" -ForegroundColor Red
+        exit 1
+    }
 }
 
 # --- Ensure output directory exists ---

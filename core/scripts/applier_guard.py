@@ -184,20 +184,20 @@ class Guard:
             self.fail(f"выбор базы: несколько записей с id '{db_id}'")
             return
         db = matches[0]
-        if "user" in db or "password" in db:
-            self.fail("безопасность: plaintext user/password в записи базы — мигрируйте на username_env/password_env или password_mode")
+        # `password` (plaintext) запрещён; `username` разрешён (не секрет)
+        if "password" in db:
+            self.fail("безопасность: plaintext password в записи базы — мигрируйте на password_mode: none или password_mode: env + password_env")
 
         # P1: password_mode model — явная модель аутентификации
         password_mode = str(db.get("password_mode", "")).strip().lower()
         has_password_env = bool(str(db.get("password_env", "")).strip())
-        has_username_env = bool(str(db.get("username_env", "")).strip())
 
-        if password_mode == "none":
-            # Явный passwordless — пароль не передаётся
+        if password_mode not in ("none", "env"):
+            self.fail(f"конфигурация: password_mode='{password_mode}' — допускается только 'none' или 'env'")
+        elif password_mode == "none":
             if has_password_env:
-                self.fail(f"конфигурация: password_mode='none' но password_env задан — противоречие")
+                self.fail("конфигурация: password_mode='none' но password_env задан — противоречие")
         elif password_mode == "env":
-            # Пароль из env-переменной
             if not has_password_env:
                 self.fail("конфигурация: password_mode='env' но password_env не задан")
             else:
@@ -205,15 +205,6 @@ class Guard:
                 pw_val = os.environ.get(pw_env_name, "")
                 if not pw_val:
                     self.fail(f"конфигурация: password_env='{pw_env_name}' — переменная не установлена или пуста")
-        elif not password_mode and not has_password_env and not has_username_env:
-            # Нет ни password_mode, ни password_env, ни username_env — неоднозначно
-            self.fail("конфигурация: не заданы password_mode, password_env или username_env — конфигурация аутентификации не определена")
-        elif not password_mode and has_password_env:
-            # Legacy: password_env без password_mode — трактовать как env
-            pw_env_name = str(db.get("password_env", "")).strip()
-            pw_val = os.environ.get(pw_env_name, "")
-            if not pw_val:
-                self.fail(f"конфигурация: password_env='{pw_env_name}' — переменная не установлена или пуста (используйте password_mode: none для passwordless)")
         db_env = str(db.get("environment", "")).strip()
         global_env = str(cfg.get("environment", "")).strip()
         db_type = str(db.get("type", "")).strip().lower()
@@ -238,6 +229,7 @@ class Guard:
                 self.fail(f"environment: серверная база '{db_id}' без allow_apply: true")
         self._db_id = db_id
         self._db_env = db_env
+        self._db_record = db
 
     def check_task_id(self, task: str) -> None:
         if not task:
@@ -414,14 +406,15 @@ class Guard:
         return plan_files
 
     def check_cli_files_match(self, plan_files: list[str], op: str) -> None:
-        """P0-5: CLI --files должен точно совпадать с планом. Только для load-xml."""
+        """CLI --files должен совпадать с планом. Только для load-xml.
+        Если --files не задан (пустой) — план из report используется как canonical."""
         if op != "load-xml":
-            return  # update не использует --files
-        if not plan_files and not self.cli_files:
             return
-        cli_set = set()
-        if self.cli_files:
-            cli_set = {f.strip().replace("\\", "/") for f in self.cli_files.split(",") if f.strip()}
+        if not plan_files:
+            return  # уже залогировано в check_plan_files
+        if not self.cli_files:
+            return  # --files не задан — guard использует plan_files из report как canonical
+        cli_set = {f.strip().replace("\\", "/") for f in self.cli_files.split(",") if f.strip()}
         plan_set = {f.replace("\\", "/") for f in plan_files}
         extra = cli_set - plan_set
         missing = plan_set - cli_set
@@ -430,10 +423,15 @@ class Guard:
         if missing:
             self.fail(f"план: отсутствуют файлы из плана в --files: {sorted(missing)}")
 
-    def check_backup(self, task: str, db_id: str) -> None:
-        """P0-4: обязательный backup gate в pilot-control/."""
+    def check_backup(self, task: str, db_id: str, db_record: dict) -> None:
+        """Backup gate. backup_mode: external skips it entirely."""
         if not task or not db_id:
             return
+        backup_mode = str(db_record.get("backup_mode", "")).strip().lower()
+        if backup_mode == "external":
+            # Владелец сделал внешний backup — не требовать backup.md
+            return
+        # Стандартный путь: backup.md в pilot-control/
         backup_path = self.control_dir / task / "backup.md"
         if not backup_path.exists():
             self.fail(f"backup: backup.md отсутствует в pilot-control/ — apply заблокирован")
@@ -532,7 +530,7 @@ class Guard:
         self.check_sdd(task)
         plan_files = self.check_plan_files(task)
         self.check_cli_files_match(plan_files, op)
-        self.check_backup(task, self._db_id)
+        self.check_backup(task, self._db_id, getattr(self, '_db_record', {}))
         self.check_tools(op)
 
         for w in self.warnings:
