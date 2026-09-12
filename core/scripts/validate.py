@@ -334,6 +334,55 @@ def check_applier_guards(rep: Report) -> None:
     else:
         rep.error("safe_apply.py: отсутствует (8.5 — единый wrapper не найден)")
 
+    # scope_hash.py CLI существует и работает
+    sh = ROOT / "core" / "scripts" / "scope_hash.py" if IS_SOURCE_REPO else ROOT / "scripts" / "scope_hash.py"
+    if sh.exists():
+        r = subprocess.run([sys.executable, str(sh), "--help"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
+        if r.returncode == 0 and "--spec" in r.stdout:
+            rep.ok("scope_hash.py: CLI --help работает")
+        else:
+            rep.error(f"scope_hash.py: CLI не работает (exit={r.returncode})")
+    else:
+        rep.error("scope_hash.py: отсутствует")
+
+
+def check_kilo_tools_field(rep: Report) -> None:
+    """Проверка: Kilo frontmatter содержит tools: field для всех агентов."""
+    if not IS_SOURCE_REPO:
+        return
+    fm_dir = ROOT / "adapters" / "kilo" / "frontmatter"
+    if not fm_dir.is_dir():
+        return
+    for agent in EXPECTED_AGENTS:
+        yml = fm_dir / f"{agent}.yml"
+        if not yml.exists():
+            continue
+        text = yml.read_text(encoding="utf-8", errors="replace")
+        if "tools:" in text:
+            rep.ok(f"kilo-tools: {agent}.yml содержит tools:")
+        else:
+            rep.error(f"kilo-tools: {agent}.yml не содержит tools: — subagent может не получить bash")
+
+
+def check_scope_hash_permissions(rep: Report) -> None:
+    """Проверка: analyst и reviewer имеют scope_hash.py в bash whitelist."""
+    if not IS_SOURCE_REPO:
+        return
+    for tool in ("kilo", "openworks"):
+        fm_dir = ROOT / "adapters" / tool / "frontmatter"
+        if not fm_dir.is_dir():
+            continue
+        for agent in ("1c-analyst", "1c-reviewer"):
+            yml = fm_dir / f"{agent}.yml"
+            if not yml.exists():
+                continue
+            text = yml.read_text(encoding="utf-8", errors="replace")
+            if "scope_hash.py" in text:
+                rep.ok(f"scope-hash-perm: {tool}/{agent}.yml разрешает scope_hash.py")
+            else:
+                rep.error(f"scope-hash-perm: {tool}/{agent}.yml НЕ разрешает scope_hash.py")
+
 
 # ==================== ADVERSARIAL TESTS ====================
 
@@ -1310,6 +1359,8 @@ def main() -> int:
     check_no_update_db(rep)
     check_no_old_review_path(rep)
     check_mock_apply(rep)
+    check_kilo_tools_field(rep)
+    check_scope_hash_permissions(rep)
     check_installer_smoke(rep, args.skip_smoke)
 
     print("\n=== VALIDATION REPORT ===")

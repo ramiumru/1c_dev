@@ -47,6 +47,7 @@ permission:
     ".openworks/logs/1c-reviewer/**": allow
     "*": deny
   bash:
+    "python scripts/scope_hash.py --spec *": allow
     "python scripts/bsl-check.py *": allow
     "*": deny
   task: deny

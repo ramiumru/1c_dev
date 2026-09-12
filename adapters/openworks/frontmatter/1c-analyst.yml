@@ -44,6 +44,7 @@ permission:
     "specs/**": allow
     ".openworks/logs/1c-analyst/**": allow
   bash:
+    "python scripts/scope_hash.py --spec *": allow
     "powershell.exe -NoProfile -File .openworks/skills/meta-info/scripts/meta-info.ps1 *": allow
     "powershell.exe -NoProfile -File .openworks/skills/form-info/scripts/form-info.ps1 *": allow
     "powershell.exe -NoProfile -File .openworks/skills/mxl-info/scripts/mxl-info.ps1 *": allow
