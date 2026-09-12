@@ -521,8 +521,14 @@ class Guard:
     def check_tools(self, op: str) -> None:
         if op not in ALL_DANGEROUS_OPS:
             return
-        import shutil
-        found = shutil.which("1cv8") or shutil.which("ibcmd") or shutil.which("1cv8c")
+        # Best-effort: проверяем только PATH (без shutil.which, который может зависать)
+        path_env = os.environ.get("PATH", "")
+        found = any(
+            os.path.exists(os.path.join(d, exe))
+            for d in path_env.split(os.pathsep)
+            for exe in ("1cv8", "1cv8.exe", "ibcmd", "ibcmd.exe", "1cv8c", "1cv8c.exe")
+            if d
+        )
         if not found:
             self.warn("инструменты: 1cv8/ibcmd не найдены в PATH — best-effort")
 
