@@ -40,9 +40,12 @@ python scripts/doctor.py --pilot
 - Внешний субъект → approval spec (status: approved).
 
 ### 5. Backup
-- Пользователь создаёт backup штатной процедурой (DT-выгрузка).
-- Формирует `pilot-control/<TASK-ID>/backup.md` с `artifact`, `artifact_sha256`, `status: success`.
-- Файл backup.md — read-only для агентов (в `pilot-control/`).
+- **`backup_mode: external`** (рекомендуется для первого пилота): внешний backup уже сделан
+  владельцем. Не требуются повторная выгрузка, `backup.md` и его хеш. Не требовать новый backup
+  на каждом продолжении задачи.
+- **Иные режимы:** пользователь создаёт backup штатной процедурой (DT-выгрузка).
+  Формирует `pilot-control/<TASK-ID>/backup.md` с `artifact`, `artifact_sha256`, `status: success`.
+  Файл backup.md — read-only для агентов (в `pilot-control/`).
 
 ### 6. Dry-run
 ```bash
@@ -50,12 +53,21 @@ python scripts/safe_apply.py --task TASK-001 --db local-demo --dry-run
 ```
 Guard должен пройти (exit 0). Если guard FAIL — остановиться.
 
-### 7. Применение
-- Сначала применить одну безвредную Partial XML-правку.
+### 7. Применение (ровно один раз)
 - Wrapper выполняет load-xml Partial, затем update — отдельными операциями внутри одной команды.
 ```bash
 python scripts/safe_apply.py --task TASK-001 --db local-demo
 ```
+- Не вызывать apply второй раз «для проверки».
+
+### 8. Продолжение задачи после обновления harness
+После установки обновлённого harness:
+1. Перечитать обновлённые инструкции и существующие артефакты задачи.
+2. Не начинать разработку заново — исходники, спецификации и отчёты сохранены.
+3. Не выдумывать новые approvals — существующий review в `pilot-control/<TASK-ID>/review.md`
+   действителен.
+4. Не считать предыдущую неудачную попытку доказательством отсутствия изменений в базе —
+   сначала выяснить фактическое состояние.
 
 ### 8. Проверка
 - Проверить фактический scope (сверить изменённые файлы с планом).

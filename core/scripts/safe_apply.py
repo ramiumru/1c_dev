@@ -178,7 +178,11 @@ def run_guard(task: str, db: str, config_src: str, files_rel: list[str], project
         cmd += ["--project-root", project_root]
     print("=== safe_apply: preflight guard ===")
     print(f"  cmd: {redact(' '.join(cmd))}")
-    r = subprocess.run(cmd)
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.stdout:
+        print(r.stdout, end="")
+    if r.stderr:
+        print(r.stderr, end="", file=sys.stderr)
     if r.returncode != 0:
         print(f"=== safe_apply: GUARD ЗАБЛОКИРОВАЛ операцию (exit {r.returncode}) ===")
     else:
@@ -198,7 +202,11 @@ def run_skill(skill_name: str, ps_args: list[str], skills_dir: Path) -> int:
     print(f"  script: {skill_script}")
     print(f"  args: {redact(' '.join(ps_args))}")
     try:
-        r = subprocess.run(cmd)
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.stdout:
+            print(r.stdout, end="")
+        if r.stderr:
+            print(r.stderr, end="", file=sys.stderr)
         if r.returncode != 0:
             print(f"\n=== safe_apply: skill '{skill_name}' завершился с ошибкой (exit {r.returncode}) ===")
         return r.returncode

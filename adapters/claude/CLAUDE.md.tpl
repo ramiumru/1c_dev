@@ -38,7 +38,7 @@
 Нетривиальные правки проходят через спецификацию (`specs/<TASK-ID>/`). Спека содержит
 машиночитаемый блок `status`/`risk`/`scope_hash`; разработка допускается только при
 `status: approved`. Для `risk: high` обязателен независимый review (`1c-reviewer`,
-`specs/<TASK-ID>/review.md`) перед применением. См. `.claude/context/INSTRUCTIONS.md`
+`pilot-control/<TASK-ID>/review.md`) перед применением. См. `.claude/context/INSTRUCTIONS.md`
 и `specs/README.md`.
 
 ## Окружение
