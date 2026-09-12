@@ -10,7 +10,7 @@
       "path": ".\\example-base",
       "environment": "local",
       "username_env": "V8_USERNAME",
-      "password_env": "V8_PASSWORD",
+      "password_mode": "none",
       "aliases": ["demo", "демо"],
       "configSrc": "projects/example/src"
     },
@@ -23,6 +23,7 @@
       "environment": "test",
       "allow_apply": true,
       "username_env": "V8_TEST_USERNAME",
+      "password_mode": "env",
       "password_env": "V8_TEST_PASSWORD",
       "aliases": ["test", "тест"],
       "configSrc": "projects/example/src"

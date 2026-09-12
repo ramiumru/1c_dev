@@ -185,7 +185,35 @@ class Guard:
             return
         db = matches[0]
         if "user" in db or "password" in db:
-            self.fail("безопасность: plaintext user/password в записи базы")
+            self.fail("безопасность: plaintext user/password в записи базы — мигрируйте на username_env/password_env или password_mode")
+
+        # P1: password_mode model — явная модель аутентификации
+        password_mode = str(db.get("password_mode", "")).strip().lower()
+        has_password_env = bool(str(db.get("password_env", "")).strip())
+        has_username_env = bool(str(db.get("username_env", "")).strip())
+
+        if password_mode == "none":
+            # Явный passwordless — пароль не передаётся
+            if has_password_env:
+                self.fail(f"конфигурация: password_mode='none' но password_env задан — противоречие")
+        elif password_mode == "env":
+            # Пароль из env-переменной
+            if not has_password_env:
+                self.fail("конфигурация: password_mode='env' но password_env не задан")
+            else:
+                pw_env_name = str(db.get("password_env", "")).strip()
+                pw_val = os.environ.get(pw_env_name, "")
+                if not pw_val:
+                    self.fail(f"конфигурация: password_env='{pw_env_name}' — переменная не установлена или пуста")
+        elif not password_mode and not has_password_env and not has_username_env:
+            # Нет ни password_mode, ни password_env, ни username_env — неоднозначно
+            self.fail("конфигурация: не заданы password_mode, password_env или username_env — конфигурация аутентификации не определена")
+        elif not password_mode and has_password_env:
+            # Legacy: password_env без password_mode — трактовать как env
+            pw_env_name = str(db.get("password_env", "")).strip()
+            pw_val = os.environ.get(pw_env_name, "")
+            if not pw_val:
+                self.fail(f"конфигурация: password_env='{pw_env_name}' — переменная не установлена или пуста (используйте password_mode: none для passwordless)")
         db_env = str(db.get("environment", "")).strip()
         global_env = str(cfg.get("environment", "")).strip()
         db_type = str(db.get("type", "")).strip().lower()

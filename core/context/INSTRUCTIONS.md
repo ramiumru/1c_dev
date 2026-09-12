@@ -260,7 +260,7 @@ scope_hash: null
 ### Независимый review (`1c-reviewer`)
 
 Для `risk: high` и перед передачей результата в `1c-applier` `1c-do` делегирует
-`1c-reviewer` (`mode: subagent`) независимую проверку. Результат — `specs/<TASK-ID>/review.md`
+`1c-reviewer` (`mode: subagent`) независимую проверку. Результат — `pilot-control/<TASK-ID>/review.md`
 с `verdict: approved | changes_requested | blocked` и `findings`. `1c-applier` требует
 положительный verdict для high-risk; `applier_guard.py` проверяет его наличие.
 
@@ -325,7 +325,7 @@ Summaries регенерируются скриптом `scripts/build_summaries
 > `03_solution_spec.md` со `status: approved` и пишет `06_change_report.md`);
 > `1c-reviewer` — независимый ревьюер (mode: subagent): сверка реализации со спецификацией,
 > проверка scope, регрессий, транзакций/блокировок, запросов/производительности,
-> прав/RLS, интеграционных контрактов; пишет `specs/<TASK-ID>/review.md` (verdict +
+> прав/RLS, интеграционных контрактов; пишет `pilot-control/<TASK-ID>/review.md` (verdict +
 > findings); не меняет реализацию/spec/базу; не утверждает результат без доказательств;
 > `1c-applier` — апликер конфигурации (mode: all): применяет готовые правки из
 > `projects/**` в живую ИБ (db-load-xml → db-update, бэкап db-dump-dt) только после

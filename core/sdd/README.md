@@ -28,7 +28,7 @@
 | `1c-analyst` | `01_context.md`, `03_solution_spec.md` (вкл. машиночитаемый блок status/risk), `05_test_scenarios.md` |
 | `1c-developer` | `06_change_report.md` (после реализации; + `scope_hash` для сверки) |
 | `1c-reviewer` | `review.md` (независимое заключение: verdict + findings) |
-| `1c-applier` | ничего не пишет в `specs/**`; читает `06_change_report.md` + `review.md` + блок status/risk |
+| `1c-applier` | ничего не пишет в `specs/**` и `pilot-control/**`; читает `06_change_report.md` + `pilot-control/<TASK-ID>/review.md` + блок status/risk |
 
 `1c-do` также проверяет gate перед вызовом `1c-developer`: наличие
 `03_solution_spec.md` в `specs/<TASK-ID>/` **и машиночитаемого блока `status: approved`**

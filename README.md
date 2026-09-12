@@ -50,7 +50,7 @@
 TASK-ID маркирует и папку спецификации, и комментарии в коде (`// ++ #TASK-ID`).
 Спецификация содержит машиночитаемый блок `status`/`risk`/`scope_hash`; разработка
 допускается только при `status: approved`; для `risk: high` обязателен независимый
-review (`1c-reviewer`, `specs/<TASK-ID>/review.md`) перед применением. `1c-applier`
+review (`1c-reviewer`, `pilot-control/<TASK-ID>/review.md`) перед применением. `1c-applier`
 проверяет preflight через `scripts/applier_guard.py`. Шаблоны SDD-артефактов — в
 `core/sdd/README.md`.
 

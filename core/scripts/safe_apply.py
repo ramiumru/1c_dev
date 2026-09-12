@@ -141,6 +141,18 @@ def load_db_config(db_id: str) -> dict:
     return db
 
 
+def _add_credentials(ps_args: list[str], db: dict) -> None:
+    """Добавить credentials как env-имена. password_mode: none — без password."""
+    username_env = str(db.get("username_env", "")).strip()
+    password_mode = str(db.get("password_mode", "")).strip().lower()
+    password_env = str(db.get("password_env", "")).strip()
+    if username_env:
+        ps_args.extend(["-UserNameEnv", username_env])
+    if password_mode == "env" and password_env:
+        ps_args.extend(["-PasswordEnv", password_env])
+    # password_mode == "none" — не передаём password
+
+
 def build_ps_args_load_xml(db: dict, args) -> list[str]:
     """Аргументы для db-load-xml (P0-5: per-op, P0-6: без -UpdateDB)."""
     ps_args: list[str] = []
@@ -153,10 +165,7 @@ def build_ps_args_load_xml(db: dict, args) -> list[str]:
         if db.get("ref"): ps_args.extend(["-InfoBaseRef", str(db["ref"])])
     else:
         if db.get("path"): ps_args.extend(["-InfoBasePath", str(db["path"])])
-    username_env = db.get("username_env", "")
-    password_env = db.get("password_env", "")
-    if username_env: ps_args.extend(["-UserNameEnv", username_env])
-    if password_env: ps_args.extend(["-PasswordEnv", password_env])
+    _add_credentials(ps_args, db)
     if args.config_dir: ps_args.extend(["-ConfigDir", str(args.config_dir)])
     ps_args.extend(["-Mode", args.mode])
     if args.files: ps_args.extend(["-Files", args.files])
@@ -176,10 +185,7 @@ def build_ps_args_update(db: dict, args) -> list[str]:
         if db.get("ref"): ps_args.extend(["-InfoBaseRef", str(db["ref"])])
     else:
         if db.get("path"): ps_args.extend(["-InfoBasePath", str(db["path"])])
-    username_env = db.get("username_env", "")
-    password_env = db.get("password_env", "")
-    if username_env: ps_args.extend(["-UserNameEnv", username_env])
-    if password_env: ps_args.extend(["-PasswordEnv", password_env])
+    _add_credentials(ps_args, db)
     if args.extension: ps_args.extend(["-Extension", args.extension])
     if args.dynamic: ps_args.extend(["-Dynamic", args.dynamic])
     return ps_args
