@@ -88,3 +88,44 @@ def validate_hash_format(value: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def main() -> int:
+    """CLI: python scripts/scope_hash.py --spec <путь-к-спецификации>
+
+    Вызывает каноническую функцию compute_scope_hash_from_file.
+    Выводит вычисленный хеш в stdout.
+    Возвращает ненулевой код при отсутствующем файле или невозможности вычисления.
+    """
+    import argparse
+    import sys
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+    parser = argparse.ArgumentParser(
+        prog="scope_hash.py",
+        description="Вычисление канонического scope_hash из 03_solution_spec.md.",
+    )
+    parser.add_argument("--spec", required=True,
+                        help="путь к файлу спецификации (03_solution_spec.md)")
+    args = parser.parse_args()
+
+    spec_path = Path(args.spec)
+    if not spec_path.exists():
+        print(f"ERROR: файл не найден: {spec_path}", file=sys.stderr)
+        return 1
+
+    h = compute_scope_hash_from_file(spec_path)
+    if not h:
+        print("ERROR: не удалось вычислить scope_hash — отсутствуют секции "
+              "«Границы изменения» и/или «Затрагиваемые файлы»", file=sys.stderr)
+        return 1
+
+    print(h)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
