@@ -268,6 +268,9 @@ def main() -> int:
 
     # 6. db-load-xml Partial
     skills_dir = find_skills_dir(project_root_path)
+    if not skills_dir.is_dir():
+        # Fallback: harness skills (for development)
+        skills_dir = find_skills_dir(ROOT)
     ps_args_load = build_ps_args(db, config_src, files_rel, is_update=False)
     load_exit = run_skill("db-load-xml", ps_args_load, skills_dir)
     if load_exit != 0:

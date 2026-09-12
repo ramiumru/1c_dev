@@ -46,17 +46,15 @@ python scripts/doctor.py --pilot
 
 ### 6. Dry-run
 ```bash
-python scripts/safe_apply.py --task TASK-001 --db local-demo --op load-xml --mode Partial --files "projects/test/src/test.bsl" --project-root . --dry-run
+python scripts/safe_apply.py --task TASK-001 --db local-demo --dry-run
 ```
 Guard должен пройти (exit 0). Если guard FAIL — остановиться.
 
 ### 7. Применение
 - Сначала применить одну безвредную Partial XML-правку.
-- НЕ совмещать загрузку и update — выполнить `load-xml` и `update` отдельными командами.
+- Wrapper выполняет load-xml Partial, затем update — отдельными операциями внутри одной команды.
 ```bash
-python scripts/safe_apply.py --task TASK-001 --db local-demo --op load-xml --mode Partial --files "projects/test/src/test.bsl" --project-root .
-# При успехе — отдельный update:
-python scripts/safe_apply.py --task TASK-001 --db local-demo --op update --project-root .
+python scripts/safe_apply.py --task TASK-001 --db local-demo
 ```
 
 ### 8. Проверка

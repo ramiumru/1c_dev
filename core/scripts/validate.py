@@ -1148,7 +1148,8 @@ def check_no_update_db(rep: Report) -> None:
     import re as _re
     scan_dirs = []
     if IS_SOURCE_REPO:
-        scan_dirs = [ROOT / "core" / "agents", ROOT / "core" / "rules", ROOT / "core" / "sdd"]
+        scan_dirs = [ROOT / "core" / "agents", ROOT / "core" / "rules", ROOT / "core" / "sdd",
+                     ROOT / "adapters", ROOT / "docs"]
     else:
         for d in [".kilo/agent", ".kilo/context", ".claude/agents", ".claude/context",
                    ".openworks/agents", ".openworks/context", "agents", "context"]:
@@ -1165,7 +1166,6 @@ def check_no_update_db(rep: Report) -> None:
             if f.name == "validate.py":
                 continue
             text = f.read_text(encoding="utf-8", errors="replace")
-            # Ищем --update-db как флаг safe_apply (не /UpdateDBCfg — это платформенная команда)
             if _re.search(r"--update-db", text):
                 found.append(str(f.relative_to(ROOT)))
     if found:
@@ -1181,7 +1181,7 @@ def check_no_old_review_path(rep: Report) -> None:
     scan_dirs = []
     if IS_SOURCE_REPO:
         scan_dirs = [ROOT / "core" / "agents", ROOT / "core" / "rules", ROOT / "core" / "sdd",
-                     ROOT / "core" / "context"]
+                     ROOT / "core" / "context", ROOT / "adapters", ROOT / "docs"]
     else:
         for d in [".kilo/agent", ".kilo/context", ".claude/agents", ".claude/context",
                    ".openworks/agents", ".openworks/context", "agents", "context"]:
@@ -1193,12 +1193,11 @@ def check_no_old_review_path(rep: Report) -> None:
         if not sd.is_dir():
             continue
         for f in sd.rglob("*"):
-            if not f.is_file() or f.suffix not in (".md", ".py"):
+            if not f.is_file() or f.suffix not in (".md", ".py", ".yml"):
                 continue
             if f.name == "validate.py":
                 continue
             text = f.read_text(encoding="utf-8", errors="replace")
-            # Ищем specs/<TASK-ID>/review.md как действующий путь (не migration note)
             matches = _re.findall(r"specs/<TASK-ID>/review\.md", text)
             if matches:
                 found.append(str(f.relative_to(ROOT)))
@@ -1207,6 +1206,25 @@ def check_no_old_review_path(rep: Report) -> None:
             rep.error(f"old-review-path: '{item}' использует specs/<TASK-ID>/review.md вместо pilot-control/")
     else:
         rep.ok("old-review-path: specs/<TASK-ID>/review.md не используется в действующих инструкциях")
+
+
+def check_mock_apply(rep: Report) -> None:
+    """Запуск mock apply end-to-end теста."""
+    test_path = ROOT / "core" / "scripts" / "test_mock_apply.py" if IS_SOURCE_REPO else ROOT / "scripts" / "test_mock_apply.py"
+    if not test_path.exists():
+        rep.error("mock-apply: test_mock_apply.py не найден")
+        return
+    r = subprocess.run([sys.executable, str(test_path)],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode == 0:
+        rep.ok("mock-apply: test_mock_apply.py → exit 0")
+    else:
+        rep.error(f"mock-apply: test_mock_apply.py → exit {r.returncode}")
+        # Print last few lines for context
+        lines = (r.stdout or "").strip().split("\n")
+        for line in lines[-5:]:
+            if line.strip():
+                rep.error(f"  mock-apply: {line.strip()}")
 
 
 def check_no_corporate_markers(rep: Report) -> None:
@@ -1291,6 +1309,7 @@ def main() -> int:
     check_no_corporate_markers(rep)
     check_no_update_db(rep)
     check_no_old_review_path(rep)
+    check_mock_apply(rep)
     check_installer_smoke(rep, args.skip_smoke)
 
     print("\n=== VALIDATION REPORT ===")

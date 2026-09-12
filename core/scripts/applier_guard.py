@@ -372,7 +372,7 @@ class Guard:
         elif computed_hash and report_hash != computed_hash:
             self.fail("SDD: scope_hash в 06_change_report.md не совпадает с заново вычисленным")
 
-    def check_plan_files(self, task: str) -> list[str]:
+    def check_plan_files(self, task: str, db_record: dict = None) -> list[str]:
         if not task:
             return []
         report_path = self.specs_dir / task / "06_change_report.md"
@@ -386,6 +386,8 @@ class Guard:
         if not raw_paths:
             self.fail("план: пустой список файлов — apply заблокирован")
             return []
+        # Определить configSrc для проверки scope
+        config_src = str(db_record.get("configSrc", "")).strip().replace("\\", "/").rstrip("/") if db_record else ""
         seen = set()
         plan_files = []
         for p in raw_paths:
@@ -394,14 +396,18 @@ class Guard:
                 self.fail(f"план: дубликат пути '{p}'")
                 continue
             seen.add(p)
-            if p.startswith("/") or re.match(r"^[A-Za-z]:[\\/]", p):
+            p_norm = p.replace("\\", "/")
+            if p_norm.startswith("/") or re.match(r"^[A-Za-z]:[\\/]", p_norm):
                 self.fail(f"план: абсолютный путь заблокирован: '{p}'")
                 continue
-            if ".." in p.split("/"):
+            if ".." in p_norm.split("/"):
                 self.fail(f"план: path traversal заблокирован: '{p}'")
                 continue
             if not (self.project_root / p).exists():
                 self.fail(f"план: файл отсутствует: '{p}'")
+            # Блокировка файлов вне configSrc
+            if config_src and not p_norm.startswith(config_src + "/"):
+                self.fail(f"план: файл вне configSrc '{config_src}' заблокирован: '{p}'")
             plan_files.append(p)
         return plan_files
 
@@ -528,7 +534,7 @@ class Guard:
         self.check_task_id(task)
         self.check_operation_class(op, mode)
         self.check_sdd(task)
-        plan_files = self.check_plan_files(task)
+        plan_files = self.check_plan_files(task, getattr(self, '_db_record', {}))
         self.check_cli_files_match(plan_files, op)
         self.check_backup(task, self._db_id, getattr(self, '_db_record', {}))
         self.check_tools(op)
