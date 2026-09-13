@@ -1,7 +1,6 @@
 ﻿description: "Точка входа — маршрутизатор и SDD-оркестратор запросов по проекту 1С. Проект определяется per-запросом (по явному указанию пользователя, по grep per-project индексов, либо автоматически при единственном проекте через glob .kilo/context/projects/*/context.md). Классифицирует запрос и делегирует через Task агенту 1c-analyst (анализ бизнес-логики и структуры, без кода), 1c-developer (написание, правка, ревью BSL-кода) или 1c-tools (регенерация summaries через scripts/build_summaries.py). Для нетривиальных правок кода запускает SDD-процесс — создаёт каркас specs/TASK-ID + 00_request.md, делегирует аналитику подготовку spec, проверяет gate (наличие 03_solution_spec.md), затем делегирует разработчику. Сам не анализирует исходники и не пишет код."
 mode: primary
 model: level/z-ai/glm-5.2
-tools: Read, Edit, Glob, Grep, Bash, Task
 permission:
   read:
     "INSTRUCTIONS.md": allow

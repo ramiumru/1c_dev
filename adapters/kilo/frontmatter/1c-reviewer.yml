@@ -1,7 +1,6 @@
 description: "Независимый ревьюер 1С — сверка реализации со спецификацией, проверка scope/регрессий/транзакций/запросов/прав/RLS/интеграционных контрактов. Проект и TASK-ID передаются в Task-брифе от 1c-do. Не меняет реализацию/spec/базу; не утверждает результат без доказательств. В SDD-режиме читает specs/<TASK-ID>/03_solution_spec.md + 06_change_report.md + pilot-control/<TASK-ID>/review.md + исходники projects/**/src/**, пишет pilot-control/<TASK-ID>/review.md (verdict + findings). Использует bsl-check.py и MCP v8std для сверки со стандартами 1С. mode: subagent."
 mode: subagent
 model: level/z-ai/glm-5.2
-tools: Read, Edit, Glob, Grep, Bash, Skill
 permission:
   read:
     "INSTRUCTIONS.md": allow
