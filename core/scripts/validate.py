@@ -348,7 +348,7 @@ def check_applier_guards(rep: Report) -> None:
 
 
 def check_kilo_tools_field(rep: Report) -> None:
-    """Проверка: Kilo frontmatter содержит tools: field для всех агентов."""
+    """Проверка: Kilo frontmatter НЕ содержит tools: field (не в схеме Kilo — вызывает ошибку)."""
     if not IS_SOURCE_REPO:
         return
     fm_dir = ROOT / "adapters" / "kilo" / "frontmatter"
@@ -360,9 +360,9 @@ def check_kilo_tools_field(rep: Report) -> None:
             continue
         text = yml.read_text(encoding="utf-8", errors="replace")
         if "tools:" in text:
-            rep.ok(f"kilo-tools: {agent}.yml содержит tools:")
+            rep.error(f"kilo-tools: {agent}.yml содержит tools: — Kilo schema не поддерживает это поле (Expected object | undefined)")
         else:
-            rep.error(f"kilo-tools: {agent}.yml не содержит tools: — subagent может не получить bash")
+            rep.ok(f"kilo-tools: {agent}.yml без tools: (корректно для Kilo schema)")
 
 
 def check_scope_hash_permissions(rep: Report) -> None:
@@ -382,6 +382,58 @@ def check_scope_hash_permissions(rep: Report) -> None:
                 rep.ok(f"scope-hash-perm: {tool}/{agent}.yml разрешает scope_hash.py")
             else:
                 rep.error(f"scope-hash-perm: {tool}/{agent}.yml НЕ разрешает scope_hash.py")
+
+
+def check_bsl_comment_regression(rep: Report) -> None:
+    """Проверка: bsl-check.py не ложно срабатывает на комментариях с ключевыми словами."""
+    bsl_check = ROOT / "core" / "scripts" / "bsl-check.py" if IS_SOURCE_REPO else ROOT / "scripts" / "bsl-check.py"
+    if not bsl_check.exists():
+        rep.error("bsl-comment: bsl-check.py не найден")
+        return
+    # Создать тестовый BSL с "Цикл" в комментарии (сбалансированный)
+    test_bsl_ok = """\ufeff// Тест: Цикл в комментарии
+\u041f\u0440\u043e\u0446\u0435\u0434\u0443\u0440\u0430 \u0422\u0435\u0441\u0442()\r
+\r
+\t// \u042d\u0442\u043e \u0426\u0438\u043a\u043b \u043f\u043e \u044d\u043b\u0435\u043c\u0435\u043d\u0442\u0430\u043c\r
+\t\u0414\u043b\u044f \u041a\u0430\u0436\u0434\u043e\u0433\u043e \u042d\u043b\u0435\u043c\u0435\u043d\u0442 \u0418\u0437 \u041a\u043e\u043b\u043b\u0435\u043a\u0446\u0438\u0438 \u0426\u0438\u043a\u043b\r
+\t\t\u0421\u043e\u043e\u0431\u0449\u0438\u0442\u044c(\u042d\u043b\u0435\u043c\u0435\u043d\u0442);\r
+\t\u041a\u043e\u043d\u0435\u0446\u0426\u0438\u043a\u043b\u0430;\r
+\t// \u041a\u043e\u043d\u0435\u0446\u0426\u0438\u043a\u043b\u0430 \u0432 \u043a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0438\r
+\u041a\u043e\u043d\u0435\u0446\u041f\u0440\u043e\u0446\u0435\u0434\u0443\u0440\u044b\r
+"""
+    # Создать тестовый BSL с несбалансированным циклом
+    test_bsl_bad = """\ufeff// Тест: несбалансированный цикл
+\u041f\u0440\u043e\u0446\u0435\u0434\u0443\u0440\u0430 \u0422\u0435\u0441\u0442()\r
+\r
+\t\u0414\u043b\u044f \u041a\u0430\u0436\u0434\u043e\u0433\u043e \u042d\u043b\u0435\u043c\u0435\u043d\u0442 \u0418\u0437 \u041a\u043e\u043b\u043b\u0435\u043a\u0446\u0438\u0438 \u0426\u0438\u043a\u043b\r
+\t\t\u0421\u043e\u043e\u0431\u0449\u0438\u0442\u044c(\u042d\u043b\u0435\u043c\u0435\u043d\u0442);\r
+\t// \u041d\u0435\u0445\u0432\u0430\u0442\u0430\u0435\u0442 \u041a\u043e\u043d\u0435\u0446\u0426\u0438\u043a\u043b\u0430\r
+\u041a\u043e\u043d\u0435\u0446\u041f\u0440\u043e\u0446\u0435\u0434\u0443\u0440\u044b\r
+"""
+    with tempfile.TemporaryDirectory(prefix="bsl_reg_") as td:
+        tdpath = Path(td)
+        ok_file = tdpath / "test_ok.bsl"
+        ok_file.write_text(test_bsl_ok, encoding="utf-8")
+        bad_file = tdpath / "test_bad.bsl"
+        bad_file.write_text(test_bsl_bad, encoding="utf-8")
+
+        # Положительный: 0 ERROR (исключаем итоговую строку с ERROR=0)
+        r_ok = subprocess.run([sys.executable, str(bsl_check), str(ok_file)],
+                              capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
+        ok_error_lines = [l for l in r_ok.stdout.splitlines() if l.startswith("ERROR ")]
+        if r_ok.returncode == 0 and not ok_error_lines:
+            rep.ok("bsl-comment: комментарий с Цикл не вызывает ложный ERROR")
+        else:
+            rep.error(f"bsl-comment: ложное срабатывание на комментарии с Цикл (exit={r_ok.returncode}, errors={ok_error_lines})")
+
+        # Негативный: ERROR присутствует (исключаем итоговую строку)
+        r_bad = subprocess.run([sys.executable, str(bsl_check), str(bad_file)],
+                               capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
+        bad_error_lines = [l for l in r_bad.stdout.splitlines() if l.startswith("ERROR ")]
+        if r_bad.returncode != 0 and bad_error_lines:
+            rep.ok("bsl-comment: несбалансированный цикл детектируется (ERROR)")
+        else:
+            rep.error(f"bsl-comment: несбалансированный цикл НЕ детектируется (exit={r_bad.returncode})")
 
 
 # ==================== ADVERSARIAL TESTS ====================
@@ -1361,6 +1413,7 @@ def main() -> int:
     check_mock_apply(rep)
     check_kilo_tools_field(rep)
     check_scope_hash_permissions(rep)
+    check_bsl_comment_regression(rep)
     check_installer_smoke(rep, args.skip_smoke)
 
     print("\n=== VALIDATION REPORT ===")

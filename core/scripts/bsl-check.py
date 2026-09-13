@@ -13,9 +13,19 @@ bsl-check.py — структурная проверка BSL-модулей по
      - Процедура ... КонецПроцедуры
      - Функция ... КонецФункции
      - Цикл ... КонецЦикла  (Для/Пока ... Цикл ... КонецЦикла)
+     Перед сопоставлением ключевых слов удаляются inline-комментарии (// ...) и
+     строковые литералы ("..."), чтобы предотвратить ложные срабатывания на ключевых
+     словах внутри комментариев и строк. Ограничение: не учитываются экранированные
+     кавычки (удвоенные двойные кавычки) внутри строковых литералов — это известное
+     ограничение эвристики.
   4. Баланс маркеров изменений: // ++ #TASK-... / // -- #TASK-...
   5. Код вне процедур/функций (orphaned) — строки-утверждения вне области процедуры/функции,
      кроме областей (#Область/#КонецОбласти), комментариев (//), пустых строк и директив (&НаКлиенте и т.п.)
+
+Ограничение: скрипт выполняет только эвристическую проверку по строкам, без полноценного
+BSL-парсера. Возможны ложные срабатывания в сложных случаях (многострочные строки,
+экранированные кавычки, препроцессорные директивы). Для точной проверки используйте
+BSL Language Server.
 
 Exit codes:
   0 — проверка пройдена (или warnings только)
@@ -51,6 +61,27 @@ RE_COMMENT = re.compile(r'^\s*(//|$)')
 RE_TASK_OPEN = re.compile(r'//\s*\+\+\s*#', re.IGNORECASE)
 RE_TASK_CLOSE = re.compile(r'//\s*--\s*#', re.IGNORECASE)
 RE_VAR_DECL = re.compile(r'^\s*(Перем|Var)\s+', re.IGNORECASE)
+
+# Регэксп для удаления inline-комментариев: всё после // (не внутри строки)
+RE_INLINE_COMMENT = re.compile(r'(?<!")//.*$')
+# Регэксп для удаления строковых литералов: "..." (простая эвристика, не учитывает экранирование кавычек)
+RE_STRING_LIT = re.compile(r'"[^"]*"')
+
+
+def strip_comments_and_strings(line: str) -> str:
+    """Удалить inline-комментарии и заменить строковые литералы пустыми строками.
+    
+    Предотвращает ложные срабатывания: ключевые слова BSL (Цикл, Если, Процедура и т.д.)
+    внутри комментариев и строковых литералов не должны учитываться при проверке баланса.
+    
+    Ограничение: не учитывает экранированные кавычки внутри строк (удвоенные кавычки).
+    Это известное ограничение эвристического подхода без полноценного BSL-парсера.
+    """
+    # Заменяем строковые литералы на пустые
+    result = RE_STRING_LIT.sub('""', line)
+    # Удаляем inline-комментарии
+    result = RE_INLINE_COMMENT.sub('', result)
+    return result
 
 
 def check_file(filepath):
@@ -99,6 +130,14 @@ def check_file(filepath):
     for i, line in enumerate(clean_lines, 1):
         stripped = line.strip()
 
+        # Полные строки-комментарии пропускаем для баланса конструкций
+        if RE_COMMENT.search(line):
+            continue
+
+        # Очищаем от inline-комментариев и строковых литералов для проверки ключевых слов
+        code_line = strip_comments_and_strings(line)
+        code_stripped = code_line.strip()
+
         # Области
         if RE_REGION.search(line):
             depth_region += 1
@@ -108,11 +147,11 @@ def check_file(filepath):
             continue
 
         # Процедуры
-        if RE_PROC_START.search(line):
+        if RE_PROC_START.search(code_line):
             depth_proc += 1
             in_proc_or_func += 1
             continue
-        if RE_PROC_END.search(line):
+        if RE_PROC_END.search(code_line):
             depth_proc -= 1
             in_proc_or_func = max(0, in_proc_or_func - 1)
             if depth_proc < 0:
@@ -120,11 +159,11 @@ def check_file(filepath):
             continue
 
         # Функции
-        if RE_FUNC_START.search(line):
+        if RE_FUNC_START.search(code_line):
             depth_func += 1
             in_proc_or_func += 1
             continue
-        if RE_FUNC_END.search(line):
+        if RE_FUNC_END.search(code_line):
             depth_func -= 1
             in_proc_or_func = max(0, in_proc_or_func - 1)
             if depth_func < 0:
@@ -132,17 +171,17 @@ def check_file(filepath):
             continue
 
         # Если (внутри процедур/функций — но считаем глобально для простоты)
-        if RE_IF_START.search(line):
+        if RE_IF_START.search(code_line):
             depth_if += 1
-        if RE_IF_END.search(line):
+        if RE_IF_END.search(code_line):
             depth_if -= 1
             if depth_if < 0:
                 findings.append(('ERROR', i, 'КонецЕсли без открывающей Если'))
 
         # Цикл (Для ... Цикл / Пока ... Цикл)
-        if RE_LOOP_START.search(line):
+        if RE_LOOP_START.search(code_line):
             depth_loop += 1
-        if RE_LOOP_END.search(line):
+        if RE_LOOP_END.search(code_line):
             depth_loop -= 1
             if depth_loop < 0:
                 findings.append(('ERROR', i, 'КонецЦикла без открывающего Цикл'))
