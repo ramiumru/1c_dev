@@ -65,7 +65,7 @@ $agents = $config.agentDir
 # --- Защищённые файлы: никогда не перезаписывать без явного разрешения ---
 $PROTECTED_ROOT_FILES = @(
     "AGENTS.md", "CLAUDE.md", "INSTRUCTIONS.md", "kilo.json", "openworks.json",
-    ".ai-rules.json", ".dev.env", "LICENSE", "specs/README.md"
+    ".ai-rules.json", ".dev.env", ".v8-project.json", "LICENSE", "specs/README.md"
 )
 
 # Файлы, которые LICENSE никогда не заменяется (P0-2.2)
@@ -150,7 +150,12 @@ if ($config.copySkills) {
     Get-ChildItem $skillSrc -Directory | ForEach-Object {
         $name = $_.Name
         $dst = Join-Path $Target "$skills/$name"
-        Copy-Item $_.FullName $dst -Recurse -Force
+        # Копировать содержимое каталога, а не сам каталог (предотвращает nesting)
+        if (Test-Path $dst) {
+            Copy-Item "$($_.FullName)\*" $dst -Recurse -Force
+        } else {
+            Copy-Item $_.FullName $dst -Recurse -Force
+        }
         Get-ChildItem $dst -Recurse -File | ForEach-Object {
             $content = [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8)
             if ($content -match '\{\{SKILL') {
@@ -375,7 +380,21 @@ if (Test-Path $devEnvPath) {
 # --- 7. Скрипты + SDD + манифест ---
 Write-Host "[7/7] Скрипты + SDD + манифест"
 $scriptsDst = Join-Path $Target "scripts"
-Copy-Item "$repo\core\scripts" $scriptsDst -Recurse -Force
+# Копировать содержимое каталога, а не сам каталог (предотвращает nesting: scripts/scripts/)
+if (Test-Path $scriptsDst) {
+    # Update: копировать пофайлово с перезаписью
+    Get-ChildItem "$repo\core\scripts" -Recurse -File | ForEach-Object {
+        $rel = $_.FullName.Substring("$repo\core\scripts".Length).TrimStart('\','/') -replace '\\','/'
+        $dstFile = Join-Path $scriptsDst $rel
+        $dstDir = Split-Path $dstFile -Parent
+        if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
+        Copy-Item $_.FullName $dstFile -Force
+    }
+} else {
+    # Install: копировать содержимое (не сам каталог)
+    New-Item -ItemType Directory -Force -Path $scriptsDst | Out-Null
+    Copy-Item "$repo\core\scripts\*" $scriptsDst -Recurse -Force
+}
 
 $specsDst = Join-Path $Target "specs"
 New-Item -ItemType Directory -Force -Path $specsDst | Out-Null
