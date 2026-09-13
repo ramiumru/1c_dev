@@ -119,11 +119,14 @@ REQUIRED_FILES_INSTALLED = [
     "specs/README.md",
     "scripts/applier_guard.py",
     "scripts/safe_apply.py",
+    "scripts/safe_backup.py",
+    "scripts/scope_hash.py",
     "scripts/bsl-check.py",
     "scripts/build_summaries.py",
     "scripts/validate.py",
     "scripts/doctor.py",
     "scripts/_root.py",
+    "scripts/test_mock_apply.py",
 ]
 
 ALLOWED_ENVS = {"local", "test", "staging"}
@@ -1385,19 +1388,22 @@ def main() -> int:
     check_python_syntax(rep)
     check_required_files(rep)
     check_md_links(rep)
-    check_install_paths(rep)
+    if IS_SOURCE_REPO:
+        check_install_paths(rep)
+        check_reviewer_in_adapters(rep)
     check_agents(rep)
-    check_reviewer_in_adapters(rep)
     check_sdd_risk_gates(rep)
     check_applier_guards(rep)
     check_example_security(rep)
-    check_no_opencode_refs(rep)
-    # Adversarial tests (8.11)
+    if IS_SOURCE_REPO:
+        check_no_opencode_refs(rep)
+    # Adversarial tests
     check_adversarial_guard(rep)
-    check_applier_self_path(rep)
-    check_kilo_readme_path(rep)
-    check_do_rights(rep)
-    check_claude_frontmatter_parse(rep)
+    if IS_SOURCE_REPO:
+        check_applier_self_path(rep)
+        check_kilo_readme_path(rep)
+        check_do_rights(rep)
+        check_claude_frontmatter_parse(rep)
     check_summaries_line_numbers(rep)
     # Phase 1 checks
     check_rules_directory(rep)
@@ -1405,9 +1411,13 @@ def main() -> int:
     check_triage(rep)
     check_dev_env(rep)
     check_manifest(rep)
-    check_license_and_copyright(rep)
-    check_agent_install(rep)
-    check_no_corporate_markers(rep)
+    # Source-only checks (не требуются от установленного проекта)
+    if IS_SOURCE_REPO:
+        check_license_and_copyright(rep)
+        check_agent_install(rep)
+        check_no_corporate_markers(rep)
+    else:
+        rep.ok("license/corporate: пропущено (установленный проект — не требуется)")
     check_no_update_db(rep)
     check_no_old_review_path(rep)
     check_mock_apply(rep)
