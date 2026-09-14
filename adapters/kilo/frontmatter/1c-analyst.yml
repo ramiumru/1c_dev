@@ -39,6 +39,7 @@ permission:
     "projects/**/src/**": allow
     ".kilo/logs/**": allow
   edit:
+    "*": deny
     ".kilo/context/projects/**": allow
     ".kilo/context/common/**": allow
     "specs/**": allow

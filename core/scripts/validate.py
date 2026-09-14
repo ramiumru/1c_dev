@@ -372,6 +372,134 @@ def check_kilo_tools_field(rep: Report) -> None:
             rep.ok(f"kilo-tools: {agent}.yml без tools: (корректно для Kilo schema)")
 
 
+def check_kilo_permission_order(rep: Report) -> None:
+    """Проверка: в Kilo frontmatter общий deny ("*": deny) должен предшествовать
+    специфичным allow в каждой карте permissions (bash, skill, edit, mcp).
+    Правило Kilo: последнее совпавшее правило определяет результат.
+    Если deny стоит после allow, он перекрывает исключения."""
+    if not IS_SOURCE_REPO:
+        return
+    fm_dir = ROOT / "adapters" / "kilo" / "frontmatter"
+    if not fm_dir.is_dir():
+        return
+    import re as _re
+
+    # Простая модель сопоставления glob-паттернов для тестирования
+    def glob_match(pattern: str, value: str) -> bool:
+        """Простое сопоставление glob: * = любой символ, ? = один символ."""
+        # Конвертируем glob в regex
+        regex = _re.escape(pattern).replace(r"\*", ".*").replace(r"\?", ".")
+        return bool(_re.match(f"^{regex}$", value))
+
+    def evaluate_permission(rules: list[tuple[str, str]], command: str) -> str:
+        """Вычислить результат permission по правилам Kilo: последнее совпадение побеждает.
+        rules: [(pattern, action)] в порядке объявления.
+        Возвращает: 'allow', 'deny', или 'default' если нет совпадений."""
+        result = "default"
+        for pattern, action in rules:
+            if glob_match(pattern, command):
+                result = action
+        return result
+
+    # Тестовые команды для каждой роли
+    test_cases = {
+        "1c-applier": [
+            ("bash", "python scripts/safe_apply.py --task TASK-1 --db test", "allow"),
+            ("bash", "python scripts/safe_backup.py --task TASK-1 --db test", "allow"),
+            ("bash", "python scripts/applier_guard.py --help", "allow"),
+            ("bash", "python scripts/bsl-check.py file.bsl", "allow"),
+            ("bash", "python scripts/evil_script.py", "ask"),
+            ("bash", "powershell.exe -NoProfile -File .kilo/skills/db-list/scripts/db-list.ps1", "allow"),
+            ("bash", "powershell.exe -NoProfile -File .kilo/skills/db-load-xml/scripts/db-load-xml.ps1", "ask"),
+            ("edit", ".v8-project.json", "deny"),
+            ("edit", "pilot-control/TASK-1/review.md", "deny"),
+            ("skill", "db-list", "allow"),
+            ("skill", "db-load-xml", "deny"),
+            ("skill", "meta-info", "deny"),
+        ],
+        "1c-reviewer": [
+            ("bash", "python scripts/scope_hash.py --spec file.md", "allow"),
+            ("bash", "python scripts/bsl-check.py file.bsl", "allow"),
+            ("bash", "python scripts/safe_apply.py --help", "deny"),
+            ("bash", "python scripts/evil_script.py", "deny"),
+            ("edit", "projects/test/src/file.bsl", "deny"),
+            ("edit", "pilot-control/TASK-1/review.md", "allow"),
+            ("edit", ".kilo/logs/1c-reviewer/log.md", "allow"),
+            ("edit", "specs/TASK-1/03_solution_spec.md", "deny"),
+            ("mcp", "v8std_search", "allow"),
+            ("mcp", "other_tool", "deny"),
+            ("skill", "meta-info", "deny"),
+        ],
+        "1c-do": [
+            ("bash", "python scripts/build_summaries.py --project test", "allow"),
+            ("bash", "python scripts/safe_apply.py --help", "deny"),
+            ("bash", "python scripts/evil_script.py", "deny"),
+            ("edit", "specs/TASK-1/00_request.md", "allow"),
+            ("edit", "projects/test/src/file.bsl", "deny"),
+            ("skill", "meta-info", "deny"),
+            ("mcp", "v8std_search", "allow"),
+            ("mcp", "other_tool", "deny"),
+            ("task", "", "allow"),
+        ],
+        "1c-developer": [
+            ("mcp", "v8std_search", "allow"),
+            ("mcp", "other_tool", "deny"),
+            ("bash", "python scripts/bsl-check.py file.bsl", "allow"),
+            ("bash", "python scripts/safe_apply.py --help", "default"),
+            ("edit", "projects/test/src/file.bsl", "allow"),
+            ("edit", ".v8-project.json", "default"),
+        ],
+        "1c-analyst": [
+            ("bash", "python scripts/scope_hash.py --spec file.md", "allow"),
+            ("bash", "python scripts/safe_apply.py --help", "default"),
+            ("mcp", "anything", "deny"),
+            ("edit", "specs/TASK-1/03_solution_spec.md", "allow"),
+            ("edit", "projects/test/src/file.bsl", "deny"),
+            ("skill", "meta-info", "allow"),
+            ("skill", "db-list", "default"),
+        ],
+        "1c-tools": [
+            ("bash", "python scripts/build_summaries.py --project test", "allow"),
+            ("bash", "python scripts/safe_apply.py --help", "default"),
+            ("skill", "meta-info", "deny"),
+            ("mcp", "anything", "deny"),
+            ("edit", "projects/test/src/file.bsl", "deny"),
+        ],
+    }
+
+    for agent, cases in test_cases.items():
+        yml_path = fm_dir / f"{agent}.yml"
+        if not yml_path.exists():
+            continue
+        text = yml_path.read_text(encoding="utf-8", errors="replace")
+
+        # Парсим permission блоки (простой парсер)
+        perm_maps: dict[str, list[tuple[str, str]]] = {}
+        current_map = None
+        for line in text.splitlines():
+            stripped = line.strip()
+            # Заголовок карты (read:, bash:, edit:, skill:, mcp:, task:)
+            m = _re.match(r"^(\w+):\s*$", stripped)
+            if m and m.group(1) in ("read", "glob", "grep", "list", "edit", "bash", "skill", "mcp", "task"):
+                current_map = m.group(1)
+                perm_maps[current_map] = []
+                continue
+            # Правило: "pattern": action
+            if current_map:
+                m2 = _re.match(r'^"([^"]+)":\s*(allow|deny|ask)$', stripped)
+                if m2:
+                    perm_maps[current_map].append((m2.group(1), m2.group(2)))
+
+        for perm_type, command, expected in cases:
+            if perm_type not in perm_maps:
+                continue
+            result = evaluate_permission(perm_maps[perm_type], command)
+            if result == expected:
+                rep.ok(f"perm-order: {agent}/{perm_type} '{command[:40]}' → {result}")
+            else:
+                rep.error(f"perm-order: {agent}/{perm_type} '{command[:40]}' → {result} (ожидался {expected})")
+
+
 def check_scope_hash_permissions(rep: Report) -> None:
     """Проверка: analyst и reviewer имеют scope_hash.py в bash whitelist."""
     if not IS_SOURCE_REPO:
@@ -1441,6 +1569,7 @@ def main() -> int:
     check_mock_apply(rep)
     check_plan_parser(rep)
     check_kilo_tools_field(rep)
+    check_kilo_permission_order(rep)
     check_scope_hash_permissions(rep)
     check_bsl_comment_regression(rep)
     check_installer_smoke(rep, args.skip_smoke)

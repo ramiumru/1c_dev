@@ -39,9 +39,11 @@ permission:
     "specs/**": allow
     ".kilo/logs/1c-do/**": allow
   edit:
+    "*": deny
     "specs/**": allow
     ".kilo/logs/1c-do/**": allow
   bash:
+    "*": deny
     "python scripts/build_summaries.py --project *": allow
     "python scripts/build_summaries.py --project * --objects *": allow
     "python scripts/build_summaries.py --project * --force": allow
@@ -60,7 +62,6 @@ permission:
     "python scripts/build_summaries.py --subsystem *": allow
     "python scripts/build_summaries.py --subsystem * --force": allow
     "python scripts/build_summaries.py --force --subsystem *": allow
-    "*": deny
   task: allow
   webfetch: deny
   websearch: deny
@@ -70,5 +71,5 @@ permission:
   skill:
     "*": deny
   mcp:
-    "v8std_*": allow
     "*": deny
+    "v8std_*": allow
