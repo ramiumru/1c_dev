@@ -89,6 +89,8 @@ REQUIRED_FILES_SOURCE = [
     "core/scripts/safe_apply.py",
     "core/scripts/safe_backup.py",
     "core/scripts/scope_hash.py",
+    "core/scripts/plan_parser.py",
+    "core/scripts/test_plan_parser.py",
     "core/scripts/bsl-check.py",
     "core/scripts/build_summaries.py",
     "core/scripts/validate.py",
@@ -121,6 +123,8 @@ REQUIRED_FILES_INSTALLED = [
     "scripts/safe_apply.py",
     "scripts/safe_backup.py",
     "scripts/scope_hash.py",
+    "scripts/plan_parser.py",
+    "scripts/test_plan_parser.py",
     "scripts/bsl-check.py",
     "scripts/build_summaries.py",
     "scripts/validate.py",
@@ -437,6 +441,20 @@ def check_bsl_comment_regression(rep: Report) -> None:
             rep.ok("bsl-comment: несбалансированный цикл детектируется (ERROR)")
         else:
             rep.error(f"bsl-comment: несбалансированный цикл НЕ детектируется (exit={r_bad.returncode})")
+
+
+def check_plan_parser(rep: Report) -> None:
+    """Запуск регрессионных тестов парсера apply-плана."""
+    test_path = ROOT / "core" / "scripts" / "test_plan_parser.py" if IS_SOURCE_REPO else ROOT / "scripts" / "test_plan_parser.py"
+    if not test_path.exists():
+        rep.error("plan-parser: test_plan_parser.py не найден")
+        return
+    r = subprocess.run([sys.executable, str(test_path)],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    if r.returncode == 0:
+        rep.ok("plan-parser: test_plan_parser.py → exit 0")
+    else:
+        rep.error(f"plan-parser: test_plan_parser.py → exit {r.returncode}")
 
 
 # ==================== ADVERSARIAL TESTS ====================
@@ -1421,6 +1439,7 @@ def main() -> int:
     check_no_update_db(rep)
     check_no_old_review_path(rep)
     check_mock_apply(rep)
+    check_plan_parser(rep)
     check_kilo_tools_field(rep)
     check_scope_hash_permissions(rep)
     check_bsl_comment_regression(rep)

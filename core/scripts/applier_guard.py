@@ -39,6 +39,10 @@ try:
 except ImportError:
     compute_scope_hash_from_file = None
     validate_hash_format = None
+try:
+    from plan_parser import parse_plan_from_file
+except ImportError:
+    parse_plan_from_file = None
 
 
 def _find_root(start: Path) -> Path:
@@ -373,21 +377,27 @@ class Guard:
             self.fail("SDD: scope_hash в 06_change_report.md не совпадает с заново вычисленным")
 
     def check_plan_files(self, task: str, db_record: dict = None) -> list[str]:
+        """Извлечь и проверить apply-план через общий парсер plan_parser."""
         if not task:
             return []
         report_path = self.specs_dir / task / "06_change_report.md"
         if not report_path.exists():
             return []
+        config_src = str(db_record.get("configSrc", "")).strip().replace("\\", "/").rstrip("/") if db_record else ""
+        if parse_plan_from_file is not None:
+            plan_files, errors = parse_plan_from_file(report_path, config_src, self.project_root)
+            for e in errors:
+                self.fail(e)
+            return plan_files
+        # Fallback (не должно использоваться)
         text = _read_text(report_path)
-        if "Изменённые файлы" not in text and "## Изменённые" not in text:
+        if "Изменённые файлы" not in text:
             self.fail("план: раздел «Изменённые файлы» отсутствует — apply заблокирован")
             return []
         raw_paths = re.findall(r"(projects/[^\s`]+?/src/[^\s`]+)", text)
         if not raw_paths:
             self.fail("план: пустой список файлов — apply заблокирован")
             return []
-        # Определить configSrc для проверки scope
-        config_src = str(db_record.get("configSrc", "")).strip().replace("\\", "/").rstrip("/") if db_record else ""
         seen = set()
         plan_files = []
         for p in raw_paths:
@@ -405,7 +415,6 @@ class Guard:
                 continue
             if not (self.project_root / p).exists():
                 self.fail(f"план: файл отсутствует: '{p}'")
-            # Блокировка файлов вне configSrc
             if config_src and not p_norm.startswith(config_src + "/"):
                 self.fail(f"план: файл вне configSrc '{config_src}' заблокирован: '{p}'")
             plan_files.append(p)
