@@ -101,5 +101,5 @@ permission:
     "erf-init": allow
     "erf-validate": allow
   mcp:
-    "v8std_*": allow
     "*": deny
+    "v8std_*": allow

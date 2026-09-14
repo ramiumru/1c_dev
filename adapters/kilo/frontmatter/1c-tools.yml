@@ -22,6 +22,7 @@ permission:
     ".kilo/context/common/**": allow
     ".kilo/logs/1c-tools/**": allow
   edit:
+    "*": deny
     ".kilo/logs/1c-tools/**": allow
   bash:
     "python scripts/build_summaries.py --project *": allow

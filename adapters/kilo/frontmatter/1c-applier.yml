@@ -45,9 +45,10 @@ permission:
     "pilot-control/**": allow
     ".kilo/logs/1c-applier/**": allow
   edit:
-    ".kilo/logs/1c-applier/**": allow
     "*": deny
+    ".kilo/logs/1c-applier/**": allow
   bash:
+    "*": ask
     "python scripts/safe_apply.py *": allow
     "python scripts/safe_backup.py *": allow
     "python scripts/applier_guard.py *": allow
@@ -57,19 +58,18 @@ permission:
     "powershell.exe -NoProfile -File .kilo/skills/db-dump-cf/scripts/*": allow
     "powershell.exe -NoProfile -File .kilo/skills/db-dump-xml/scripts/*": allow
     "powershell.exe -NoProfile -File .kilo/skills/db-run/scripts/*": allow
-    "*": deny
   task: deny
   webfetch: deny
   websearch: deny
   lsp: deny
   semantic_search: deny
-  external_directory: deny
+  external_directory: ask
   skill:
+    "*": deny
     "db-list": allow
     "db-dump-xml": allow
     "db-dump-dt": allow
     "db-dump-cf": allow
     "db-run": allow
-    "*": deny
   mcp:
     "*": deny
