@@ -40,6 +40,11 @@ try:
     from _root import find_root as _find_root_shared
 except ImportError:
     _find_root_shared = None
+try:
+    from plan_parser import parse_plan_from_file, normalize_files_for_powershell
+except ImportError:
+    parse_plan_from_file = None
+    normalize_files_for_powershell = None
 
 
 def _find_root(start: Path) -> Path:
@@ -94,9 +99,18 @@ def load_db_config(db_id: str, project_root: Path = None) -> dict:
     return db
 
 
-def read_change_report_files(specs_dir: Path, task: str) -> list[str]:
-    """Прочитать 06_change_report.md и извлечь файлы из раздела «Изменённые файлы»."""
+def read_change_report_files(specs_dir: Path, task: str, config_src: str = "",
+                            project_root: Path = None) -> list[str]:
+    """Прочитать 06_change_report.md и извлечь файлы через общий парсер plan_parser."""
     report_path = specs_dir / task / "06_change_report.md"
+    if parse_plan_from_file is not None:
+        plan_files, errors = parse_plan_from_file(report_path, config_src, project_root)
+        if errors:
+            for e in errors:
+                print(f"ERROR: {e}", file=sys.stderr)
+            return []
+        return plan_files
+    # Fallback (не должно использоваться — план-парсер должен быть установлен)
     if not report_path.exists():
         print(f"ERROR: 06_change_report.md не найден: {report_path}", file=sys.stderr)
         return []
@@ -247,9 +261,9 @@ def main() -> int:
         print(f"ERROR: configSrc не задан для базы '{db_id}'", file=sys.stderr)
         return 2
 
-    # 2. Прочитать файлы из 06_change_report.md
+    # 2. Прочитать файлы из 06_change_report.md через общий парсер
     specs_dir = project_root_path / "specs"
-    plan_files = read_change_report_files(specs_dir, task)
+    plan_files = read_change_report_files(specs_dir, task, config_src, project_root_path)
     if not plan_files:
         print(f"ERROR: не найдены файлы в 06_change_report.md для задачи '{task}'", file=sys.stderr)
         return 1
@@ -262,7 +276,10 @@ def main() -> int:
             return 1
 
     # 4. Нормализовать пути (strip configSrc prefix)
-    files_rel = normalize_files(config_src, plan_files)
+    if normalize_files_for_powershell is not None:
+        files_rel = normalize_files_for_powershell(config_src, plan_files)
+    else:
+        files_rel = normalize_files(config_src, plan_files)
     print(f"=== safe_apply: configSrc={config_src}, files={len(files_rel)} ===")
 
     # 5. Guard (load-xml Partial)
