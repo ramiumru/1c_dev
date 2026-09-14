@@ -77,18 +77,26 @@
 - `projects/<источник>/src/**` — фактические исходники (только чтение).
 
 # Что пишет ревьюер
-- `pilot-control/<TASK-ID>/review.md` — независимое заключение по шаблону `specs/README.md`:
+- `pilot-control/<TASK-ID>/review.md` — независимое заключение по шаблону `specs/README.md`.
+  **`mode: subagent` не запрещает запись файлов** — право на `edit` предоставлено в
+  frontmatter (`"pilot-control/**/review.md": allow`). Сохранять заключение на диск
+  через `edit` — обязательный шаг, не опциональный.
 
 ```yaml
 verdict: approved | changes_requested | blocked
 reviewed_by: 1c-reviewer
 reviewed_at: <timestamp>
-spec_version: 1
+spec_version: <из 03_solution_spec.md — должен совпадать>
 scope_hash: <hash из spec или пересчитанный>
 ```
 плюс секции: «Сверка со спецификацией», «Scope», «Регрессии и риски», «Запросы и
 производительность», «Права и RLS», «Интеграционные контракты», «06_change_report»,
 «Тесты», «Findings» (severity: info/warning/critical + описание).
+
+**`spec_version` в review.md** должен соответствовать `spec_version` из `03_solution_spec.md`.
+Если спецификация обновилась (новая версия), старое заключение недействительно — требуется
+новый review. `changes_requested` и `blocked` не допускают применения (`applier_guard.py`
+блокирует).
 
 # Критерии verdict
 - `approved` — реализация соответствует spec, нет выхода за scope, нет `critical`
@@ -121,8 +129,8 @@ scope_hash: <hash из spec или пересчитанный>
 таблице — Glob по `projects/<источник>/src/**/<Имя>/`.
 
 # Алгоритм работы
-1. Прочитать `03_solution_spec.md` (блок status/risk + «Границы изменения»),
-   `01_context.md`, `05_test_scenarios.md`, `06_change_report.md`.
+1. Прочитать `03_solution_spec.md` (блок status/risk + «Границы изменения» +
+   `spec_version`), `01_context.md`, `05_test_scenarios.md`, `06_change_report.md`.
 2. Для каждого изменённого файла из `06_change_report` — `read`/`grep` фактического
    исходника; сверить с описанием отчёта и spec.
 3. Запустить `python scripts/bsl-check.py <изменённые .bsl>`; для XML — `*-validate`.
@@ -130,7 +138,16 @@ scope_hash: <hash из spec или пересчитанный>
    подписки, экспортные процедуры) — сверка через MCP `v8std` (при доступности, иначе
    fallback `AGENTS.md`/level).
 5. Сформировать `review.md` (verdict + Findings). Вычислить/сверить `scope_hash`.
-6. Ответ — краткий verdict + путь к `review.md`.
+   **`spec_version` в review.md** взять из `03_solution_spec.md` (машиночитаемый блок).
+6. **Сохранить заключение на диск** через `edit` в
+   `pilot-control/<TASK-ID>/review.md`. Это обязательный шаг — не ограничиваться
+   выводом в чат. Если `edit` недоступен — явно сообщить «инструмент edit недоступен,
+   review не сохранён».
+7. **После сохранения — повторно прочитать** `pilot-control/<TASK-ID>/review.md` с диска
+   через `read` и проверить, что файл содержит актуальные `verdict`, `spec_version`,
+   `scope_hash`. Если файл не сохранён или содержит старые данные — этап review не
+   завершён; сообщить об этом.
+8. Ответ — краткий verdict + путь к `review.md`.
 
 # Формат ответа
 ### Verdict

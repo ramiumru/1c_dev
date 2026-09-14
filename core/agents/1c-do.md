@@ -177,17 +177,26 @@ Triage: docs-fix / quick-fix / SDD — критерии и promotion-тригг�
     (по списку «Источники» из брифа) строго в границах spec (включая anti-scope); заполнить
     `06_change_report.md` (включая `scope_hash`); комментарии `// ++ #<TASK-ID>` / `// -- #<TASK-ID>`. Транспортная
     Task-ошибка → retry-once; повторная неудача → шаг 7.
-6.4. **Независимый review (для `risk: high` и перед apply).** После шага 6 — через `read`
+ 6.4. **Независимый review (для `risk: high` и перед apply).** После шага 6 — через `read`
     `specs/<TASK-ID>/03_solution_spec.md` прочитать машиночитаемый блок: если `risk: high` (или
     эвристика: spec/`06_change_report` содержат high-risk маркеры — проведение, движения регистров,
     транзакции/блокировки, RLS/права, регламентные/фоновые, экспортные процедуры, метаданные,
     интеграционные контракты, структура базы, массовое изменение данных, обмены, финансовые расчёты) —
     делегировать `1c-reviewer` (Task, retry-once): прочитать `03_solution_spec.md` + `06_change_report.md`
-    + исходники, сверить scope/регрессии/контракты/тесты, сформировать `pilot-control/<TASK-ID>/review.md`
-    (`verdict` + findings). `verdict` ≠ `approved` → лог `WARN review-changes-requested`/`blocked`,
+    + исходники, сверить scope/регрессии/контракты/тесты, сформировать и **сохранить на диск**
+    `pilot-control/<TASK-ID>/review.md` (`verdict` + findings + `spec_version` + `scope_hash`).
+    `verdict` ≠ `approved` → лог `WARN review-changes-requested`/`blocked`,
     вернуть задачу `1c-developer`/`1c-analyst` (не продолжать к summaries/apply). `verdict: approved`
     → продолжить. Для `risk: low/medium` review опционален, но обязателен перед apply. Транспортная
     Task-ошибка → retry-once; повторная неудача → шаг 7 + лог `ERROR review-delegation-failed`.
+    
+    **Проверка актуальности review:** после возврата `1c-reviewer` — через `read` прочитать
+    сохранённый `pilot-control/<TASK-ID>/review.md`. Проверить, что `spec_version` в нём
+    совпадает с `spec_version` из `03_solution_spec.md`. Если `spec_version` не совпадает
+    (старый review от прежней версии spec) — review недействителен: повторно делегировать
+    `1c-reviewer` (один раз). При повторном несовпадении → лог `WARN review-stale`, вернуть
+    задачу на review. Если файл `review.md` отсутствует — этап review не завершён. Запрещено
+    рекомендовать пользователю просто проставить `approved` и новый номер версии.
 6.5. **Проверка статуса и авто-обновление summaries (post-SDD).** После возврата `1c-developer` —
    через `read` прочитать `specs/<TASK-ID>/06_change_report.md`.
    - Сначала проверить «Статус реализации». Если `не выполнено (блокировано)` или «Отклонения от
