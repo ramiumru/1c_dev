@@ -47,8 +47,7 @@ permission:
     "pilot-control/**": allow
     ".kilo/logs/**": allow
   edit:
-    "*": ask
-    "pilot-control/**/review.md": allow
+    "*": deny
     ".kilo/logs/1c-reviewer/**": allow
   bash:
     "*": deny
