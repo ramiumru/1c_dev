@@ -172,7 +172,7 @@ def check_python_syntax(rep: Report) -> None:
     if (ROOT / "core" / "skills").is_dir():
         skills_dirs.append(ROOT / "core" / "skills")
     for tool, sdir in [("kilo", ".kilo/skills"), ("claude", ".claude/skills"),
-                        ("openworks", ".openworks/skills"), ("codex", "skills")]:
+                        ("openworks", ".opencode/skills"), ("codex", "skills")]:
         sp = ROOT / sdir
         if sp.is_dir():
             skills_dirs.append(sp)
@@ -235,10 +235,10 @@ def check_install_paths(rep: Report) -> None:
     for needle in ["openworks", "ValidateSet", "adapters\\$Tool", "examples\\v8-project.example.json"]:
         if needle not in text:
             rep.error(f"install.ps1: отсутствует фрагмент '{needle}'")
-    if "opencode" in text:
-        rep.error("install.ps1: содержит устаревшее 'opencode' (ожидается openworks)")
+    if "opencode" in text and ".opencode" not in text:
+        rep.error("install.ps1: содержит 'opencode' без .opencode/ (некорректное использование)")
     else:
-        rep.ok("install.ps1: no opencode references")
+        rep.ok("install.ps1: opencode usage (только .opencode/ пути для openworks)")
     # 8.9: install.ps1 должен удалять существующие --- delimiters из frontmatter
     if "---`r`n$fm" in text or "$fm -replace" in text:
         rep.ok("install.ps1: defense-in-depth для frontmatter delimiters")
@@ -252,7 +252,7 @@ def check_agents(rep: Report) -> None:
     adapter_dirs = {
         "kilo": ".kilo/agent",
         "claude": ".claude/agents",
-        "openworks": ".openworks/agents",
+        "openworks": ".opencode/agents",
         "codex": "agents",
     }
     if IS_SOURCE_REPO:
@@ -463,7 +463,8 @@ def check_kilo_permission_order(rep: Report) -> None:
         ],
         "1c-tools": [
             ("bash", "python scripts/build_summaries.py --project test", "allow"),
-            ("bash", "python scripts/safe_apply.py --help", "default"),
+            ("bash", "python scripts/build_summaries.py --project test --context-dir .opencode/context/projects", "allow"),
+            ("bash", "python scripts/safe_apply.py --help", "deny"),
             ("skill", "meta-info", "deny"),
             ("mcp", "anything", "deny"),
             ("edit", "projects/test/src/file.bsl", "deny"),
@@ -933,7 +934,7 @@ def check_applier_self_path(rep: Report) -> None:
     adapter_dirs = {
         "kilo": (".kilo/agent", "adapters/kilo/frontmatter"),
         "claude": (".claude/agents", "adapters/claude/frontmatter"),
-        "openworks": (".openworks/agents", "adapters/openworks/frontmatter"),
+        "openworks": (".opencode/agents", "adapters/openworks/frontmatter"),
     }
     for tool, (install_dir, fm_dir) in adapter_dirs.items():
         fm_path = ROOT / fm_dir
@@ -948,10 +949,12 @@ def check_applier_self_path(rep: Report) -> None:
             expected = f"{install_dir}/{agent}.md"
             # Проверяем, что нет путей с другим регистром/числом каталога
             wrong_patterns = []
-            # Для openworks: .openworks/agent/ (единственное) — должно быть .openworks/agents/
+            # Для openworks: .openworks/ — устаревший путь, должен быть .opencode/agents/
             if tool == "openworks":
+                if f".openworks/agents/{agent}.md" in text:
+                    wrong_patterns.append(f".openworks/agents/{agent}.md (ожидалось .opencode/agents/)")
                 if f".openworks/agent/{agent}.md" in text:
-                    wrong_patterns.append(f".openworks/agent/{agent}.md (ожидалось .openworks/agents/)")
+                    wrong_patterns.append(f".openworks/agent/{agent}.md (ожидалось .opencode/agents/)")
             # Для kilo: .kilo/agents/ (множественное) — должно быть .kilo/agent/
             if tool == "kilo":
                 if f".kilo/agents/{agent}.md" in text:
@@ -1040,7 +1043,15 @@ def check_example_security(rep: Report) -> None:
 
 
 def check_no_opencode_refs(rep: Report) -> None:
+    """Проверка: нет устаревших упоминаний OpenCode, КРОМЕ легитимных путей .opencode/ для адаптера openworks.
+    OpenWork построен на OpenCode primitives и читает .opencode/agents/*.md.
+    Разрешены: .opencode/agents, .opencode/skills, .opencode/context, .opencode/logs.
+    Запрещены: adapters/opencode (каталог адаптера), OpenCode как название продукта (вместо OpenWork)."""
     offenders = []
+    # Легитимные пути .opencode/ для openworks адаптера
+    legit_opencode = re.compile(r"\.opencode/(agents|skills|context|logs)")
+    # Запрещённые паттерны: каталог adapters/opencode, "OpenCode" как название
+    forbidden = re.compile(r"adapters[/\\]opencode")
     search_paths = [ROOT / "README.md", ROOT / "docs", ROOT / "NOTICE.md",
                     ROOT / "install", ROOT / "adapters"]
     if IS_SOURCE_REPO:
@@ -1050,18 +1061,25 @@ def check_no_opencode_refs(rep: Report) -> None:
             continue
         if p.is_file():
             text = p.read_text(encoding="utf-8", errors="replace")
-            if re.search(r"OpenCode", text) or re.search(r"\.opencode[/\s\"]|opencode\.json|adapters[/\\]opencode", text):
-                offenders.append(str(p.relative_to(ROOT)))
+            for m in re.finditer(r"opencode", text, re.IGNORECASE):
+                start = max(0, m.start() - 5)
+                context = text[start:m.end()+20]
+                if not legit_opencode.search(context) and forbidden.search(context):
+                    offenders.append(f"{p.relative_to(ROOT)}: ...{context}...")
         elif p.is_dir():
             for f in p.rglob("*"):
                 if f.is_file() and f.suffix in (".md", ".ps1", ".py", ".tpl", ".yml", ".json", ".toml"):
                     text = f.read_text(encoding="utf-8", errors="replace")
-                    if re.search(r"OpenCode", text) or re.search(r"\.opencode[/\s\"]|opencode\.json|adapters[/\\]opencode", text):
-                        offenders.append(str(f.relative_to(ROOT)))
+                    for m in re.finditer(r"opencode", text, re.IGNORECASE):
+                        start = max(0, m.start() - 5)
+                        context = text[start:m.end()+20]
+                        if not legit_opencode.search(context) and forbidden.search(context):
+                            offenders.append(f"{f.relative_to(ROOT)}: ...{context}...")
     if offenders:
-        rep.error("OpenCode-упоминания: " + ", ".join(offenders))
+        for item in offenders[:5]:
+            rep.error(f"OpenCode-упоминание (запрещённое): {item}")
     else:
-        rep.ok("no OpenCode references")
+        rep.ok("opencode: только легитимные .opencode/ пути (openworks адаптер)")
 
 
 def check_claude_frontmatter_parse(rep: Report) -> None:
@@ -1167,13 +1185,13 @@ def check_installer_smoke(rep: Report, skip_smoke: bool) -> None:
                     if not _parse_frontmatter(content):
                         issues.append("frontmatter .claude/agents/1c-reviewer.md пустой/двойной (8.9)")
             elif tool == "openworks":
-                reviewer = tdp / ".openworks" / "agents" / "1c-reviewer.md"
+                reviewer = tdp / ".opencode" / "agents" / "1c-reviewer.md"
                 if not reviewer.exists():
-                    issues.append("нет .openworks/agents/1c-reviewer.md")
+                    issues.append("нет .opencode/agents/1c-reviewer.md")
                 else:
                     content = reviewer.read_text(encoding="utf-8-sig", errors="replace")
                     if not _parse_frontmatter(content):
-                        issues.append("frontmatter .openworks/agents/1c-reviewer.md пустой/двойной (8.9)")
+                        issues.append("frontmatter .opencode/agents/1c-reviewer.md пустой/двойной (8.9)")
             elif tool == "codex":
                 if not (tdp / "agents" / "1c-reviewer.md").exists():
                     issues.append("нет agents/1c-reviewer.md")
@@ -1218,7 +1236,7 @@ def check_rules_directory(rep: Report) -> None:
     else:
         # Установленная раскладка: ищем rules/ в context dirs
         rules_dir = None
-        for d in [".kilo/context/rules", ".claude/context/rules", ".openworks/context/rules", "context/rules"]:
+        for d in [".kilo/context/rules", ".claude/context/rules", ".opencode/context/rules", "context/rules"]:
             rp = ROOT / d
             if rp.is_dir():
                 rules_dir = rp
@@ -1240,7 +1258,7 @@ def check_agent_trigger_tables(rep: Report) -> None:
         agents_dir = ROOT / "core" / "agents"
     else:
         agents_dir = None
-        for d in [".kilo/agent", ".claude/agents", ".openworks/agents", "agents"]:
+        for d in [".kilo/agent", ".claude/agents", ".opencode/agents", "agents"]:
             ap = ROOT / d
             if ap.is_dir():
                 agents_dir = ap
@@ -1267,7 +1285,7 @@ def check_agent_trigger_tables(rep: Report) -> None:
 def check_triage(rep: Report) -> None:
     """Проверка: triage.md существует и содержит ключевые слова; 1c-do routing содержит triage-уровни."""
     triage_found = False
-    for d in ["core/rules", ".kilo/context/rules", ".claude/context/rules", ".openworks/context/rules", "context/rules"]:
+    for d in ["core/rules", ".kilo/context/rules", ".claude/context/rules", ".opencode/context/rules", "context/rules"]:
         tp = ROOT / d / "triage.md"
         if tp.exists():
             triage_found = True
@@ -1282,7 +1300,7 @@ def check_triage(rep: Report) -> None:
         rep.error("triage: triage.md не найден")
     # 1c-do routing table
     do_path = None
-    for d in ["core/agents", ".kilo/agent", ".claude/agents", ".openworks/agents", "agents"]:
+    for d in ["core/agents", ".kilo/agent", ".claude/agents", ".opencode/agents", "agents"]:
         dp = ROOT / d / "1c-do.md"
         if dp.exists():
             do_path = dp
@@ -1378,8 +1396,8 @@ def check_agent_install(rep: Report) -> None:
         "doctor.py": "doctor.py" in text,
         "validate.py": "validate.py" in text,
         "Что НЕ делать": "Что НЕ делать" in text,
-        "no OpenCode": "OpenCode" not in text,
-        "Open Works": "Open Works" in text,
+        "no OpenCode": "OpenCode" not in text or "OpenCode primitives" in text,
+        "OpenWork": "OpenWork" in text,
     }
     for label, ok in checks.items():
         if ok:
@@ -1405,7 +1423,7 @@ def check_no_update_db(rep: Report) -> None:
                      ROOT / "adapters", ROOT / "docs"]
     else:
         for d in [".kilo/agent", ".kilo/context", ".claude/agents", ".claude/context",
-                   ".openworks/agents", ".openworks/context", "agents", "context"]:
+                   ".opencode/agents", ".opencode/context", "agents", "context"]:
             sp = ROOT / d
             if sp.is_dir():
                 scan_dirs.append(sp)
@@ -1437,7 +1455,7 @@ def check_no_old_review_path(rep: Report) -> None:
                      ROOT / "core" / "context", ROOT / "adapters", ROOT / "docs"]
     else:
         for d in [".kilo/agent", ".kilo/context", ".claude/agents", ".claude/context",
-                   ".openworks/agents", ".openworks/context", "agents", "context"]:
+                   ".opencode/agents", ".opencode/context", "agents", "context"]:
             sp = ROOT / d
             if sp.is_dir():
                 scan_dirs.append(sp)
@@ -1496,7 +1514,7 @@ def check_no_corporate_markers(rep: Report) -> None:
                      ROOT / "core" / "rules", ROOT / "core" / "scripts"]
     else:
         for d in [".kilo/agent", ".kilo/context", ".claude/agents", ".claude/context",
-                   ".openworks/agents", ".openworks/context", "agents", "context", "scripts"]:
+                   ".opencode/agents", ".opencode/context", "agents", "context", "scripts"]:
             sp = ROOT / d
             if sp.is_dir():
                 scan_dirs.append(sp)

@@ -1,29 +1,31 @@
-﻿description: Узкий исполнитель утилит проекта 1С (проект определяется per-запросом от 1c-do через Task-бриф). Запускает scripts/build_summaries.py для обновления summaries по списку объектов 1С, переданному от 1c-do через Task. Индекс per-project (.openworks/context/projects/<проект>/objects-index.md); summaries и кэш per-project (.openworks/context/projects/<проект>/summaries/). Проект передаётся скрипту флагом --project. Поддерживаемые режимы — --objects (перестройка по списку), --scan --objects (обнаружение и добавление новых объектов в индекс), --scan (dry-run отчёт о кандидатах), --subsystem (перестройка по подсистеме), --force (полная перестройка индексированных). Разрешает короткие имена объектов в полные заголовки через per-project индекс. Не анализирует код, не правит summaries руками — только bash-вызов скрипта и возврат stdout.
+﻿description: Узкий исполнитель утилит проекта 1С (проект определяется per-запросом от 1c-do через Task-бриф). Запускает scripts/build_summaries.py для обновления summaries по списку объектов 1С, переданному от 1c-do через Task. Индекс per-project (.opencode/context/projects/<проект>/objects-index.md); summaries и кэш per-project (.opencode/context/projects/<проект>/summaries/). Проект передаётся скрипту флагом --project. Поддерживаемые режимы — --objects (перестройка по списку), --scan --objects (обнаружение и добавление новых объектов в индекс), --scan (dry-run отчёт о кандидатах), --subsystem (перестройка по подсистеме), --force (полная перестройка индексированных). Разрешает короткие имена объектов в полные заголовки через per-project индекс. Не анализирует код, не правит summaries руками — только bash-вызов скрипта и возврат stdout.
 mode: subagent
 model: level/z-ai/glm-5.2
 permission:
   read:
     "INSTRUCTIONS.md": allow
-    ".openworks/agents/1c-tools.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
-    ".openworks/logs/1c-tools/**": allow
+    ".opencode/agents/1c-tools.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
+    ".opencode/logs/1c-tools/**": allow
   glob:
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/logs/1c-tools/**": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/logs/1c-tools/**": allow
   grep:
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/logs/1c-tools/**": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/logs/1c-tools/**": allow
   list:
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/logs/1c-tools/**": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/logs/1c-tools/**": allow
   edit:
-    ".openworks/logs/1c-tools/**": allow
+    "*": deny
+    ".opencode/logs/1c-tools/**": allow
   bash:
+    "*": deny
     "python scripts/build_summaries.py --project *": allow
     "python scripts/build_summaries.py --project * --objects *": allow
     "python scripts/build_summaries.py --project * --force": allow
@@ -42,6 +44,24 @@ permission:
     "python scripts/build_summaries.py --subsystem *": allow
     "python scripts/build_summaries.py --subsystem * --force": allow
     "python scripts/build_summaries.py --force --subsystem *": allow
+    "python scripts/build_summaries.py --project * --context-dir *": allow
+    "python scripts/build_summaries.py --project * --objects * --context-dir *": allow
+    "python scripts/build_summaries.py --project * --force --context-dir *": allow
+    "python scripts/build_summaries.py --project * --force --objects * --context-dir *": allow
+    "python scripts/build_summaries.py --project * --scan --context-dir *": allow
+    "python scripts/build_summaries.py --project * --scan --objects * --context-dir *": allow
+    "python scripts/build_summaries.py --project * --subsystem * --context-dir *": allow
+    "python scripts/build_summaries.py --project * --subsystem * --force --context-dir *": allow
+    "python scripts/build_summaries.py --project * --force --subsystem * --context-dir *": allow
+    "python scripts/build_summaries.py --context-dir *": allow
+    "python scripts/build_summaries.py --objects * --context-dir *": allow
+    "python scripts/build_summaries.py --force --context-dir *": allow
+    "python scripts/build_summaries.py --force --objects * --context-dir *": allow
+    "python scripts/build_summaries.py --scan --context-dir *": allow
+    "python scripts/build_summaries.py --scan --objects * --context-dir *": allow
+    "python scripts/build_summaries.py --subsystem * --context-dir *": allow
+    "python scripts/build_summaries.py --subsystem * --force --context-dir *": allow
+    "python scripts/build_summaries.py --force --subsystem * --context-dir *": allow
   task: deny
   webfetch: deny
   websearch: deny

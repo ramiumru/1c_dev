@@ -31,10 +31,10 @@ git clone {GITHUB_URL} "$env:TEMP\1c-dev-harness"
 Спроси пользователя: «Какой инструмент вы используете?» с вариантами:
 - Kilo
 - Claude Code
-- Open Works
+- OpenWork
 - Codex CLI
 
-Если в проекте уже есть `.kilo/`, `.claude/`, `.openworks/` или `AGENTS.md` (codex) —
+Если в проекте уже есть `.kilo/`, `.claude/`, `.opencode/` или `AGENTS.md` (codex) —
 предложи соответствующий инструмент как рекомендованный, но подтверди у пользователя.
 
 ### Шаг 3: Запустить установщик

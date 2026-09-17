@@ -4,56 +4,56 @@ model: level/z-ai/glm-5.2
 permission:
   read:
     "INSTRUCTIONS.md": allow
-    ".openworks/agents/1c-analyst.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/1c-analyst.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "specs/**": allow
     "projects/**/src/**": allow
-    ".openworks/logs/**": allow
+    ".opencode/logs/**": allow
   glob:
     "INSTRUCTIONS.md": allow
-    ".openworks/agents/1c-analyst.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/1c-analyst.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "specs/**": allow
     "projects/**/src/**": allow
-    ".openworks/logs/**": allow
+    ".opencode/logs/**": allow
   grep:
     "INSTRUCTIONS.md": allow
-    ".openworks/agents/1c-analyst.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/1c-analyst.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "specs/**": allow
     "projects/**/src/**": allow
-    ".openworks/logs/**": allow
+    ".opencode/logs/**": allow
   list:
     "INSTRUCTIONS.md": allow
-    ".openworks/agents/1c-analyst.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/1c-analyst.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "specs/**": allow
     "projects/**/src/**": allow
-    ".openworks/logs/**": allow
+    ".opencode/logs/**": allow
   edit:
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
     "specs/**": allow
-    ".openworks/logs/1c-analyst/**": allow
+    ".opencode/logs/1c-analyst/**": allow
   bash:
     "python scripts/scope_hash.py --spec *": allow
-    "powershell.exe -NoProfile -File .openworks/skills/meta-info/scripts/meta-info.ps1 *": allow
-    "powershell.exe -NoProfile -File .openworks/skills/form-info/scripts/form-info.ps1 *": allow
-    "powershell.exe -NoProfile -File .openworks/skills/mxl-info/scripts/mxl-info.ps1 *": allow
-    "powershell.exe -NoProfile -File .openworks/skills/skd-info/scripts/skd-info.ps1 *": allow
-    "powershell.exe -NoProfile -File .openworks/skills/xdto-info/scripts/xdto-info.ps1 *": allow
-    "powershell.exe -NoProfile -File .openworks/skills/role-info/scripts/role-info.ps1 *": allow
-    "powershell.exe -NoProfile -File .openworks/skills/subsystem-info/scripts/subsystem-info.ps1 *": allow
-    "powershell.exe -NoProfile -File .openworks/skills/cf-info/scripts/cf-info.ps1 *": allow
-    "powershell.exe -NoProfile -File .openworks/skills/cfe-diff/scripts/cfe-diff.ps1 *": allow
+    "powershell.exe -NoProfile -File .opencode/skills/meta-info/scripts/meta-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .opencode/skills/form-info/scripts/form-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .opencode/skills/mxl-info/scripts/mxl-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .opencode/skills/skd-info/scripts/skd-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .opencode/skills/xdto-info/scripts/xdto-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .opencode/skills/role-info/scripts/role-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .opencode/skills/subsystem-info/scripts/subsystem-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .opencode/skills/cf-info/scripts/cf-info.ps1 *": allow
+    "powershell.exe -NoProfile -File .opencode/skills/cfe-diff/scripts/cfe-diff.ps1 *": allow
   task: deny
   webfetch: deny
   websearch: deny

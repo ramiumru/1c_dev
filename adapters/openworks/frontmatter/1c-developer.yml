@@ -5,74 +5,74 @@ permission:
   read:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agents/1c-developer.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/1c-developer.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "projects/**": allow
     "specs/**": allow
     "sandbox.bsl": allow
     "scripts/**": allow
-    ".openworks/logs/1c-developer/**": allow
+    ".opencode/logs/1c-developer/**": allow
   glob:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agents/1c-developer.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/1c-developer.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "projects/**": allow
     "specs/**": allow
     "sandbox.bsl": allow
     "scripts/**": allow
-    ".openworks/logs/1c-developer/**": allow
+    ".opencode/logs/1c-developer/**": allow
   grep:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agents/1c-developer.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/1c-developer.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "projects/**": allow
     "specs/**": allow
     "sandbox.bsl": allow
     "scripts/**": allow
-    ".openworks/logs/1c-developer/**": allow
+    ".opencode/logs/1c-developer/**": allow
   list:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agents/1c-developer.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/1c-developer.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "projects/**": allow
     "specs/**": allow
     "sandbox.bsl": allow
     "scripts/**": allow
-    ".openworks/logs/1c-developer/**": allow
+    ".opencode/logs/1c-developer/**": allow
   edit:
     "projects/**": allow
     "specs/**": allow
-    ".openworks/context/projects/*/requirements/**": allow
+    ".opencode/context/projects/*/requirements/**": allow
     "sandbox.bsl": allow
-    ".openworks/logs/1c-developer/**": allow
+    ".opencode/logs/1c-developer/**": allow
   bash:
-    "powershell.exe -NoProfile -File .openworks/skills/meta-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/form-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/mxl-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/skd-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/role-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/subsystem-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/xdto-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/interface-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/template-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/help-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/support-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/cf-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/cfe-*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/epf-init/scripts/*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/epf-validate/scripts/*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/erf-init/scripts/*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/meta-*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/form-*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/mxl-*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/skd-*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/role-*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/subsystem-*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/xdto-*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/interface-*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/template-*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/help-*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/support-*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/cf-*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/cfe-*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/epf-init/scripts/*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/epf-validate/scripts/*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/erf-init/scripts/*": allow
     "python scripts/bsl-check.py *": allow
   task: deny
   webfetch: deny

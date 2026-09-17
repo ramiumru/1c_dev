@@ -5,46 +5,46 @@ permission:
   read:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agents/1c-reviewer.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/1c-reviewer.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "projects/**": allow
     "specs/**": allow
-    ".openworks/logs/**": allow
+    ".opencode/logs/**": allow
   glob:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agents/1c-reviewer.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/1c-reviewer.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "projects/**": allow
     "specs/**": allow
-    ".openworks/logs/**": allow
+    ".opencode/logs/**": allow
   grep:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agents/1c-reviewer.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/1c-reviewer.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "projects/**": allow
     "specs/**": allow
-    ".openworks/logs/**": allow
+    ".opencode/logs/**": allow
   list:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agents/1c-reviewer.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/1c-reviewer.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "projects/**": allow
     "specs/**": allow
-    ".openworks/logs/**": allow
+    ".opencode/logs/**": allow
   edit:
     "pilot-control/**/review.md": allow
-    ".openworks/logs/1c-reviewer/**": allow
+    ".opencode/logs/1c-reviewer/**": allow
     "*": deny
   bash:
     "python scripts/scope_hash.py --spec *": allow

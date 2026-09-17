@@ -44,7 +44,7 @@
 status: draft | ready_for_review | approved | rejected
 risk: low | medium | high
 approved_by: null
-approved_at: null
+approved_at: null  # при approved: ISO 8601 с timezone, напр. 2026-01-01T12:00:00Z
 spec_version: 1
 scope_hash: null
 ```
@@ -54,6 +54,9 @@ scope_hash: null
 - `draft` не допускается в разработку; `ready_for_review` ожидает проверки;
   `rejected` блокирует работу; `approved` разрешает следующий этап с учётом риска;
 - `approved` требует непустые `approved_by` и `approved_at`;
+- `approved_at`, `reviewed_at` и все `*_at` поля — ISO 8601 с обязательным timezone
+  (суффикс `Z` для UTC либо смещение `+03:00`). Naive timestamp (без timezone) блокируется
+  guard;
 - `approved_by` не может быть `1c-developer` (само-подтверждение запрещено);
   для `risk: high` — также не может быть `1c-analyst`;
 - review (`review.md` с `verdict: approved`) обязателен **для всех** опасных операций apply,
@@ -166,7 +169,7 @@ per-project контекста. Источники (основа + расшир�
 status: draft
 risk: low
 approved_by: null
-approved_at: null
+approved_at: null  # при approved: ISO 8601 с timezone, напр. 2026-01-01T12:00:00Z
 spec_version: 1
 scope_hash: null
 ```
@@ -304,7 +307,7 @@ scope_hash: null
 ```yaml
 verdict: approved | changes_requested | blocked
 reviewed_by: 1c-reviewer
-reviewed_at: <timestamp>
+reviewed_at: <ISO 8601 с timezone, напр. 2026-01-01T12:00:00Z>
 spec_version: 1
 scope_hash: <hash>
 ```

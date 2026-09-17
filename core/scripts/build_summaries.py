@@ -66,8 +66,24 @@ def _find_root_build() -> Path:
 
 ROOT = _find_root_build()
 
-# Default: Kilo layout (.kilo/context/projects). Override with --context-dir.
-PROJECTS_CONTEXT_DIR = ROOT / ".kilo" / "context" / "projects"
+# Default: адаптивный выбор раскладки контекста.
+# Проверяем .kilo/context/projects, .opencode/context/projects, .claude/context/projects,
+# context/projects (codex). Если ни один не найден — fallback на .kilo/context/projects.
+def _detect_context_dir(root: Path) -> Path:
+    """Автоопределение каталога per-project контекста по фактической раскладке адаптера."""
+    candidates = [
+        root / ".kilo" / "context" / "projects",
+        root / ".opencode" / "context" / "projects",
+        root / ".claude" / "context" / "projects",
+        root / "context" / "projects",
+    ]
+    for c in candidates:
+        if c.is_dir():
+            return c
+    # Fallback: .kilo/context/projects (совместимость с kilo)
+    return root / ".kilo" / "context" / "projects"
+
+PROJECTS_CONTEXT_DIR = _detect_context_dir(ROOT)
 # Per-project структура:
 #   .kilo/context/projects/<project>/context.md       — per-project контекст (домен, Источники)
 #   .kilo/context/projects/<project>/objects-index.md — индекс объектов проекта
@@ -1037,9 +1053,9 @@ def main() -> int:
         "--context-dir",
         default="",
         help="Каталог per-project контекста (содержит <project>/ папки с context.md, "
-             "objects-index.md, summaries/). По умолчанию — .kilo/context/projects "
-             "(Kilo layout). Для других инструментов — указать путь (напр. "
-             "context/projects).",
+             "objects-index.md, summaries/). По умолчанию — автоопределение по раскладке: "
+             ".kilo/context/projects (Kilo), .opencode/context/projects (OpenWork), "
+             ".claude/context/projects (Claude).",
     )
 
     args = parser.parse_args()
@@ -1050,6 +1066,20 @@ def main() -> int:
         PROJECTS_CONTEXT_DIR = Path(args.context_dir).resolve()
 
     project = args.project.strip()
+
+    # --force: перестроить objects-index.md из фактических исходников
+    if args.force and not args.scan and project:
+        index_path = objects_index_path(project)
+        if index_path.exists():
+            existing = parse_objects_index(index_path)
+            existing_titles = {o.title for o in existing}
+            # Найти все объекты в projects/<источник>/src/
+            scanned = scan_projects_for_objects(existing_titles, project=project)
+            if scanned:
+                print(f"--force: обновление objects-index.md: {len(scanned)} новых объектов")
+                append_objects_to_index(scanned)
+            else:
+                print(f"--force: objects-index.md актуален (нет новых объектов)")
 
     def load_indexed_objects() -> list:
         """Чтение индекса: per-project при --project, иначе все per-project файлы."""

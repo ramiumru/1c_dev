@@ -64,7 +64,7 @@ AGENTS = ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-applier", "1
 ADAPTERS = {
     "kilo": {"agents_dir": ".kilo/agent"},
     "claude": {"agents_dir": ".claude/agents"},
-    "openworks": {"agents_dir": ".openworks/agents"},
+    "openworks": {"agents_dir": ".opencode/agents"},
     "codex": {"agents_dir": "agents"},
 }
 ALLOWED_ENVS = {"local", "test", "staging"}
@@ -183,7 +183,7 @@ def doctor(root: Path, d: Doc) -> None:
         d.ok(f"core/skills: {n} скиллов с SKILL.md")
     else:
         # целевая установка
-        for tool, meta in {"kilo": ".kilo/skills", "claude": ".claude/skills", "openworks": ".openworks/skills", "codex": "skills"}.items():
+        for tool, meta in {"kilo": ".kilo/skills", "claude": ".claude/skills", "openworks": ".opencode/skills", "codex": "skills"}.items():
             sp = root / meta
             if sp.is_dir():
                 n = len([p for p in sp.iterdir() if (p / "SKILL.md").exists()])
@@ -275,7 +275,7 @@ def doctor(root: Path, d: Doc) -> None:
         root / "core" / "rules",
         root / ".kilo" / "context" / "rules",
         root / ".claude" / "context" / "rules",
-        root / ".openworks" / "context" / "rules",
+        root / ".opencode" / "context" / "rules",
         root / "context" / "rules",
     ]
     rules_found = False
