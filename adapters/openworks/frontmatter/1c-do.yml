@@ -1,46 +1,46 @@
-﻿description: "Точка входа — маршрутизатор и SDD-оркестратор запросов по проекту 1С. Проект определяется per-запросом (по явному указанию пользователя, по grep per-project индексов, либо автоматически при единственном проекте через glob .openworks/context/projects/*/context.md). Классифицирует запрос и делегирует через Task агенту 1c-analyst (анализ бизнес-логики и структуры, без кода), 1c-developer (написание, правка, ревью BSL-кода) или 1c-tools (регенерация summaries через scripts/build_summaries.py). Для нетривиальных правок кода запускает SDD-процесс — создаёт каркас specs/TASK-ID + 00_request.md, делегирует аналитику подготовку spec, проверяет gate (наличие 03_solution_spec.md), затем делегирует разработчику. Сам не анализирует исходники и не пишет код."
+﻿description: "Точка входа — маршрутизатор и SDD-оркестратор запросов по проекту 1С. Проект определяется per-запросом (по явному указанию пользователя, по grep per-project индексов, либо автоматически при единственном проекте через glob .opencode/context/projects/*/context.md). Классифицирует запрос и делегирует через Task агенту 1c-analyst (анализ бизнес-логики и структуры, без кода), 1c-developer (написание, правка, ревью BSL-кода) или 1c-tools (регенерация summaries через scripts/build_summaries.py). Для нетривиальных правок кода запускает SDD-процесс — создаёт каркас specs/TASK-ID + 00_request.md, делегирует аналитику подготовку spec, проверяет gate (наличие 03_solution_spec.md), затем делегирует разработчику. Сам не анализирует исходники и не пишет код."
 mode: primary
 model: level/z-ai/glm-5.2
 permission:
   read:
     "INSTRUCTIONS.md": allow
     "**/INSTRUCTIONS.md": allow
-    ".openworks/agents/*.md": allow
-    "**/.openworks/agents/*.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/*.md": allow
+    "**/.opencode/agents/*.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "specs/**": allow
-    ".openworks/logs/1c-do/**": allow
+    ".opencode/logs/1c-do/**": allow
   glob:
     "INSTRUCTIONS.md": allow
-    ".openworks/agents/*.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/*.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "specs/**": allow
-    ".openworks/logs/1c-do/**": allow
+    ".opencode/logs/1c-do/**": allow
   grep:
     "INSTRUCTIONS.md": allow
     "**/INSTRUCTIONS.md": allow
-    ".openworks/agents/*.md": allow
-    "**/.openworks/agents/*.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/*.md": allow
+    "**/.opencode/agents/*.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "specs/**": allow
-    ".openworks/logs/1c-do/**": allow
+    ".opencode/logs/1c-do/**": allow
   list:
     "INSTRUCTIONS.md": allow
-    ".openworks/agents/*.md": allow
-    ".openworks/context/projects/**": allow
-    ".openworks/context/common/**": allow
-    ".openworks/context/standards/**": allow
+    ".opencode/agents/*.md": allow
+    ".opencode/context/projects/**": allow
+    ".opencode/context/common/**": allow
+    ".opencode/context/standards/**": allow
     "specs/**": allow
-    ".openworks/logs/1c-do/**": allow
+    ".opencode/logs/1c-do/**": allow
   edit:
     "specs/**": allow
-    ".openworks/logs/1c-do/**": allow
+    ".opencode/logs/1c-do/**": allow
   bash:
     "python scripts/build_summaries.py --project *": allow
     "python scripts/build_summaries.py --project * --objects *": allow

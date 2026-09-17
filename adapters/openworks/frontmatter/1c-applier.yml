@@ -5,54 +5,54 @@ permission:
   read:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agents/1c-applier.md": allow
+    ".opencode/agents/1c-applier.md": allow
     ".v8-project.json": allow
-    ".openworks/context/projects/**": allow
+    ".opencode/context/projects/**": allow
     "projects/**": allow
     "specs/**": allow
     "scripts/**": allow
-    ".openworks/logs/1c-applier/**": allow
+    ".opencode/logs/1c-applier/**": allow
   glob:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agents/1c-applier.md": allow
+    ".opencode/agents/1c-applier.md": allow
     ".v8-project.json": allow
-    ".openworks/context/projects/**": allow
+    ".opencode/context/projects/**": allow
     "projects/**": allow
     "specs/**": allow
     "scripts/**": allow
-    ".openworks/logs/1c-applier/**": allow
+    ".opencode/logs/1c-applier/**": allow
   grep:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agents/1c-applier.md": allow
-    ".openworks/context/projects/**": allow
+    ".opencode/agents/1c-applier.md": allow
+    ".opencode/context/projects/**": allow
     "projects/**": allow
     "specs/**": allow
     "scripts/**": allow
   list:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
-    ".openworks/agents/1c-applier.md": allow
+    ".opencode/agents/1c-applier.md": allow
     ".v8-project.json": allow
-    ".openworks/context/projects/**": allow
+    ".opencode/context/projects/**": allow
     "projects/**": allow
     "specs/**": allow
     "scripts/**": allow
-    ".openworks/logs/1c-applier/**": allow
+    ".opencode/logs/1c-applier/**": allow
   edit:
-    ".openworks/logs/1c-applier/**": allow
+    ".opencode/logs/1c-applier/**": allow
     "*": deny
   bash:
     "python scripts/safe_apply.py *": allow
     "python scripts/safe_backup.py *": allow
     "python scripts/applier_guard.py *": allow
     "python scripts/bsl-check.py *": allow
-    "powershell.exe -NoProfile -File .openworks/skills/db-list/scripts/*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/db-dump-dt/scripts/*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/db-dump-cf/scripts/*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/db-dump-xml/scripts/*": allow
-    "powershell.exe -NoProfile -File .openworks/skills/db-run/scripts/*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/db-list/scripts/*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/db-dump-dt/scripts/*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/db-dump-cf/scripts/*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/db-dump-xml/scripts/*": allow
+    "powershell.exe -NoProfile -File .opencode/skills/db-run/scripts/*": allow
     "*": deny
   task: deny
   webfetch: deny

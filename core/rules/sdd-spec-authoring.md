@@ -21,7 +21,9 @@
    «Контракты поведения», «Обработка ошибок», «Ограничения совместимости», «Критерии приёмки»,
    «Нефункциональные требования». **В начале файла — машиночитаемый блок** `status`/`risk`/
    `approved_by`/`approved_at`/`spec_version`/`scope_hash` (fenced `yaml`; шаблон —
-   `specs/README.md`). Аналитик выставляет начальный `status: draft` и `risk` (low/medium/high по
+   `specs/README.md`). **`approved_at` — ISO 8601 с обязательным timezone** (суффикс `Z`
+   для UTC либо смещение `+03:00`, напр. `2026-01-01T12:00:00Z`). Naive timestamp без
+   timezone блокируется guard при apply. Аналитик выставляет начальный `status: draft` и `risk` (low/medium/high по
    классификации в `INSTRUCTIONS.md`);    `approved` выставляет внешний субъект (пользователь/
    review-процесс), НЕ сам аналитик для high-risk. **Этот файл — GATE для `1c-developer`: без него
    и без `status: approved` разработка не начинается.**

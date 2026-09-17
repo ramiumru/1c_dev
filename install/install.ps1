@@ -53,7 +53,7 @@ if (-not (Test-Path "$repo\core\agents")) {
 $config = @{
     kilo = @{ skillDir=".kilo/skills"; agentDir=".kilo/agent"; contextDir=".kilo/context"; logsDir=".kilo/logs"; rootConfig="kilo.json"; instructionsInRoot=$true; copySkills=$true; copyAgents=$true }
     claude = @{ skillDir=".claude/skills"; agentDir=".claude/agents"; contextDir=".claude/context"; logsDir=".claude/logs"; rootConfig="CLAUDE.md"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
-    openworks = @{ skillDir=".openworks/skills"; agentDir=".openworks/agents"; contextDir=".openworks/context"; logsDir=".openworks/logs"; rootConfig="openworks.json"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
+    openworks = @{ skillDir=".opencode/skills"; agentDir=".opencode/agents"; contextDir=".opencode/context"; logsDir=".opencode/logs"; rootConfig=""; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
     codex = @{ skillDir="skills"; agentDir="agents"; contextDir="context"; logsDir="logs"; rootConfig="AGENTS.md"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
 }[$Tool]
 
@@ -197,16 +197,20 @@ if ($config.copyAgents) {
 } else { Write-Host "[2/7] Агенты: пропуск" }
 
 # --- 3. Корневой конфиг ---
-Write-Host "[3/7] Корневой конфиг -> $($config.rootConfig)"
-$tplPath = "$repo\adapters\$Tool\$($config.rootConfig).tpl"
-if (-not (Test-Path $tplPath)) {
-    $tpls = Get-ChildItem "$repo\adapters\$Tool" -Filter "*.tpl" -ErrorAction SilentlyContinue
-    if ($tpls) { $tplPath = $tpls[0].FullName }
-}
-if (Test-Path $tplPath) {
-    $tplContent = [System.IO.File]::ReadAllText($tplPath, [System.Text.Encoding]::UTF8)
-    $dstPath = Join-Path $Target $config.rootConfig
-    Safe-CopyFile $tplPath $dstPath $config.rootConfig
+if ($config.rootConfig -and $config.rootConfig -ne "") {
+    Write-Host "[3/7] Корневой конфиг -> $($config.rootConfig)"
+    $tplPath = "$repo\adapters\$Tool\$($config.rootConfig).tpl"
+    if (-not (Test-Path $tplPath)) {
+        $tpls = Get-ChildItem "$repo\adapters\$Tool" -Filter "*.tpl" -ErrorAction SilentlyContinue
+        if ($tpls) { $tplPath = $tpls[0].FullName }
+    }
+    if (Test-Path $tplPath) {
+        $tplContent = [System.IO.File]::ReadAllText($tplPath, [System.Text.Encoding]::UTF8)
+        $dstPath = Join-Path $Target $config.rootConfig
+        Safe-CopyFile $tplPath $dstPath $config.rootConfig
+    }
+} else {
+    Write-Host "[3/7] Корневой конфиг: пропуск (rootConfig не задан)"
 }
 
 # --- 4. Контекст ---

@@ -77,14 +77,14 @@ Per-project данные не входят в запретный список «
 ├── INSTRUCTIONS.md                        — общий (схемный) контекст
 ├── <root-config>                          — kilo.json | CLAUDE.md | openworks.json | AGENTS.md (корневой конфиг инструмента)
 ├── .v8-project.json                       — реестр информационных баз (project↔БД; environment + env-секреты; читают db-* скиллы)
-├── <AGENTS_DIR>/                          — каталог агентов инструмента (.kilo/agent | .claude/agents | .openworks/agents | agents)
+├── <AGENTS_DIR>/                          — каталог агентов инструмента (.kilo/agent | .claude/agents | .opencode/agents | agents)
 │   ├── 1c-do.md                           — точка входа / маршрутизатор + SDD-оркестратор
 │   ├── 1c-analyst.md                      — аналитик 1С (вся конфигурация, без кода)
 │   ├── 1c-developer.md                    — разработчик 1С (BSL-код)
 │   ├── 1c-reviewer.md                     — независимый ревьюер (соответствие spec/scope, регрессии; mode: subagent)
 │   ├── 1c-applier.md                      — апликер (применение правок в живую ИБ, mode: all)
 │   └── 1c-tools.md                        — исполнитель утилит (summaries, mode: subagent)
-├── <CONTEXT_DIR>/                         — каталог контекста инструмента (.kilo/context | .claude/context | .openworks/context | context)
+├── <CONTEXT_DIR>/                         — каталог контекста инструмента (.kilo/context | .claude/context | .opencode/context | context)
 │   ├── common/                            — кросс-проектное (вопрос вне проекта)
 │   │   ├── requirements-README.md         — мета-документация по требованиям
 │   │   └── requirements/                  — (опц.) общие требования
@@ -230,7 +230,7 @@ Per-project данные не входят в запретный список «
 status: draft | ready_for_review | approved | rejected
 risk: low | medium | high
 approved_by: null
-approved_at: null
+approved_at: null  # при approved: ISO 8601 с timezone, напр. 2026-01-01T12:00:00Z
 spec_version: 1
 scope_hash: null
 ```

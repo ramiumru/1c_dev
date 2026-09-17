@@ -25,6 +25,7 @@ permission:
     "*": deny
     ".kilo/logs/1c-tools/**": allow
   bash:
+    "*": deny
     "python scripts/build_summaries.py --project *": allow
     "python scripts/build_summaries.py --project * --objects *": allow
     "python scripts/build_summaries.py --project * --force": allow
@@ -43,6 +44,24 @@ permission:
     "python scripts/build_summaries.py --subsystem *": allow
     "python scripts/build_summaries.py --subsystem * --force": allow
     "python scripts/build_summaries.py --force --subsystem *": allow
+    "python scripts/build_summaries.py --project * --context-dir *": allow
+    "python scripts/build_summaries.py --project * --objects * --context-dir *": allow
+    "python scripts/build_summaries.py --project * --force --context-dir *": allow
+    "python scripts/build_summaries.py --project * --force --objects * --context-dir *": allow
+    "python scripts/build_summaries.py --project * --scan --context-dir *": allow
+    "python scripts/build_summaries.py --project * --scan --objects * --context-dir *": allow
+    "python scripts/build_summaries.py --project * --subsystem * --context-dir *": allow
+    "python scripts/build_summaries.py --project * --subsystem * --force --context-dir *": allow
+    "python scripts/build_summaries.py --project * --force --subsystem * --context-dir *": allow
+    "python scripts/build_summaries.py --context-dir *": allow
+    "python scripts/build_summaries.py --objects * --context-dir *": allow
+    "python scripts/build_summaries.py --force --context-dir *": allow
+    "python scripts/build_summaries.py --force --objects * --context-dir *": allow
+    "python scripts/build_summaries.py --scan --context-dir *": allow
+    "python scripts/build_summaries.py --scan --objects * --context-dir *": allow
+    "python scripts/build_summaries.py --subsystem * --context-dir *": allow
+    "python scripts/build_summaries.py --subsystem * --force --context-dir *": allow
+    "python scripts/build_summaries.py --force --subsystem * --context-dir *": allow
   task: deny
   webfetch: deny
   websearch: deny

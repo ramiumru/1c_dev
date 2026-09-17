@@ -16,7 +16,7 @@
 ```yaml
 verdict: approved | changes_requested | blocked
 reviewed_by: 1c-reviewer
-reviewed_at: <timestamp>
+reviewed_at: <ISO 8601 с timezone, напр. 2026-01-01T12:00:00Z>
 spec_version: 1
 scope_hash: <hash из spec или пересчитанный>
 ```
