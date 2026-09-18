@@ -43,13 +43,12 @@ permission:
     "specs/**": allow
     ".opencode/logs/**": allow
   edit:
-    "pilot-control/**/review.md": allow
-    ".opencode/logs/1c-reviewer/**": allow
     "*": deny
+    ".opencode/logs/1c-reviewer/**": allow
   bash:
+    "*": deny
     "python scripts/scope_hash.py --spec *": allow
     "python scripts/bsl-check.py *": allow
-    "*": deny
   task: deny
   webfetch: deny
   websearch: deny
@@ -59,5 +58,5 @@ permission:
   skill:
     "*": deny
   mcp:
-    "v8std_*": allow
     "*": deny
+    "v8std_*": allow

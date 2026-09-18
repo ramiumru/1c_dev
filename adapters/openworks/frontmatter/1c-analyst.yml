@@ -39,6 +39,7 @@ permission:
     "projects/**/src/**": allow
     ".opencode/logs/**": allow
   edit:
+    "*": deny
     ".opencode/context/projects/**": allow
     ".opencode/context/common/**": allow
     "specs/**": allow
