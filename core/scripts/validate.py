@@ -1600,6 +1600,77 @@ def check_project_sources_example(rep: Report) -> None:
         rep.error("project-sources-example: нет ссылки на rules/project-sources.md (политика приоритета)")
 
 
+def check_source_policy_consistency(rep: Report) -> None:
+    """Regression assertions: конфликтные старые формулировки, противоречащие project-sources.md.
+
+    Проверяет отсутствие конкретных конфликтных фраз (не NLP-анализ — точные маркеры регрессии):
+    - analyst: абсолютный запрет MCP при наличии project-sources support;
+    - developer: «только local» / абсолютный запрет project MCP;
+    - reviewer: «исходники не нужны для сверки» / approved без реализации в MCP-only;
+    - INSTRUCTIONS: «единственный источник анализа — local» рядом с project MCP support;
+    - BslChecklists: старая фраза «запросы ... на больших объёмах».
+    """
+    if not IS_SOURCE_REPO:
+        return
+    import re as _re
+
+    # Конфликтные фразы (точные подстроки), которые НЕ должны присутствовать
+    # после согласования с project-sources.md.
+    conflict_checks = [
+        # analyst: абсолютный запрет MCP / «только локальные файлы»
+        ("core/agents/1c-analyst.md", r"MCP, интернет, `lsp`, `semantic_search` — запрещены",
+         "analyst: абсолютный запрет MCP (заменён на разрешение объявленных project MCP)"),
+        ("core/agents/1c-analyst.md", r"Выводы только по прочитанным файлам",
+         "analyst: абсолютное «только по прочитанным файлам» (заменено на «по подтверждённым данным»)"),
+        ("core/agents/1c-analyst.md", r"Не могу подтвердить по текущей локальной конфигурации",
+         "analyst: старая фраза unconfirmed (заменена на «по доступным источникам»)"),
+        ("core/agents/1c-analyst.md", r"unconfirmed-by-local-config",
+         "analyst: старый slug лога unconfirmed-by-local-config"),
+        # developer: «работаешь только с локальными» / «сторонние MCP запрещены; разрешён только v8std»
+        ("core/agents/1c-developer.md", r"Работаешь только с локальными исходниками",
+         "developer: «только локальные» в инвариантах (заменено на source of truth + project MCP)"),
+        ("core/agents/1c-developer.md", r"сторонние MCP — запрещены\. Разрешён только MCP `v8std_\*`",
+         "developer: абсолютный запрет project MCP (заменён на разрешение объявленных)"),
+        # reviewer: «исходники не нужны для сверки»
+        ("core/rules/project-sources.md", r"исходники не нужны для сверки",
+         "project-sources: «исходники не нужны для сверки» (заменено на no-approved-without-implementation)"),
+        # INSTRUCTIONS: «единственный источник анализа — локальные исходники»
+        ("core/context/INSTRUCTIONS.md", r"Единственный источник анализа конфигурации — локальные исходники",
+         "INSTRUCTIONS: «единственный источник — local» (устранено противоречие с project MCP)"),
+        # BslChecklists: старая фраза «запросы на больших объёмах»
+        ("core/context/BslChecklists.md", r"запросы на больших объёмах",
+         "BslChecklists: старая фраза «запросы на больших объёмах» (заменена на архитектурный выбор)"),
+    ]
+
+    for rel_path, pattern, label in conflict_checks:
+        fp = ROOT / rel_path
+        if not fp.exists():
+            rep.error(f"source-policy-consistency: файл не найден — {rel_path}")
+            continue
+        text = fp.read_text(encoding="utf-8", errors="replace")
+        if _re.search(pattern, text):
+            rep.error(f"source-policy-consistency: КОНФЛИКТ — {label} (в {rel_path})")
+        else:
+            rep.ok(f"source-policy-consistency: {rel_path} — конфликтная фраза отсутствует ({label[:50]})")
+
+    # Обязательные маркеры (должны присутствовать — подтверждение новой политики)
+    required_markers = [
+        ("core/agents/1c-analyst.md", "project-sources.md", "analyst ссылается на project-sources.md"),
+        ("core/agents/1c-developer.md", "project-sources.md", "developer ссылается на project-sources.md"),
+        ("core/agents/1c-reviewer.md", "project-sources.md", "reviewer ссылается на project-sources.md"),
+        ("core/rules/project-sources.md", "не выдавать `approved`", "project-sources: no-approved-without-implementation"),
+    ]
+    for rel_path, marker, label in required_markers:
+        fp = ROOT / rel_path
+        if not fp.exists():
+            continue
+        text = fp.read_text(encoding="utf-8", errors="replace")
+        if marker in text:
+            rep.ok(f"source-policy-consistency: {label} присутствует")
+        else:
+            rep.error(f"source-policy-consistency: обязательный маркер отсутствует — {label} (в {rel_path})")
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1643,6 +1714,7 @@ def main() -> int:
         check_agent_install(rep)
         check_no_corporate_markers(rep)
         check_project_sources_example(rep)
+        check_source_policy_consistency(rep)
     else:
         rep.ok("license/corporate: пропущено (установленный проект — не требуется)")
     check_no_update_db(rep)
