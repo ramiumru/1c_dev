@@ -420,6 +420,7 @@ if (Test-Path $specsReadmeDst) {
 $examplesDst = Join-Path $Target "examples"
 New-Item -ItemType Directory -Force -Path $examplesDst | Out-Null
 Safe-CopyFile "$repo\examples\v8-project.example.json" (Join-Path $examplesDst "v8-project.example.json") "examples/v8-project.example.json"
+Safe-CopyFile "$repo\examples\project-context.example.md" (Join-Path $examplesDst "project-context.example.md") "examples/project-context.example.md"
 
 # --- Манифест .ai-rules.json ---
 Write-Host "[7/7] Генерация манифеста .ai-rules.json"
@@ -472,6 +473,11 @@ $examplePath = Join-Path $Target "examples/v8-project.example.json"
 if (Test-Path $examplePath) {
     $hash = (Get-FileHash -LiteralPath $examplePath -Algorithm SHA256).Hash
     $files += [PSCustomObject]@{ path="examples/v8-project.example.json"; source="examples/v8-project.example.json"; installedHash=$hash; userModified=$false }
+}
+$projCtxExamplePath = Join-Path $Target "examples/project-context.example.md"
+if (Test-Path $projCtxExamplePath) {
+    $hash = (Get-FileHash -LiteralPath $projCtxExamplePath -Algorithm SHA256).Hash
+    $files += [PSCustomObject]@{ path="examples/project-context.example.md"; source="examples/project-context.example.md"; installedHash=$hash; userModified=$false }
 }
 # Корневой конфиг
 $rootConfigPath = Join-Path $Target $config.rootConfig

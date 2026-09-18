@@ -53,6 +53,7 @@
 | Триггер | Файл |
 |---|---|
 | Review реализации (scope/регрессии/контракты) | `{{CONTEXT_DIR}}/rules/review-checklist.md` |
+| Проект с настроенными MCP sources (metadata/code/standards/platform_help) | `{{CONTEXT_DIR}}/rules/project-sources.md` |
 
 Правила загружаются через `read` только когда триггер совпадает с задачей.
 Не подгружать превентивно — экономия контекста.
@@ -67,6 +68,10 @@
   `projects/<источник>/src/**` (только чтение).
 - Стандарты: `{{CONTEXT_DIR}}/standards/standards.example.md` (первичный), MCP `v8std`
   (вторичный), `AGENTS.md` (чек-лист).
+- **MCP sources** — если в Task-брифе переданы доступные MCP sources (`metadata`/`code`/
+  `standards`/`platform_help`) — read-only доступ к тем же lookup/reference sources, что у
+  developer/analyst. **Независимая проверка**: не полагаться только на ссылки developer — сверять
+  через MCP/локальные исходники самостоятельно. Политика — `{{CONTEXT_DIR}}/rules/project-sources.md`.
 - Детали платформы и SDD — `INSTRUCTIONS.md`, `specs/README.md`.
 
 # Что читает ревьюер в SDD-режиме

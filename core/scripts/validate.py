@@ -84,6 +84,7 @@ REQUIRED_FILES_SOURCE = [
     "LICENSE",
     "AGENT-INSTALL.md",
     "examples/v8-project.example.json",
+    "examples/project-context.example.md",
     "core/sdd/README.md",
     "core/scripts/applier_guard.py",
     "core/scripts/safe_apply.py",
@@ -114,6 +115,7 @@ EXPECTED_RULES = [
     "review-checklist.md",
     "apply-procedure.md",
     "triage.md",
+    "project-sources.md",
 ]
 
 REQUIRED_FILES_INSTALLED = [
@@ -1541,6 +1543,63 @@ def check_no_corporate_markers(rep: Report) -> None:
         rep.ok("corporate-markers: публичный core не содержит корпоративных маркеров")
 
 
+def check_project_sources_example(rep: Report) -> None:
+    """Проверка examples/project-context.example.md: универсальная схема sources без корпоративных параметров.
+
+    Гарантирует: (1) файл существует; (2) содержит maшиночитаемый yaml-блок sources с типами
+    local/metadata/code/platform_help/standards; (3) НЕ содержит корпоративных URL/IP/UUID/credentials —
+    только placeholders и env-переменные; (4) MCP sources по умолчанию enabled: false (публичный репо).
+    """
+    if not IS_SOURCE_REPO:
+        return
+    ex = ROOT / "examples" / "project-context.example.md"
+    if not ex.exists():
+        rep.error("project-sources-example: examples/project-context.example.md не найден")
+        return
+    text = ex.read_text(encoding="utf-8", errors="replace")
+    # (2) yaml-блок sources с типами
+    import re as _re
+    yaml_match = _re.search(r"```yaml\s*\r?\n(.*?)```", text, _re.S)
+    if not yaml_match:
+        rep.error("project-sources-example: нет maшиночитаемого yaml-блока sources")
+        return
+    yaml_block = yaml_match.group(1)
+    for src_type in ("local", "metadata", "code", "platform_help", "standards"):
+        if f"{src_type}:" not in yaml_block:
+            rep.error(f"project-sources-example: в yaml-блоке отсутствует тип источника '{src_type}'")
+        else:
+            rep.ok(f"project-sources-example: тип источника '{src_type}' присутствует")
+    # (3) отсутствие корпоративных параметров: реальные URL/IP/UUID/credentials
+    # Запрещённые паттерны: http(s):// с конкретным хостом (не placeholder), IP, UUID, password/token/secret
+    forbidden_patterns = [
+        (r"https?://[a-zA-Z0-9][a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", "конкретный URL (не placeholder/env)"),
+        (r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "IP-адрес"),
+        (r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", "UUID"),
+        (r"(?i)\b(password|passwd|secret|token|api[_-]?key)\s*[:=]\s*['\"]?[^\s${'\"]+", "plaintext credential"),
+    ]
+    offenders = []
+    for pat, label in forbidden_patterns:
+        for m in _re.finditer(pat, text):
+            offenders.append(f"{label}: ...{m.group(0)[:40]}...")
+    if offenders:
+        for item in offenders[:5]:
+            rep.error(f"project-sources-example: корпоративный параметр в public файле — {item}")
+    else:
+        rep.ok("project-sources-example: нет корпоративных URL/IP/UUID/credentials (только placeholders/env)")
+    # (4) MCP sources enabled: false по умолчанию (публичный репо)
+    # Проверяем, что нет mcp-источников с enabled: true
+    mcp_enabled_true = _re.findall(r"(metadata|code|platform_help|standards):\s*\r?\n\s*type:\s*mcp\s*\r?\n\s*enabled:\s*true", yaml_block)
+    if mcp_enabled_true:
+        rep.error(f"project-sources-example: MCP sources включены в public файле ({mcp_enabled_true}) — должны быть enabled: false")
+    else:
+        rep.ok("project-sources-example: MCP sources disabled в public файле (enabled: false)")
+    # Проверка: есть указание на политику project-sources.md
+    if "project-sources.md" in text:
+        rep.ok("project-sources-example: ссылается на rules/project-sources.md")
+    else:
+        rep.error("project-sources-example: нет ссылки на rules/project-sources.md (политика приоритета)")
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1583,6 +1642,7 @@ def main() -> int:
         check_license_and_copyright(rep)
         check_agent_install(rep)
         check_no_corporate_markers(rep)
+        check_project_sources_example(rep)
     else:
         rep.ok("license/corporate: пропущено (установленный проект — не требуется)")
     check_no_update_db(rep)

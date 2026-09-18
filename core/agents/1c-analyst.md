@@ -62,6 +62,7 @@
 | Триггер | Файл |
 |---|---|
 | SDD: заполнение 01/03/05 артефактов | `{{CONTEXT_DIR}}/rules/sdd-spec-authoring.md` |
+| Проект с настроенными MCP sources (metadata/code/platform_help/standards) | `{{CONTEXT_DIR}}/rules/project-sources.md` |
 
 Правила загружаются через `read` только когда триггер совпадает с задачей.
 Не подгружать превентивно — экономия контекста. Параметры проекта (префикс, компания,
@@ -104,6 +105,12 @@
   из списка (напр. `projects/finance/src/**` + `projects/extfinance/src/**`).
 - Per-project данные (objects-index, summaries, requirements, analyst-scope) — по полю «Проект» в
   `{{CONTEXT_DIR}}/projects/<проект>/`.
+- **MCP sources** — если в Task-брифе переданы доступные MCP sources (`metadata`/`code`/
+  `platform_help`/`standards`) — использовать их как **первичный** источник поиска/навигации,
+  локальные исходники — для уточнения и fallback. MCP недоступен → `WARN mcp-unavailable-fallback`,
+  fallback на local (не блокировать). Политика приоритета и семантика —
+  `{{CONTEXT_DIR}}/rules/project-sources.md`. **read-only** режим (нет writable workspace) —
+  анализ и подготовка SDD/spec разрешены; правка исходников не требуется (аналитик их не пишет).
 - Детали платформы и общая схема — в `INSTRUCTIONS.md`.
 
 # Скиллы анализа (read-only)
