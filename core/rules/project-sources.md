@@ -61,7 +61,10 @@ MCP/индекс дают навигацию и ссылки, но не сним
 В этом режиме (`read-only` / `mcp-only`):
 - `1c-analyst` работает через MCP + общие знания (без локальных исходников);
 - `1c-developer` — только анализ/реализация-план в `06_change_report.md` БЕЗ правки файлов; **обязан** явно сообщить: «проект в MCP-only/read-only режиме — фактическая правка исходников невозможна без writable workspace»;
-- `1c-reviewer` — независимый review на основе MCP +spec (исходники не нужны для сверки со spec);
+- `1c-reviewer` — может проверять specification/design/context и доступный через MCP существующий
+  код, давать findings/recommendations. **НО** не выдавать `approved` фактической реализации, которой
+  нет в writable workspace / которую невозможно независимо сверить. Post-implementation `approved`
+  требует независимо доступной фактической реализации. Apply без local workspace невозможен;
 - `1c-applier` — MCP **не добавляется** (см. раздел «Агенты»); apply в MCP-only проекте невозможен (нет исходников для `db-load-xml`).
 
 ## Семантика типов MCP
