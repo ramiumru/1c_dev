@@ -41,9 +41,10 @@ permission:
     "scripts/**": allow
     ".opencode/logs/1c-applier/**": allow
   edit:
-    ".opencode/logs/1c-applier/**": allow
     "*": deny
+    ".opencode/logs/1c-applier/**": allow
   bash:
+    "*": deny
     "python scripts/safe_apply.py *": allow
     "python scripts/safe_backup.py *": allow
     "python scripts/applier_guard.py *": allow
@@ -53,7 +54,6 @@ permission:
     "powershell.exe -NoProfile -File .opencode/skills/db-dump-cf/scripts/*": allow
     "powershell.exe -NoProfile -File .opencode/skills/db-dump-xml/scripts/*": allow
     "powershell.exe -NoProfile -File .opencode/skills/db-run/scripts/*": allow
-    "*": deny
   task: deny
   webfetch: deny
   websearch: deny
@@ -61,12 +61,12 @@ permission:
   semantic_search: deny
   external_directory: deny
   skill:
+    "*": deny
     "db-list": allow
     "db-dump-xml": allow
     "db-dump-dt": allow
     "db-dump-cf": allow
     "db-run": allow
-    "*": deny
   mcp:
     "*": deny
 
