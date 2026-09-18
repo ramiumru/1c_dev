@@ -351,10 +351,20 @@ Triage: docs-fix / quick-fix / SDD — критерии и promotion-тригг�
    конфигурация, **Источники**, префиксы, модули, ключевые объекты) — это разрешено инвариантом
    №2. Нет файла → работать с общим контекстом `INSTRUCTIONS.md`, не блокируясь (опциональный
    лог `WARN project-context-missing`).
-7. **Передача в бриф.** В Task-бриф включаются:
+7. **Sources проекта.** Из `context.md` извлечь машиночитаемый блок `sources` (fenced `yaml`;
+   шаблон — `examples/project-context.example.md`, политика — `{{CONTEXT_DIR}}/rules/project-sources.md`).
+   Определить: (a) доступные источники (`metadata`/`code`/`platform_help`/`standards` MCP с
+   `enabled: true`); (b) доступность локального workspace (`local.enabled: true` и существование
+   `projects/<источник>/src/**`). Если MCP sources включены, а локального workspace нет — проект в
+   **MCP-only/read-only** режиме: передать в бриф флаг `read-only: true` (анализ/spec разрешены,
+   фактическая правка исходников запрещена). Блока `sources` нет → все источники local-only (текущая схема).
+8. **Передача в бриф.** В Task-бриф включаются:
    - **Проект** (логический, напр. `finance`);
    - **Источники** — список из раздела «Источники» `context.md` (напр. `[finance, extfinance]`);
      исполнители читают `projects/<источник>/src/**` для **каждого** источника из списка;
+   - **Sources** — доступные MCP sources (`metadata`/`code`/`platform_help`/`standards`) из блока
+     `sources` (для приоритета поиска; см. `{{CONTEXT_DIR}}/rules/project-sources.md`);
+   - **read-only** — `true`, если проект в MCP-only/read-only режиме (нет writable workspace);
    - per-project данные исполнители читают по полю «Проект» в
      `{{CONTEXT_DIR}}/projects/<проект>/` (context.md, objects-index.md, summaries/,
      requirements/, analyst-scope.md).

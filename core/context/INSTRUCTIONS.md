@@ -55,6 +55,36 @@ Per-project данные не входят в запретный список «
 источник истины для db-* скиллов и агента `1c-applier`. Per-project `context.md` может содержать
 справочную секцию «База данных» (id/alias/путь) — кросс-референс к реестру, не источник истины.
 
+## Project sources (MCP + local)
+
+Проект может получать контекст из двух типов источников:
+1. **индексированные MCP sources** (`metadata`, `code`, `platform_help`, `standards`);
+2. **локальные исходники** (`projects/<источник>/src/**`).
+
+Источники описываются в машиночитаемом блоке (fenced `yaml`) в per-project `context.md`
+(шаблон — `examples/project-context.example.md`). Если для проекта настроен и доступен
+соответствующий MCP source, он используется как **первичный** источник поиска/навигации.
+Локальные файлы используются: для уточнения найденного контекста; как source of truth перед
+изменением файла; как fallback, если MCP не настроен, недоступен или не дал достаточного результата.
+
+**Единая политика приоритета, семантика типов MCP и graceful degradation** —
+`{{CONTEXT_DIR}}/rules/project-sources.md` (on-demand rule; агенты подгружают через `read`).
+
+Система допускает проект, для которого есть MCP sources, но локального Git checkout нет
+(`local.enabled: false` / `projects/<источник>/src/**` отсутствует). В этом **MCP-only/read-only**
+режиме разрешены анализ и подготовка SDD/spec, но **запрещена фактическая модификация исходников**
+без writable workspace — `1c-developer` обязан явно сообщить о read-only режиме и не выполнять `edit`.
+
+MCP failure **не блокирует** работу при доступных локальных исходниках: `WARN mcp-unavailable-fallback`
+→ fallback на local. Не блокировать задачу без необходимости.
+
+**Публичный репозиторий** содержит только универсальную схему/пример (`examples/project-context.example.md`)
+с placeholders/env-переменными. Реальные корпоративные URL/UUID/credentials (`server`, `project_id`) —
+только в локальном `context.md` (gitignored `projects/`, overlay/, `.dev.env`), **никогда** в публичном
+репозитории. Разрешения на конкретные project MCP-серверы — локальная конфигурация (корневой конфигурационный
+файл инструмента), аналогично секретам `.v8-project.json`. Публичный frontmatter адаптеров сохраняет
+`mcp: "*": deny` (+ `v8std_*: allow` у developer/reviewer).
+
 ## Источник истины
 
 Корень исходников: `projects/<проект>/src/**` — по одному подкаталогу `projects/<имя>/src`
