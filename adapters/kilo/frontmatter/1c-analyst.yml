@@ -71,10 +71,8 @@ permission:
     "subsystem-info": allow
     "cf-info": allow
     "cfe-diff": allow
-  mcp:
-    "*": deny
-    "metadata_*": allow
-    "code_*": allow
-    "platform_help_*": allow
-    "v8std_*": allow
-    "standards_*": allow
+  "metadata_*": allow
+  "code_*": allow
+  "platform_help_*": allow
+  "v8std_*": allow
+  "standards_*": allow

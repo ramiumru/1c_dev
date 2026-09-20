@@ -11,6 +11,8 @@ permission:
     ".opencode/context/common/**": allow
     ".opencode/context/standards/**": allow
     "specs/**": allow
+    "pilot-control/**/review.md": allow
+    "**/pilot-control/**/review.md": allow
     ".opencode/logs/1c-do/**": allow
   glob:
     "INSTRUCTIONS.md": allow
@@ -71,4 +73,4 @@ permission:
   external_directory: deny
   skill:
     "*": deny
-# MCP permissions: configured at server level in openworks.json (mcp key)
+  question: allow

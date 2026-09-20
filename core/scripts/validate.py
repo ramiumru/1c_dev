@@ -376,9 +376,10 @@ def check_kilo_tools_field(rep: Report) -> None:
 
 def check_kilo_permission_order(rep: Report) -> None:
     """Проверка: в Kilo frontmatter общий deny ("*": deny) должен предшествовать
-    специфичным allow в каждой карте permissions (bash, skill, edit, mcp).
+    специфичным allow в каждой карте permissions (bash, skill, edit).
     Правило Kilo: последнее совпавшее правило определяет результат.
-    Если deny стоит после allow, он перекрывает исключения."""
+    Если deny стоит после allow, он перекрывает исключения.
+    MCP tool permissions — flat keys под permission: (см. check_mcp_permissions_flat)."""
     if not IS_SOURCE_REPO:
         return
     fm_dir = ROOT / "adapters" / "kilo" / "frontmatter"
@@ -428,8 +429,6 @@ def check_kilo_permission_order(rep: Report) -> None:
             ("edit", "pilot-control/TASK-1/review.md", "deny"),
             ("edit", ".kilo/logs/1c-reviewer/log.md", "allow"),
             ("edit", "specs/TASK-1/03_solution_spec.md", "deny"),
-            ("mcp", "v8std_search", "allow"),
-            ("mcp", "other_tool", "deny"),
             ("skill", "meta-info", "deny"),
         ],
         "1c-do": [
@@ -442,13 +441,9 @@ def check_kilo_permission_order(rep: Report) -> None:
             ("edit", ".v8-project.json", "deny"),
             ("edit", "INSTRUCTIONS.md", "deny"),
             ("skill", "meta-info", "deny"),
-            ("mcp", "v8std_search", "allow"),
-            ("mcp", "other_tool", "deny"),
             ("task", "", "allow"),
         ],
         "1c-developer": [
-            ("mcp", "v8std_search", "allow"),
-            ("mcp", "other_tool", "deny"),
             ("bash", "python scripts/bsl-check.py file.bsl", "allow"),
             ("bash", "python scripts/safe_apply.py --help", "default"),
             ("edit", "projects/test/src/file.bsl", "allow"),
@@ -457,7 +452,6 @@ def check_kilo_permission_order(rep: Report) -> None:
         "1c-analyst": [
             ("bash", "python scripts/scope_hash.py --spec file.md", "allow"),
             ("bash", "python scripts/safe_apply.py --help", "default"),
-            ("mcp", "anything", "deny"),
             ("edit", "specs/TASK-1/03_solution_spec.md", "allow"),
             ("edit", "projects/test/src/file.bsl", "deny"),
             ("skill", "meta-info", "allow"),
@@ -468,7 +462,6 @@ def check_kilo_permission_order(rep: Report) -> None:
             ("bash", "python scripts/build_summaries.py --project test --context-dir .opencode/context/projects", "allow"),
             ("bash", "python scripts/safe_apply.py --help", "deny"),
             ("skill", "meta-info", "deny"),
-            ("mcp", "anything", "deny"),
             ("edit", "projects/test/src/file.bsl", "deny"),
         ],
     }
@@ -486,7 +479,7 @@ def check_kilo_permission_order(rep: Report) -> None:
             stripped = line.strip()
             # Заголовок карты (read:, bash:, edit:, skill:, mcp:, task:)
             m = _re.match(r"^(\w+):\s*$", stripped)
-            if m and m.group(1) in ("read", "glob", "grep", "list", "edit", "bash", "skill", "mcp", "task"):
+            if m and m.group(1) in ("read", "glob", "grep", "list", "edit", "bash", "skill", "task"):
                 current_map = m.group(1)
                 perm_maps[current_map] = []
                 continue
@@ -1790,6 +1783,160 @@ def check_task5_regression(rep: Report) -> None:
             rep.error(f"task5-regression: {py_file.name} содержит устаревший .openworks/ путь")
 
 
+def check_mcp_permissions_flat(rep: Report) -> None:
+    """Проверка: MCP permissions как flat keys под permission: (Kilo runtime model).
+
+    Kilo docs: MCP tool permissions are flat keys like {server}_{tool} with glob patterns,
+    NOT a nested mcp: category. Last match wins.
+
+    Agent access:
+    - analyst: metadata_*, code_*, platform_help_*, v8std_*, standards_*
+    - developer: code_*, platform_help_*, v8std_*, standards_*
+    - reviewer: metadata_*, code_*, platform_help_*, v8std_*, standards_*
+    - do/tools/applier: NO project MCP patterns (implicit deny/default)
+    """
+    if not IS_SOURCE_REPO:
+        return
+    import re as _re
+
+    fm_dir = ROOT / "adapters" / "kilo" / "frontmatter"
+    if not fm_dir.is_dir():
+        return
+
+    # Expected MCP aliases per agent
+    mcp_expected = {
+        "1c-analyst": {"metadata_*", "code_*", "platform_help_*", "v8std_*", "standards_*"},
+        "1c-developer": {"code_*", "platform_help_*", "v8std_*", "standards_*"},
+        "1c-reviewer": {"metadata_*", "code_*", "platform_help_*", "v8std_*", "standards_*"},
+    }
+    no_mcp_agents = {"1c-do", "1c-tools", "1c-applier"}
+
+    for agent in ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-tools", "1c-applier"]:
+        yml = fm_dir / f"{agent}.yml"
+        if not yml.exists():
+            continue
+        text = yml.read_text(encoding="utf-8", errors="replace")
+
+        # 1. deprecated mcp: nested key should NOT exist
+        if _re.search(r'^\s*mcp:\s*$', text, _re.M):
+            rep.error(f"mcp-perm-flat: {agent}.yml содержит deprecated nested mcp: key — должен быть flat keys")
+        else:
+            rep.ok(f"mcp-perm-flat: {agent}.yml — нет deprecated mcp: key")
+
+        # 2. Check for flat MCP patterns (lines like "metadata_*": allow)
+        flat_mcp = set()
+        for m in _re.finditer(r'^\s*"([a-z0-9_]+\_\*)":\s*(allow|deny)\s*$', text, _re.M):
+            flat_mcp.add(m.group(1))
+
+        if agent in mcp_expected:
+            expected = mcp_expected[agent]
+            missing = expected - flat_mcp
+            extra = flat_mcp - expected
+            if not missing and not extra:
+                rep.ok(f"mcp-perm-flat: {agent}.yml — все ожидаемые MCP aliases присутствуют ({len(flat_mcp)})")
+            else:
+                if missing:
+                    rep.error(f"mcp-perm-flat: {agent}.yml — отсутствуют MCP aliases: {missing}")
+                if extra:
+                    rep.error(f"mcp-perm-flat: {agent}.yml — лишние MCP aliases: {extra}")
+        elif agent in no_mcp_agents:
+            if flat_mcp:
+                rep.error(f"mcp-perm-flat: {agent}.yml — не должен иметь MCP aliases, но имеет: {flat_mcp}")
+            else:
+                rep.ok(f"mcp-perm-flat: {agent}.yml — нет project MCP aliases (correct)")
+
+
+def check_task6_regression(rep: Report) -> None:
+    """Regression checks для corrective-итерации (task_6.md).
+
+    Проверяет конкретные утверждения:
+    - Approval: orchestration НЕ требует approved до user approval; explicit user approval step
+    - MCP-first: sdd-spec-authoring не содержит абсолютного local-only правила
+    - Review: reviewer не пишет review.md; canonical path pilot-control/<TASK-ID>/review.md
+    - 1c-do: transport edit разрешён; canonical readback разрешён
+    - Permissions: MCP permissions соответствуют flat Kilo format (без nested mcp:)
+    """
+    if not IS_SOURCE_REPO:
+        return
+    import re as _re
+
+    # --- Approval ---
+    orch = ROOT / "core" / "rules" / "sdd-orchestration.md"
+    if orch.exists():
+        text = orch.read_text(encoding="utf-8", errors="replace")
+        # orchestration НЕ требует approved до user approval
+        if "status: approved`**" in text and "5.5" not in text:
+            rep.error("task6-regression: sdd-orchestration требует approved без human approval step")
+        else:
+            rep.ok("task6-regression: sdd-orchestration имеет human approval step (5.5)")
+        # explicit user approval step
+        if "question" in text.lower() and "approved_by: user" in text:
+            rep.ok("task6-regression: sdd-orchestration содержит question tool + approved_by: user")
+        else:
+            rep.error("task6-regression: sdd-orchestration не содержит question tool или approved_by: user")
+
+    # --- MCP-first ---
+    spec_auth = ROOT / "core" / "rules" / "sdd-spec-authoring.md"
+    if spec_auth.exists():
+        text = spec_auth.read_text(encoding="utf-8", errors="replace")
+        if "сначала локальные индексы" in text and "project-sources.md" not in text:
+            rep.error("task6-regression: sdd-spec-authoring содержит абсолютное local-only правило без ссылки на project-sources.md")
+        else:
+            rep.ok("task6-regression: sdd-spec-authoring ссылается на project-sources.md (MCP-first)")
+        if "Выводы — только по прочитанным файлам" in text:
+            rep.error("task6-regression: sdd-spec-authoring содержит «только по прочитанным файлам» (absolute local-only)")
+        else:
+            rep.ok("task6-regression: sdd-spec-authoring не содержит «только по прочитанным файлам»")
+
+    # --- Review path ---
+    # specs/<TASK-ID>/ tree should NOT contain review.md
+    sdd_readme = ROOT / "core" / "sdd" / "README.md"
+    if sdd_readme.exists():
+        text = sdd_readme.read_text(encoding="utf-8", errors="replace")
+        # Check that review.md is NOT in specs/ tree block
+        specs_tree = _re.search(r'specs/\s*\r?\n.*?(?=pilot-control/|\Z)', text, _re.S)
+        if specs_tree and "review.md" in specs_tree.group(0):
+            rep.error("task6-regression: SDD README specs/ tree содержит review.md (должен быть в pilot-control/)")
+        else:
+            rep.ok("task6-regression: SDD README specs/ tree не содержит review.md")
+        # pilot-control/ tree should contain review.md
+        if "pilot-control/" in text and "review.md" in text:
+            rep.ok("task6-regression: SDD README содержит pilot-control/<TASK-ID>/review.md")
+        else:
+            rep.error("task6-regression: SDD README не содержит pilot-control/<TASK-ID>/review.md")
+
+    # --- 1c-do permissions ---
+    do_yml = ROOT / "adapters" / "kilo" / "frontmatter" / "1c-do.yml"
+    if do_yml.exists():
+        text = do_yml.read_text(encoding="utf-8", errors="replace")
+        # transport edit allowed
+        if '"pilot-control/**/review.md": allow' in text:
+            rep.ok("task6-regression: 1c-do has transport edit allow on pilot-control/**/review.md")
+        else:
+            rep.error("task6-regression: 1c-do missing transport edit allow on pilot-control/**/review.md")
+        # canonical readback allowed
+        read_block = _re.search(r'read:\s*\r?\n(.*?)(?=\n\s*\w+:|\Z)', text, _re.S)
+        if read_block and "pilot-control/**/review.md" in read_block.group(1):
+            rep.ok("task6-regression: 1c-do has read allow on pilot-control/**/review.md (readback)")
+        else:
+            rep.error("task6-regression: 1c-do missing read allow on pilot-control/**/review.md (readback)")
+        # question tool allowed
+        if "question" in text and ("question: allow" in text or '"question": allow' in text):
+            rep.ok("task6-regression: 1c-do has question tool permission")
+        else:
+            rep.error("task6-regression: 1c-do missing question tool permission")
+
+    # --- Permissions: no deprecated mcp: nested key ---
+    for agent in ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-tools", "1c-applier"]:
+        yml = ROOT / "adapters" / "kilo" / "frontmatter" / f"{agent}.yml"
+        if not yml.exists():
+            continue
+        text = yml.read_text(encoding="utf-8", errors="replace")
+        if _re.search(r'^\s*mcp:\s*$', text, _re.M):
+            rep.error(f"task6-regression: {agent}.yml содержит deprecated nested mcp: key")
+        # ok is checked in check_mcp_permissions_flat
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1835,6 +1982,8 @@ def main() -> int:
         check_project_sources_example(rep)
         check_source_policy_consistency(rep)
         check_task5_regression(rep)
+        check_mcp_permissions_flat(rep)
+        check_task6_regression(rep)
     else:
         rep.ok("license/corporate: пропущено (установленный проект — не требуется)")
     check_no_update_db(rep)

@@ -24,10 +24,10 @@
 
 | Агент | Что пишет |
 |---|---|
-| `1c-do` | каркас task-папки + `00_request.md` (только эти файлы) |
+| `1c-do` | каркас task-папки + `00_request.md` (только эти файлы); транспортная запись `pilot-control/<TASK-ID>/review.md` (дословно из Task-результата `1c-reviewer`) |
 | `1c-analyst` | `01_context.md`, `03_solution_spec.md` (вкл. машиночитаемый блок status/risk), `05_test_scenarios.md` |
 | `1c-developer` | `06_change_report.md` (после реализации; + `scope_hash` для сверки) |
-| `1c-reviewer` | `review.md` (независимое заключение: verdict + findings) |
+| `1c-reviewer` | **не сохраняет файлы** — возвращает полный текст заключения (verdict + findings) через Task; `1c-do` сохраняет его дословно в `pilot-control/<TASK-ID>/review.md` |
 | `1c-applier` | ничего не пишет в `specs/**` и `pilot-control/**`; читает `06_change_report.md` + `pilot-control/<TASK-ID>/review.md` + блок status/risk |
 
 `1c-do` также проверяет gate перед вызовом `1c-developer`: наличие
@@ -59,7 +59,7 @@ scope_hash: null
   guard;
 - `approved_by` не может быть `1c-developer` (само-подтверждение запрещено);
   для `risk: high` — также не может быть `1c-analyst`;
-- review (`review.md` с `verdict: approved`) обязателен **для всех** опасных операций apply,
+- review (`pilot-control/<TASK-ID>/review.md` с `verdict: approved`) обязателен **для всех** опасных операций apply,
   не только для `risk: high`; для `risk: high` дополнительно требуется независимость:
   `reviewed_by` ≠ `approved_by`;
 - `scope_hash` обязателен (непустой) в spec, `06_change_report.md` и `review.md`; все три
@@ -93,8 +93,11 @@ specs/
     ├── 01_context.md            — контекст системы и объектов (1c-analyst)
     ├── 03_solution_spec.md      — спецификация решения + машиночитаемый блок status/risk, GATE для 1c-developer (1c-analyst)
     ├── 05_test_scenarios.md     — сценарии тестирования (1c-analyst)
-    ├── 06_change_report.md      — отчёт об изменениях + scope_hash (1c-developer)
-    └── review.md                — независимое заключение 1c-reviewer (verdict + findings)
+    └── 06_change_report.md      — отчёт об изменениях + scope_hash (1c-developer)
+
+pilot-control/
+└── <TASK-ID>/
+    └── review.md                — независимое заключение 1c-reviewer (verdict + findings) — transport-save 1c-do
 ```
 
 ## Шаблоны артефактов
@@ -174,9 +177,9 @@ spec_version: 1
 scope_hash: null
 ```
 
-> `status` переводит аналитик/user: `draft` → `ready_for_review` → `approved`/`rejected`.
+> `status` переводит аналитик/user: `draft` → (human approval) → `approved`/`rejected`.
 > `approved` (с `approved_by`/`approved_at`) разрешает разработку. Для `risk: high`
-> требуется verdict `1c-reviewer` в `review.md`. `scope_hash` = sha256 от
+> требуется verdict `1c-reviewer` в `pilot-control/<TASK-ID>/review.md`. `scope_hash` = sha256 от
 > канонизированных «Границ изменения» + «Затрагиваемые файлы» (заполняется/сверяется
 > при review и apply).
 
@@ -298,7 +301,9 @@ scope_hash: null
 ### review.md
 
 > Независимое заключение `1c-reviewer`. Обязательно для `risk: high` и перед передачей
-> результата в `1c-applier`.
+> результата в `1c-applier`. **Canonical path: `pilot-control/<TASK-ID>/review.md`** —
+> `1c-reviewer` НЕ сохраняет файл; он возвращает полный текст через Task, `1c-do`
+> сохраняет его дословно.
 
 ```markdown
 # Review: <TASK-ID>

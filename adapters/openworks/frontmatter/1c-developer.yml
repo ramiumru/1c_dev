@@ -99,4 +99,7 @@ permission:
     "epf-bsp-add-command": allow
     "erf-init": allow
     "erf-validate": allow
-# MCP permissions: configured at server level in openworks.json (mcp key)
+  "v8std_*": allow
+  "code_*": allow
+  "platform_help_*": allow
+  "standards_*": allow

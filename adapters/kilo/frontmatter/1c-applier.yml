@@ -71,5 +71,3 @@ permission:
     "db-dump-dt": allow
     "db-dump-cf": allow
     "db-run": allow
-  mcp:
-    "*": deny

@@ -70,4 +70,8 @@ permission:
     "subsystem-info": allow
     "cf-info": allow
     "cfe-diff": allow
-# MCP permissions: configured at server level in openworks.json (mcp key)
+  "metadata_*": allow
+  "code_*": allow
+  "platform_help_*": allow
+  "v8std_*": allow
+  "standards_*": allow
