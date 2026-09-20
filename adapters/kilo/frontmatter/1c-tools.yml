@@ -70,5 +70,3 @@ permission:
   external_directory: deny
   skill:
     "*": deny
-  mcp:
-    "*": deny

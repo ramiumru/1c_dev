@@ -61,10 +61,8 @@ permission:
   external_directory: deny
   skill:
     "*": deny
-  mcp:
-    "*": deny
-    "v8std_*": allow
-    "metadata_*": allow
-    "code_*": allow
-    "platform_help_*": allow
-    "standards_*": allow
+  "v8std_*": allow
+  "metadata_*": allow
+  "code_*": allow
+  "platform_help_*": allow
+  "standards_*": allow

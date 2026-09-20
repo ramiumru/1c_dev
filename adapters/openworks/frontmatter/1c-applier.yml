@@ -70,4 +70,3 @@ permission:
     "db-dump-dt": allow
     "db-dump-cf": allow
     "db-run": allow
-# MCP permissions: configured at server level in openworks.json (mcp key)

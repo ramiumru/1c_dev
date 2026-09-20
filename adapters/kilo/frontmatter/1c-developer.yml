@@ -100,9 +100,7 @@ permission:
     "epf-bsp-add-command": allow
     "erf-init": allow
     "erf-validate": allow
-  mcp:
-    "*": deny
-    "v8std_*": allow
-    "code_*": allow
-    "platform_help_*": allow
-    "standards_*": allow
+  "v8std_*": allow
+  "code_*": allow
+  "platform_help_*": allow
+  "standards_*": allow

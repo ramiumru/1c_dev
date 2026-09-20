@@ -83,7 +83,9 @@ MCP failure **не блокирует** работу при доступных �
 только в локальном `context.md` (gitignored `projects/`, overlay/, `.dev.env`), **никогда** в публичном
 репозитории. Разрешения на конкретные project MCP-серверы — локальная конфигурация (корневой конфигурационный
 файл инструмента), аналогично секретам `.v8-project.json`. Публичный frontmatter адаптеров сохраняет
-`mcp: "*": deny` (+ `v8std_*: allow` у developer/reviewer).
+безопасный default: MCP tool patterns как flat keys под `permission:` — без явных allow-patterns для
+project MCP aliases у `1c-do`/`1c-tools`/`1c-applier`; `1c-analyst`/`1c-developer`/`1c-reviewer`
+разрешают `metadata_*`/`code_*`/`platform_help_*`/`standards_*`/`v8std_*` (см. `project-sources.md`).
 
 ## Источник истины
 
@@ -304,7 +306,7 @@ scope_hash: null
 
 SDD создаёт `03_solution_spec.md` со статусом `draft`. После формирования полноценной draft-spec:
 1. `1c-do` показывает пользователю резюме (цель, scope, risk, предполагаемые изменения).
-2. Явно спрашивает пользователя через `AskUserQuestion`: подтверждает ли он спецификацию?
+ 2. Явно спрашивает пользователя через `question` tool: подтверждает ли он спецификацию?
 3. Только после явного положительного ответа — повторно делегирует `1c-analyst` для фиксации
    решения пользователя: `status: approved`, `approved_by: user`, `approved_at: <ISO 8601 с timezone>`.
 4. Analyst НЕ принимает решение об approval самостоятельно — он только записывает пользовательское решение.

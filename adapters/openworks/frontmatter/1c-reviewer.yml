@@ -60,4 +60,8 @@ permission:
   external_directory: deny
   skill:
     "*": deny
-# MCP permissions: configured at server level in openworks.json (mcp key)
+  "v8std_*": allow
+  "metadata_*": allow
+  "code_*": allow
+  "platform_help_*": allow
+  "standards_*": allow
