@@ -19,9 +19,12 @@
 | `platform_help` (mcp) | Вопросы о платформе 1С, встроенном языке, объектах/методах платформы, синтаксисе и API. |
 | `standards` (mcp) | Источник стандартов разработки 1С (альтернатива/дополнение `v8std`). |
 
-Поля `enabled`, `server`, `project_id`, `repositories` — только через placeholder или переменную окружения
-Реальные корпоративные URL/UUID/credentials — **только** в локальном `context.md` (gitignored `projects/`,
-overlay, `.dev.env`), **никогда** в публичном репозитории.
+Поля `enabled`, `server`, `project_id`, `repositories` — логические имена/placeholders.
+Реальные корпоративные URL/UUID/credentials — **только** в локальном `context.md` (gitignored
+`projects/`, overlay/, `.dev.env`) и в локальной конфигурации инструмента (`kilo.json`/
+`openworks.json`), **никогда** в публичном репозитории. Поле `server` содержит логическое имя
+MCP-сервера (напр. `metadata`, `code`, `platform_help`, `v8std`), регистрируемого в конфигурации
+инструмента; `${ENV}`-переменные в Markdown не используются (harness не подставляет их).
 
 ## Source priority policy
 

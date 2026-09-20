@@ -5,7 +5,7 @@ __pycache__/
 temp/
 logs/
 .kilo/logs/
-.openworks/logs/
+.opencode/logs/
 .claude/logs/
 .kilo/agent-manager.json
 .kilo/package.json
@@ -37,7 +37,14 @@ tools/*.jar
 bsl-diagnostics.json
 
 # Данные конфигураций 1С (не входят в схему)
-projects/
+/projects/
+# Per-project context (corporate profiles с UUID/alias/internal info — НЕ коммитить)
+.kilo/context/projects/
+.opencode/context/projects/
+.claude/context/projects/
+# Allow example project contexts (fictional data, not corporate)
+!examples/**/projects/
+!examples/**/projects/**
 sandbox.bsl
 
 # IDE

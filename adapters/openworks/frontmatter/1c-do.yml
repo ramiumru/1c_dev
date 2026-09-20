@@ -71,4 +71,4 @@ permission:
   external_directory: deny
   skill:
     "*": deny
-  # MCP permissions: configured at server level in openworks.json (mcp key)
+# MCP permissions: configured at server level in openworks.json (mcp key)

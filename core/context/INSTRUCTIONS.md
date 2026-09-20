@@ -293,9 +293,24 @@ scope_hash: null
 ### Независимый review (`1c-reviewer`)
 
 Для `risk: high` и перед передачей результата в `1c-applier` `1c-do` делегирует
-`1c-reviewer` (`mode: subagent`) независимую проверку. Результат — `pilot-control/<TASK-ID>/review.md`
-с `verdict: approved | changes_requested | blocked` и `findings`. `1c-applier` требует
-положительный verdict для high-risk; `applier_guard.py` проверяет его наличие.
+`1c-reviewer` (`mode: subagent`) независимую проверку. `1c-reviewer` формирует полный текст
+заключения (verdict + findings + `spec_version` + `scope_hash`) и **возвращает его через Task**;
+`1c-do` сохраняет полученный текст дословно в `pilot-control/<TASK-ID>/review.md` (транспортная
+запись — без изменения verdict/findings/hash/version). Затем `1c-do` перечитывает файл и сверяет
+актуальность (`spec_version`, `scope_hash`). `verdict: approved | changes_requested | blocked`.
+`1c-applier` требует положительный verdict для high-risk; `applier_guard.py` проверяет его наличие.
+
+### Человеческое approval спецификации
+
+SDD создаёт `03_solution_spec.md` со статусом `draft`. После формирования полноценной draft-spec:
+1. `1c-do` показывает пользователю резюме (цель, scope, risk, предполагаемые изменения).
+2. Явно спрашивает пользователя через `AskUserQuestion`: подтверждает ли он спецификацию?
+3. Только после явного положительного ответа — повторно делегирует `1c-analyst` для фиксации
+   решения пользователя: `status: approved`, `approved_by: user`, `approved_at: <ISO 8601 с timezone>`.
+4. Analyst НЕ принимает решение об approval самостоятельно — он только записывает пользовательское решение.
+5. `1c-do` перечитывает spec и убеждается: `status: approved`; `approved_by` заполнен; `approved_at` timezone-aware.
+6. Только затем запускается developer.
+7. Отклонение / изменение / отсутствие однозначного approval → статус остаётся `draft`, developer не запускается.
 
 ### Связь с `requirements/`
 
@@ -358,8 +373,9 @@ Summaries регенерируются скриптом `scripts/build_summaries
 > `03_solution_spec.md` со `status: approved` и пишет `06_change_report.md`);
 > `1c-reviewer` — независимый ревьюер (mode: subagent): сверка реализации со спецификацией,
 > проверка scope, регрессий, транзакций/блокировок, запросов/производительности,
-> прав/RLS, интеграционных контрактов; пишет `pilot-control/<TASK-ID>/review.md` (verdict +
-> findings); не меняет реализацию/spec/базу; не утверждает результат без доказательств;
+> прав/RLS, интеграционных контрактов; формирует полный текст заключения (verdict + findings) и
+> возвращает его через Task; `1c-do` сохраняет текст дословно в `pilot-control/<TASK-ID>/review.md`;
+> не меняет реализацию/spec/базу; не утверждает результат без доказательств;
 > `1c-applier` — апликер конфигурации (mode: all): применяет готовые правки из
 > `projects/**` в живую ИБ (db-load-xml → db-update, бэкап db-dump-dt) только после
 > успешного preflight-проверки `applier_guard.py` (environment, выбор базы, spec

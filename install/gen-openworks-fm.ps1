@@ -12,9 +12,10 @@ foreach ($name in $agents) {
     if (-not (Test-Path $src)) { Write-Host "SKIP (no source): $name"; continue }
     $fm = [System.IO.File]::ReadAllText($src, [System.Text.Encoding]::UTF8)
 
-    # 1. Replace .kilo/ paths with .openworks/agents/ (plural) or .openworks/<rest>
-    $fm = $fm -replace '\.kilo/agent/', '.openworks/agents/'
-    $fm = $fm -replace '\.kilo/', '.openworks/'
+    # 1. Replace .kilo/ paths with .opencode/agents/ (plural) or .opencode/<rest>
+    #    (Open Works installs to .opencode/ per install.ps1)
+    $fm = $fm -replace '\.kilo/agent/', '.opencode/agents/'
+    $fm = $fm -replace '\.kilo/', '.opencode/'
 
     # 2. Remove semantic_search (not in Open Works)
     $fm = $fm -replace '(?m)^\s*semantic_search:\s*deny\s*\r?\n', ''

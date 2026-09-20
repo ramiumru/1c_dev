@@ -30,13 +30,13 @@ sources:
   metadata:
     type: mcp
     enabled: false                       # true в корпоративной среде
-    server: ${METADATA_MCP_SERVER}       # env-переменная или placeholder; НЕ хардкодить URL
-    project_id: ${METADATA_PROJECT_ID}   # UUID конфигурации — через env, не в файле
+    server: metadata                     # логическое имя MCP-сервера (регистрируется в kilo.json/openworks.json)
+    project_id: ""                       # UUID конфигурации — задаётся в локальном overlay, не в публичном репо
 
   code:
     type: mcp
     enabled: false
-    server: ${CODE_MCP_SERVER}
+    server: code                         # логическое имя MCP-сервера
     repositories:
       - finance
       - extfinance
@@ -44,17 +44,20 @@ sources:
   platform_help:
     type: mcp
     enabled: false
-    server: ${PLATFORM_HELP_MCP_SERVER}
+    server: platform_help                # логическое имя MCP-сервера
 
   standards:
     type: mcp
     enabled: false
-    server: ${STANDARDS_MCP_SERVER}
+    server: v8std                        # логическое имя MCP-сервера
 ```
 
 > Поле `enabled: false` = источник недоступен (публичный репозиторий). Корпоративная среда
-> выставляет `enabled: true` и резолвит env-переменные локально. Политика приоритета и
-> graceful degradation — `{{CONTEXT_DIR}}/rules/project-sources.md`.
+> выставляет `enabled: true` и регистрирует соответствующий MCP-сервер в конфигурации
+> инструмента (`kilo.json`/`openworks.json`) под логическим именем (`metadata`, `code`,
+> `platform_help`, `v8std`). Реальные корпоративные URL/UUID/credentials — **только** в
+> локальной конфигурации (gitignored overlay/, `.dev.env`), никогда в публичном репозитории.
+> Политика приоритета и graceful degradation — `{{CONTEXT_DIR}}/rules/project-sources.md`.
 
 ## Префиксы
 

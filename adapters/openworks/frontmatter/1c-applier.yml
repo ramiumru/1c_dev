@@ -11,6 +11,7 @@ permission:
     "projects/**": allow
     "specs/**": allow
     "scripts/**": allow
+    "pilot-control/**": allow
     ".opencode/logs/1c-applier/**": allow
   glob:
     "INSTRUCTIONS.md": allow
@@ -21,6 +22,7 @@ permission:
     "projects/**": allow
     "specs/**": allow
     "scripts/**": allow
+    "pilot-control/**": allow
     ".opencode/logs/1c-applier/**": allow
   grep:
     "INSTRUCTIONS.md": allow
@@ -30,6 +32,7 @@ permission:
     "projects/**": allow
     "specs/**": allow
     "scripts/**": allow
+    "pilot-control/**": allow
   list:
     "INSTRUCTIONS.md": allow
     "AGENTS.md": allow
@@ -39,12 +42,13 @@ permission:
     "projects/**": allow
     "specs/**": allow
     "scripts/**": allow
+    "pilot-control/**": allow
     ".opencode/logs/1c-applier/**": allow
   edit:
     "*": deny
     ".opencode/logs/1c-applier/**": allow
   bash:
-    "*": deny
+    "*": ask
     "python scripts/safe_apply.py *": allow
     "python scripts/safe_backup.py *": allow
     "python scripts/applier_guard.py *": allow
@@ -58,8 +62,7 @@ permission:
   webfetch: deny
   websearch: deny
   lsp: deny
-  semantic_search: deny
-  external_directory: deny
+  external_directory: ask
   skill:
     "*": deny
     "db-list": allow
@@ -67,7 +70,4 @@ permission:
     "db-dump-dt": allow
     "db-dump-cf": allow
     "db-run": allow
-  mcp:
-    "*": deny
-
 # MCP permissions: configured at server level in openworks.json (mcp key)
