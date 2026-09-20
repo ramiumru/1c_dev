@@ -72,7 +72,7 @@ def redact(text: str) -> str:
 
 def find_skills_dir(root: Path) -> Path:
     for c in [root / ".kilo" / "skills", root / ".claude" / "skills",
-              root / ".openworks" / "skills", root / "skills"]:
+              root / ".opencode" / "skills", root / "skills"]:
         if c.is_dir():
             return c
     return root / ".kilo" / "skills"

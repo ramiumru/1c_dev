@@ -127,7 +127,7 @@ review (`1c-reviewer`, `pilot-control/<TASK-ID>/review.md`) перед прим�
    python scripts/build_summaries.py --project <имя> --scan --context-dir .kilo/context/projects
    ```
    (замените `.kilo/context/projects` на `.claude/context/projects`/`context/projects`/
-   `.openworks/context/projects` для claude/codex/openworks)
+   `.opencode/context/projects` для claude/codex/openworks)
 6. Проверка окружения: `python scripts/doctor.py`.
 7. Локальная валидация: `python scripts/validate.py`.
 

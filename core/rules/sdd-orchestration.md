@@ -36,8 +36,13 @@ Spec-Driven Development — для нетривиальных правок ко�
      транзакции/блокировки, RLS/права, регламентные/фоновые, экспортные процедуры, метаданные,
      интеграционные контракты, структура базы, массовое изменение данных, обмены, финансовые расчёты) —
      делегировать `1c-reviewer` (Task, retry-once): прочитать `03_solution_spec.md` + `06_change_report.md`
-     + исходники, сверить scope/регрессии/контракты/тесты, сформировать `pilot-control/<TASK-ID>/review.md`
-     (`verdict` + findings). `verdict` ≠ `approved` → лог `WARN review-changes-requested`/`blocked`,
+     + исходники, сверить scope/регрессии/контракты/тесты, **сформировать полный текст заключения**
+     (`verdict` + findings + `spec_version` + `scope_hash` + машиночитаемый yaml-блок) и **вернуть его
+     в результате Task**. `1c-reviewer` НЕ сохраняет файл на диск — он возвращает текст.
+     **`1c-do` сохраняет полученный текст дословно** в `pilot-control/<TASK-ID>/review.md` через
+     `edit`, без изменения verdict, версии, хеша, даты или findings. Затем `1c-do` перечитывает
+     файл и сверяет актуальность (spec_version, scope_hash).
+     `verdict` ≠ `approved` → лог `WARN review-changes-requested`/`blocked`,
      вернуть задачу `1c-developer`/`1c-analyst`. `verdict: approved` → продолжить.
      Для `risk: low/medium` review опционален, но обязателен перед apply.
 6.5. **Проверка статуса и авто-обновление summaries (post-SDD).** После возврата `1c-developer` —

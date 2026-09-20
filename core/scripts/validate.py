@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 validate.py — единая переносимая локальная проверка агентской схемы 1С Dev.
@@ -1107,7 +1107,7 @@ def check_summaries_line_numbers(rep: Report) -> None:
     checked = 0
     for sdir in [ROOT / ".kilo" / "context" / "projects",
                  ROOT / ".claude" / "context" / "projects",
-                 ROOT / ".openworks" / "context" / "projects",
+                 ROOT / ".opencode" / "context" / "projects",
                  ROOT / "context" / "projects"]:
         if not sdir.is_dir():
             continue
@@ -1671,6 +1671,125 @@ def check_source_policy_consistency(rep: Report) -> None:
             rep.error(f"source-policy-consistency: обязательный маркер отсутствует — {label} (в {rel_path})")
 
 
+def check_task5_regression(rep: Report) -> None:
+    """Regression checks для polishing-итерации (task_5.md).
+
+    Проверяет конкретные утверждения (не NLP):
+    1. reviewer нигде не обязан писать review.md (возвращает текст через Task);
+    2. canonical путь review — pilot-control/<TASK-ID>/review.md;
+    3. 1c-do имеет транспортную роль (сохраняет review.md дословно);
+    4. frontmatter descriptions не содержат «только локальными исходниками»;
+    5. MCP profile example не содержит ${ENV} переменных;
+    6. spec approval workflow содержит draft → user approval → approved_by → timezone-aware approved_at;
+    7. MCP-only developer имеет explicit blocked status;
+    8. .gitignore содержит per-project context rules;
+    9. .gitignore не содержит .openworks/logs/ (устаревший путь);
+    10. 1c-do.md содержит шаг 5.5 (human approval flow).
+    """
+    if not IS_SOURCE_REPO:
+        return
+    import re as _re
+
+    # 1. reviewer не пишет review.md — проверяем frontmatter descriptions
+    for adapter in ("kilo", "claude", "openworks"):
+        for agent in ("1c-reviewer",):
+            fp = ROOT / "adapters" / adapter / "frontmatter" / f"{agent}.yml"
+            if not fp.exists():
+                continue
+            text = fp.read_text(encoding="utf-8", errors="replace")
+            # Ищем "пишет pilot-control" или "пишет review.md" в description
+            if _re.search(r"пишет\s+(pilot-control|review\.md)", text):
+                rep.error(f"task5-regression: {adapter}/{agent}.yml description говорит «пишет review.md» — должен «возвращает через Task»")
+            else:
+                rep.ok(f"task5-regression: {adapter}/{agent}.yml — reviewer не пишет review.md")
+
+    # 2. canonical путь review — pilot-control/
+    do_md = ROOT / "core" / "agents" / "1c-do.md"
+    if do_md.exists():
+        text = do_md.read_text(encoding="utf-8", errors="replace")
+        if "pilot-control/<TASK-ID>/review.md" in text:
+            rep.ok("task5-regression: canonical review path — pilot-control/<TASK-ID>/review.md")
+        else:
+            rep.error("task5-regression: 1c-do.md не содержит pilot-control/<TASK-ID>/review.md")
+
+    # 3. 1c-do имеет транспортную роль
+    if do_md.exists():
+        if "транспорт" in text and "review.md" in text:
+            rep.ok("task5-regression: 1c-do имеет транспортную роль для review.md")
+        else:
+            rep.error("task5-regression: 1c-do.md не описывает транспортную роль для review.md")
+
+    # 4. frontmatter descriptions не содержат «только локальными исходниками»
+    for adapter in ("kilo", "claude", "openworks"):
+        for agent in ("1c-analyst", "1c-developer"):
+            fp = ROOT / "adapters" / adapter / "frontmatter" / f"{agent}.yml"
+            if not fp.exists():
+                continue
+            text = fp.read_text(encoding="utf-8", errors="replace")
+            if "только с локальными исходниками" in text or "только локальными исходниками" in text:
+                rep.error(f"task5-regression: {adapter}/{agent}.yml содержит «только локальными исходниками»")
+            else:
+                rep.ok(f"task5-regression: {adapter}/{agent}.yml — нет «только локальными исходниками»")
+
+    # 5. MCP profile example не содержит ${ENV}
+    ex = ROOT / "examples" / "project-context.example.md"
+    if ex.exists():
+        text = ex.read_text(encoding="utf-8", errors="replace")
+        env_vars = _re.findall(r"\$\{[A-Z_]+\}", text)
+        if env_vars:
+            rep.error(f"task5-regression: project-context.example.md содержит ${{ENV}} переменные: {env_vars}")
+        else:
+            rep.ok("task5-regression: project-context.example.md не содержит ${ENV} переменных")
+
+    # 6. spec approval workflow (draft → user approval → approved_by → timezone-aware approved_at)
+    if do_md.exists():
+        text = do_md.read_text(encoding="utf-8", errors="replace")
+        checks = [
+            ("Human approval flow", "5.5. **Human approval flow"),
+            ("approved_by: user", "approved_by: user"),
+            ("timezone", "timezone-aware"),
+            ("draft сохраняется", "статус остаётся `draft`"),
+        ]
+        for label, marker in checks:
+            if marker in text:
+                rep.ok(f"task5-regression: 1c-do.md содержит «{label}»")
+            else:
+                rep.error(f"task5-regression: 1c-do.md не содержит «{label}» (marker: {marker[:40]})")
+
+    # 7. MCP-only developer explicit blocked status
+    dev_md = ROOT / "core" / "agents" / "1c-developer.md"
+    if dev_md.exists():
+        text = dev_md.read_text(encoding="utf-8", errors="replace")
+        if "blocked: writable local workspace отсутствует" in text:
+            rep.ok("task5-regression: developer MCP-only explicit blocked status")
+        else:
+            rep.error("task5-regression: 1c-developer.md не содержит MCP-only blocked status")
+
+    # 8. .gitignore содержит per-project context rules
+    gi = ROOT / ".gitignore"
+    if gi.exists():
+        text = gi.read_text(encoding="utf-8", errors="replace")
+        if ".kilo/context/projects/" in text and ".opencode/context/projects/" in text:
+            rep.ok("task5-regression: .gitignore содержит per-project context rules")
+        else:
+            rep.error("task5-regression: .gitignore не содержит per-project context rules")
+
+    # 9. .gitignore не содержит .openworks/logs/
+    if gi.exists():
+        if ".openworks/logs/" in text:
+            rep.error("task5-regression: .gitignore содержит устаревший .openworks/logs/ (должен быть .opencode/logs/)")
+        else:
+            rep.ok("task5-regression: .gitignore не содержит .openworks/logs/")
+
+    # 10. no .openworks/ in Python scripts (excluding validate.py self-checks)
+    for py_file in (ROOT / "core" / "scripts").glob("*.py"):
+        if py_file.name == "validate.py":
+            continue  # validate.py contains .openworks/ in self-check patterns
+        text = py_file.read_text(encoding="utf-8", errors="replace")
+        if ".openworks/" in text:
+            rep.error(f"task5-regression: {py_file.name} содержит устаревший .openworks/ путь")
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1715,6 +1834,7 @@ def main() -> int:
         check_no_corporate_markers(rep)
         check_project_sources_example(rep)
         check_source_policy_consistency(rep)
+        check_task5_regression(rep)
     else:
         rep.ok("license/corporate: пропущено (установленный проект — не требуется)")
     check_no_update_db(rep)

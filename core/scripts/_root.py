@@ -17,7 +17,7 @@ _root.py — общая утилита автоопределения корня
   2. install/install.ps1           — только harness (не в рабочем проекте)
   3. specs/README.md               — SDD-шаблоны (в корне harness или установленной раскладки)
   4. core/agents/                  — harness (канонический источник)
-  5. .kilo/agent/ | .claude/agents/ | .openworks/agents/  — установленная раскладка
+  5. .kilo/agent/ | .claude/agents/ | .opencode/agents/  — установленная раскладка
   6. scripts/ + examples/          — установленная раскладка
 
 Маркеры рабочего проекта (find_project_root):
@@ -37,7 +37,7 @@ from pathlib import Path
 _ADAPTER_AGENT_DIRS = (
     ".kilo/agent",
     ".claude/agents",
-    ".openworks/agents",
+    ".opencode/agents",
 )
 
 

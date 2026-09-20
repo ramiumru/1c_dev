@@ -45,7 +45,7 @@ powershell.exe -NoProfile -File "{{SKILL_DIR}}/scripts/<name>.ps1" <параме
 - `{{SKILL_DIR}}` — путь к текущему скиллу. Установщик подставляет:
   - Kilo: `.kilo/skills/<name>`
   - Claude: `.claude/skills/<name>`
-  - Open Works: `.openworks/skills/<name>`
+  - Open Works: `.opencode/skills/<name>`
 - `{{SKILLS_DIR}}` — путь к корневому каталогу скиллов (для кросс-скилловых ссылок).
 
 **Всегда** используйте плейсхолдеры вместо хардкода путей. Никогда не пишите
