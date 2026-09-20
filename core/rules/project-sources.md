@@ -58,8 +58,10 @@ MCP/индекс дают навигацию и ссылки, но не сним
 Если для проекта настроен MCP, но локального Git checkout отсутствует (`local.enabled: false` или
 `projects/<источник>/src/**` не существует`):
 
- разрешён **анализ** и **подготовка SDD/spec** (`01_context.md`, `03_solution_spec.md`, `05_test_scenarios.md`,
- `review.md`), но **запрещено фактическую модификацию исходников** — нет writable workspace.
+ разрешён **анализ** и **подготовка SDD/spec** (`01_context.md`, `03_solution_spec.md`, `05_test_scenarios.md`),
+ но **запрещено фактическую модификацию исходников** — нет writable workspace. Canonical post-implementation
+ `review.md` (verdict `approved`) **не может быть сформирован** без независимо доступной фактической реализации в
+ writable workspace — reviewer не выдаёт `approved` реализации, которой нельзя независимо сверить.
 
 В этом режиме (`read-only` / `mcp-only`):
 - `1c-analyst` работает через MCP + общие знания (без локальных исходников);
@@ -84,14 +86,14 @@ MCP/индекс дают навигацию и ссылки, но не сним
 - поиск аналогичных реализаций (особенно для движений документов — см. «Ключевые принципы 1С-разработки» в `1c-developer.md`);
 - поиск движений документов / запросов;
 - анализ call sites;
-- поиск паттернов в основном репозит и расширении.
+- поиск паттернов в основном репозитории и расширении.
 
 ### platform-help MCP
 Вопросы о: платформе 1С; встроенном языке; объектах и методах платформы; синтаксис и API.
 
 ### standards MCP
 Источник стандартов разработки 1С (дополнение к `v8std` / `standards.example.md`).
-**При расхождении** стандарта и существующего проектного паттерна агент **должен показать расхождения**, а не молга считать одно другим.
+**При расхождении** стандарта и существующего проектного паттерна агент **должен показать расхождения**, а не молча считать одно другим.
 
 ## Поведение по агентам
 
@@ -104,11 +106,33 @@ MCP/индекс дают навигацию и ссылки, но не сним
 
 ## Permissions
 
-Публичный frontmatter адаптеров сохраняет безопасный default: `mcp: "*": deny` (у `1c-analyst`/`1c-applier`/
-`1c-tools`) и `mcp: { "*": deny, "v8std_*": allow }` (у `1c-developer`/`1c-reviewer`). Разрешения на
-конкретные project MCP-серверы — **локальная конфигурация** (корневой конфигурационный файл инструмента
-`kilo.json`/`openworks.json` или overlay), аналогично секретам в `.v8-project.json` / `.dev.env`.
-В публичный репозиторий имена корпоративных MCP-серверов **не попадают**.
+MCP tool permissions — **flat keys** под `permission:` (Kilo runtime model, см. `kilo-config` skill:
+MCP tools представлены namespaced tool names вида `<server>_<tool>` с glob patterns, last match wins),
+**НЕ** nested `mcp:` категория.
+
+Текущая фактическая матрица (public frontmatter):
+
+| Агент | MCP aliases (flat keys) |
+|---|---|
+| `1c-analyst` | `"metadata_*": allow`, `"code_*": allow`, `"platform_help_*": allow`, `"v8std_*": allow`, `"standards_*": allow` |
+| `1c-developer` | `"code_*": allow`, `"platform_help_*": allow`, `"v8std_*": allow`, `"standards_*": allow` |
+| `1c-reviewer` | `"metadata_*": allow`, `"code_*": allow`, `"platform_help_*": allow`, `"v8std_*": allow`, `"standards_*": allow` |
+| `1c-do` / `1c-tools` / `1c-applier` | project MCP aliases **отсутствуют** (implicit deny/default) |
+
+```yaml
+permission:
+  # пример для 1c-analyst:
+  "metadata_*": allow
+  "code_*": allow
+  "platform_help_*": allow
+  "v8std_*": allow
+  "standards_*": allow
+```
+
+Разрешения на конкретные project MCP-серверы (endpoint/credentials) — **локальная конфигурация**
+(корневой конфигурационный файл инструмента `kilo.json`/`openworks.json` или overlay), аналогично
+секретам в `.v8-project.json` / `.dev.env`. В публичный репозиторий имена корпоративных MCP-серверов
+**не попадают**. Nested `mcp:` категория **не используется** (deprecated).
 
 ## Сводка режимов (graceful degradation)
 

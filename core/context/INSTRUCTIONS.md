@@ -6,8 +6,8 @@ SDD, индексы, логирование. **Проект-специфичны
 (см. раздел «Per-project контекст»).
 
 Точка входа — агент `1c-do` (`{{AGENTS_DIR}}/1c-do.md`), маршрутизирует запросы на `1c-analyst` (анализ), `1c-developer` (код) и `1c-applier` (применение правок в живую ИБ — только по явному запросу пользователя).
-Скиллы 1С (`{{SKILLS_DIR}}/**`) используются: `1c-analyst` — 9 info-скиллов (read-only анализ структуры), `1c-developer` — ~40 edit/compile/validate/info-скиллов (правка XML-метаданных). MCP `v8std` используется `1c-developer` для сверки со стандартами 1С (вторичный источник после level). Иные MCP и внешние инструменты — не используются.
-Источник истины — локальные исходники (см. раздел «Источник истины»).
+Скиллы 1С (`{{SKILLS_DIR}}/**`) используются: `1c-analyst` — 9 info-скиллов (read-only анализ структуры), `1c-developer` — ~40 edit/compile/validate/info-скиллов (правка XML-метаданных). Declared project MCP (`metadata`, `code`, `platform_help`, `standards`/`v8std`) разрешены согласно `{{CONTEXT_DIR}}/rules/project-sources.md` — primary discovery/reference при наличии; локальные исходники — source of truth для `edit`. Произвольные/необъявленные MCP и интернет запрещены.
+Источник истины — локальные исходники (см. раздел «Источник истины»); MCP — первичный discovery/reference при наличии declared project MCP (см. раздел «Project sources»).
 
 Агент по умолчанию — `1c-do` (точка входа / маршрутизатор). Проект запроса определяет
 `1c-do` (шаг 1.5 алгоритма): по явному указанию пользователя, по grep per-project индексов
@@ -136,13 +136,15 @@ profile (`{{CONTEXT_DIR}}/rules/project-sources.md`), разрешены как 
 │   └── logs/                              — логи агентов (по агентам + датам)
 ├── specs/                                 — SDD-спецификации задач (плоско по <TASK-ID>)
 │   ├── README.md                          — шаблоны артефактов + roadmap расширения
-│   └── <TASK-ID>/                         — task-папка (5 файлов MVP + review.md)
+│   └── <TASK-ID>/                         — task-папка (5 файлов MVP)
 │       ├── 00_request.md                  — + поле «Проект»
 │       ├── 01_context.md
 │       ├── 03_solution_spec.md            — + машиночитаемый блок status/risk/scope_hash
 │       ├── 05_test_scenarios.md
-│       ├── 06_change_report.md
-│       └── review.md                      — заключение 1c-reviewer (verdict + findings)
+│       └── 06_change_report.md
+├── pilot-control/                         — независимый review (transport-save 1c-do)
+│   └── <TASK-ID>/
+│       └── review.md                      — заключение 1c-reviewer (verdict + findings); 1c-do сохраняет дословно
 ├── projects/                              — исходники конфигураций/расширений
 │   ├── finance/                            — основная конфигурация (контекст: {{CONTEXT_DIR}}/projects/finance/context.md)
 │   │   └── src/

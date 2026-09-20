@@ -1937,6 +1937,75 @@ def check_task6_regression(rep: Report) -> None:
         # ok is checked in check_mcp_permissions_flat
 
 
+def check_task7_regression(rep: Report) -> None:
+    """Regression checks для final consistency-итерации (task_7.md).
+
+    Проверяет конкретные stale contradictions:
+    1. INSTRUCTIONS.md не содержит «Иные MCP и внешние инструменты — не используются»;
+    2. дерево specs/<TASK-ID> в INSTRUCTIONS.md не содержит review.md;
+    3. project-sources.md не содержит nested mcp: permission example/policy;
+    4. project-context.example.md не утверждает наличие ${ENV}/env substitutions;
+    5. canonical review path pilot-control/<TASK-ID>/review.md присутствует в INSTRUCTIONS.md.
+    """
+    if not IS_SOURCE_REPO:
+        return
+    import re as _re
+
+    # 1. INSTRUCTIONS.md: no «Иные MCP ... не используются»
+    instr = ROOT / "core" / "context" / "INSTRUCTIONS.md"
+    if instr.exists():
+        text = instr.read_text(encoding="utf-8", errors="replace")
+        if "Иные MCP и внешние инструменты — не используются" in text or "Иные MCP и внешние инструменты — не используются" in text:
+            rep.error("task7-regression: INSTRUCTIONS.md содержит «Иные MCP ... не используются» (устаревший запрет)")
+        else:
+            rep.ok("task7-regression: INSTRUCTIONS.md не содержит устаревший запрет project MCP")
+
+    # 2. INSTRUCTIONS.md: specs/<TASK-ID> tree does NOT contain review.md
+    if instr.exists():
+        # Extract the specs/ tree block
+        specs_block = _re.search(r'specs/.*?(?=├──|└──|\Z)', text, _re.S)
+        if specs_block and "review.md" in specs_block.group(0):
+            rep.error("task7-regression: INSTRUCTIONS.md specs/ tree содержит review.md (должен быть в pilot-control/)")
+        else:
+            rep.ok("task7-regression: INSTRUCTIONS.md specs/ tree не содержит review.md")
+
+    # 3. project-sources.md: no nested mcp: permission example/policy
+    ps = ROOT / "core" / "rules" / "project-sources.md"
+    if ps.exists():
+        text = ps.read_text(encoding="utf-8", errors="replace")
+        # Look for lines like "  mcp:" or "mcp: {" in the Permissions section
+        perm_section = _re.search(r'## Permissions.*?(?=## |\Z)', text, _re.S)
+        if perm_section:
+            perm_text = perm_section.group(0)
+            # Check for deprecated nested mcp: key (not as a word in prose, but as a permission key)
+            if _re.search(r'^\s*mcp:\s*$', perm_text, _re.M) or "mcp: {" in perm_text or 'mcp: "*": deny' in perm_text:
+                rep.error("task7-regression: project-sources.md Permissions содержит deprecated nested mcp: policy")
+            else:
+                rep.ok("task7-regression: project-sources.md Permissions не содержит nested mcp: policy")
+            # Check for flat keys
+            if '"metadata_*": allow' in perm_text or '"code_*": allow' in perm_text:
+                rep.ok("task7-regression: project-sources.md Permissions содержит flat MCP keys")
+            else:
+                rep.error("task7-regression: project-sources.md Permissions не содержит flat MCP keys")
+
+    # 4. project-context.example.md: no ${ENV} / env substitution claims
+    ex = ROOT / "examples" / "project-context.example.md"
+    if ex.exists():
+        text = ex.read_text(encoding="utf-8", errors="replace")
+        if "placeholders и env-переменные" in text or "${" in text:
+            rep.error("task7-regression: project-context.example.md утверждает наличие ${ENV}/env substitutions")
+        else:
+            rep.ok("task7-regression: project-context.example.md не содержит ${ENV}/env substitution claims")
+
+    # 5. canonical review path present in INSTRUCTIONS.md
+    if instr.exists():
+        text = instr.read_text(encoding="utf-8", errors="replace")
+        if "pilot-control" in text and "review.md" in text:
+            rep.ok("task7-regression: INSTRUCTIONS.md содержит canonical review path (pilot-control/<TASK-ID>/review.md)")
+        else:
+            rep.error("task7-regression: INSTRUCTIONS.md не содержит canonical review path (pilot-control/)")
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1984,6 +2053,7 @@ def main() -> int:
         check_task5_regression(rep)
         check_mcp_permissions_flat(rep)
         check_task6_regression(rep)
+        check_task7_regression(rep)
     else:
         rep.ok("license/corporate: пропущено (установленный проект — не требуется)")
     check_no_update_db(rep)

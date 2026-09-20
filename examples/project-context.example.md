@@ -2,7 +2,10 @@
 
 > Универсальный шаблон per-project `context.md`. Реальный файл лежит в
 > `{{CONTEXT_DIR}}/projects/<проект>/context.md` и создаётся пользователем/`1c-analyst`.
-> **Не содержит** корпоративных URL/UUID/credentials — только placeholders и env-переменные.
+> **Не содержит** корпоративных URL/UUID/credentials — только generic placeholders и логические
+> MCP aliases (`metadata`, `code`, `platform_help`, `v8std`). MCP endpoint/credentials регистрируются
+> локально в конфигурации инструмента (`kilo.json`/`openworks.json`); project-specific `project_id`
+> и repository mapping задаются в локальном gitignored profile.
 > Корпоративный профиль (напр. Finance) живёт только в локальной/корпоративной среде
 > (gitignored `projects/`, overlay/, `.dev.env`), никогда в публичном репозитории.
 
