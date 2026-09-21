@@ -1,8 +1,8 @@
 ﻿$ErrorActionPreference = "Stop"
 # Миграция контекста из .kilo/context в core/context.
-# Запуск: powershell -File install/migrate-context.ps1
+# Запуск: powershell -File install/migrate-context.ps1 -SourceRoot <путь-к-рабочему-проекту>
 param(
-    [string]$SourceRoot = "C:\Ramium\1c-vibe",
+    [Parameter(Mandatory=$true)][string]$SourceRoot,
     [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot)
 )
 $dst = $RepoRoot
@@ -15,16 +15,21 @@ Write-Host "OK: INSTRUCTIONS.md"
 Copy-Item -Path (Join-Path $SourceRoot "AGENTS.md") -Destination (Join-Path $dst "core\context\BslChecklists.md") -Force
 Write-Host "OK: BslChecklists.md (from AGENTS.md)"
 
-# 3. standards/level-standards.md -> core/context/standards/
-Copy-Item -Path (Join-Path $SourceRoot ".kilo\context\standards\level-standards.md") -Destination (Join-Path $dst "core\context\standards\level-standards.md") -Force
-Write-Host "OK: level-standards.md"
+# 3. standards: публичный core хранит только нейтральный шаблон standards.example.md;
+#    корпоративные стандарты НЕ мигрируются в core (для них — external overlay,
+#    см. docs/corporate-overlay-recommendations.md).
 
 # 4. common/requirements-README.md -> core/context/common/
 Copy-Item -Path (Join-Path $SourceRoot ".kilo\context\common\requirements-README.md") -Destination (Join-Path $dst "core\context\common\requirements-README.md") -Force
 Write-Host "OK: requirements-README.md"
 
 # 5. Per-project: only context.md, objects-index.md, analyst-scope.md (NO summaries/, requirements/)
-$projects = @("finance","trade","collector")
+$projectsRoot = Join-Path $SourceRoot ".kilo\context\projects"
+if (Test-Path $projectsRoot) {
+    $projects = @(Get-ChildItem -Path $projectsRoot -Directory | ForEach-Object { $_.Name })
+} else {
+    $projects = @()
+}
 foreach ($proj in $projects) {
     $srcProj = Join-Path $SourceRoot ".kilo\context\projects\$proj"
     $dstProj = Join-Path $dst "core\context\projects\$proj"

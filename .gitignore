@@ -26,7 +26,9 @@ specs/TASK-*/
 !.env.example
 .dev.env
 .ai-rules.json
-overlay/
+# Корневой corporate overlay (локальный, не коммитить).
+# Якорь в корень: examples/overlay/ (публичный dummy-пример) остаётся трекаемым.
+/overlay/
 *.dt
 *.cf
 *.cfe

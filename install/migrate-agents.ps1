@@ -1,9 +1,9 @@
 ﻿$ErrorActionPreference = "Stop"
 # Миграция агентов из .kilo/agent/ в core/agents/ + frontmatter в adapters/kilo/.
-# Запуск: powershell -File install/migrate-agents.ps1
-# Параметр -SourceRoot (по умолчанию C:\Ramium\1c-vibe) и -RepoRoot (по умолчанию .. репо).
+# Запуск: powershell -File install/migrate-agents.ps1 -SourceRoot <путь-к-рабочему-проекту>
+# -SourceRoot обязателен (корень рабочего проекта с .kilo/agent/), -RepoRoot — по умолчанию .. репо.
 param(
-    [string]$SourceRoot = "C:\Ramium\1c-vibe",
+    [Parameter(Mandatory=$true)][string]$SourceRoot,
     [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot)
 )
 $srcDir = Join-Path $SourceRoot ".kilo\agent"
