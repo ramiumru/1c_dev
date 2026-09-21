@@ -111,6 +111,31 @@ review (`1c-reviewer`, `pilot-control/<TASK-ID>/review.md`) перед прим�
 
 Если агент недоступен или нужен детерминированный CI-запуск:
 
+## External overlays
+
+Публичный репозиторий — **base installer**; overlay — опциональный private-слой
+поверх базовой установки (project context, corporate rules/standards, skills,
+tool-specific config) без форка public core:
+
+```powershell
+powershell -File install/install.ps1 -Tool kilo -Target C:\MyProject -OverlayPath C:\MyPrivateRepo\overlay
+```
+
+- применяется **после** базовой установки; `overlay > base installed copy`
+  (override — явная замена файла, без слияния текста); public source не меняется;
+- без `-OverlayPath` поведение установщика идентично установке без overlay;
+- path traversal / symlink / `.git` / запись вне target root — блокируются
+  ошибкой; `LICENSE`, `.dev.env`, `.v8-project.json`, манифесты не перезаписываются;
+- установленный overlay фиксируется в `.install-manifest-overlay.json`
+  (path / source / add|override / hash) — переустановка и update детерминированы;
+- не копируйте unchanged public-файлы в overlay — только additions и
+  intentional overrides;
+- `-OverlayDryRun` показывает план без записи.
+
+Структура, security boundaries и update-семантика —
+[`docs/corporate-overlay-recommendations.md`](docs/corporate-overlay-recommendations.md);
+generic-пример — [`examples/overlay/`](examples/overlay/README.md).
+
 ## Быстрый старт
 
 1. Клонируйте репозиторий в рабочее пространство проекта 1С.

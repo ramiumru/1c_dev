@@ -27,10 +27,22 @@
 .PARAMETER Force
     Принудительная перезапись (кроме LICENSE целевого проекта).
 
+.PARAMETER OverlayPath
+    Optional external overlay (private-слой поверх base install). Структура:
+    agents/, skills/, rules/, context/, standards/, projects/, tool/<tool>/.
+    Применяется ПОСЛЕ базовой установки: overlay-файл заменяет установленную
+    копию (override wins), новый файл добавляется (add). Без параметра поведение
+    идентично установке без overlay. См. docs/corporate-overlay-recommendations.md.
+
+.PARAMETER OverlayDryRun
+    Показать план overlay (add/override/skip) без записи файлов и манифеста.
+    Требует -OverlayPath.
+
 .EXAMPLE
     .\install.ps1 -Tool kilo
     .\install.ps1 -Tool claude -Target C:\MyProject
     .\install.ps1 -Tool kilo -Mode update
+    .\install.ps1 -Tool kilo -Target C:\MyProject -OverlayPath C:\MyPrivateRepo\overlay
 #>
 param(
     [Parameter(Mandatory=$true)][ValidateSet("kilo","claude","codex","openworks")]
@@ -39,11 +51,16 @@ param(
     [ValidateSet("install","update")]
     [string]$Mode = "install",
     [switch]$Force,
-    [string]$OverlayPath
+    [string]$OverlayPath,
+    [switch]$OverlayDryRun
 )
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot   # корень репо
 $utf8Bom = [System.Text.UTF8Encoding]::new($true)
+
+if ($OverlayDryRun -and -not $OverlayPath) {
+    throw "-OverlayDryRun требует -OverlayPath."
+}
 
 if (-not (Test-Path "$repo\core\agents")) {
     throw "core/agents не найден. Запускайте из корня репозитория."
@@ -71,7 +88,116 @@ $PROTECTED_ROOT_FILES = @(
 # Файлы, которые LICENSE никогда не заменяется (P0-2.2)
 $LICENSE_NEVER_OVERWRITE = @("LICENSE")
 
+# --- External overlay: границы записи ---
+# Никогда не пишется overlay (независимо от -Force)
+$OVERLAY_NEVER_WRITE = @(
+    "LICENSE", ".ai-rules.json", ".install-manifest-overlay.json",
+    ".dev.env", ".v8-project.json"
+)
+# Корневые конфиги: override только с -Force (с бэкапом); add разрешён (если файла нет)
+$OVERLAY_PROTECTED_ROOT = @(
+    "AGENTS.md", "CLAUDE.md", "INSTRUCTIONS.md", "kilo.json", "openworks.json",
+    "specs/README.md"
+)
+
 Write-Host "=== Установка 1c-dev для '$Tool' в '$Target' (mode: $Mode) ==="
+
+# --- External overlay (-OverlayPath): фаза A — валидация ДО базовой установки ---
+# Все фатальные проверки (path traversal, symlink/junction, absolute, .git) выполняются
+# до первой записи в target. Фаза B (применение) — шаг 8, после base-манифеста.
+
+# Overlay-хелперы (path traversal protection)
+function Test-OverlayRelPath([string]$RelPath) {
+    # Запрещены: абсолютные (drive/rooted), сегменты '..'/'.' и любые записи в .git
+    if (-not $RelPath) { return $false }
+    if ($RelPath -match '^[a-zA-Z]:') { return $false }
+    if ($RelPath.StartsWith('\') -or $RelPath.StartsWith('/')) { return $false }
+    $segments = $RelPath -split '[\\/]'
+    foreach ($s in $segments) {
+        if ($s -eq '' -or $s -eq '.' -or $s -eq '..') { return $false }
+        if ($s -eq '.git') { return $false }
+    }
+    return $true
+}
+
+function Get-OverlayFiles([string]$Dir) {
+    # Рекурсивный обход БЕЗ следования symlink/junction (path traversal protection)
+    $result = @()
+    foreach ($item in @(Get-ChildItem -LiteralPath $Dir -Force)) {
+        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            throw "Overlay содержит symlink/junction (path traversal protection): $($item.FullName)"
+        }
+        if ($item.PSIsContainer) {
+            $result += Get-OverlayFiles $item.FullName
+        } else {
+            $result += $item
+        }
+    }
+    return $result
+}
+
+$overlayPlan = $null
+$overlayRoot = ""
+$overlayManifestPath = Join-Path $Target ".install-manifest-overlay.json"
+$oldOverlayFiles = @()
+$overlayManagedPaths = @{}
+
+if (Test-Path $overlayManifestPath) {
+    try {
+        $oldOverlayManifest = Get-Content $overlayManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $oldOverlayFiles = @($oldOverlayManifest.files | Where-Object { $_ })
+    } catch {
+        $oldOverlayFiles = @()
+        Write-Host "  overlay: .install-manifest-overlay.json не читается — overlay-файлы не отслеживаются"
+    }
+    if ($oldOverlayFiles.Count -gt 0 -and -not $OverlayPath) {
+        throw "Обнаружен overlay-манифест предыдущей установки, но -OverlayPath не задан. Передайте -OverlayPath для повторного применения overlay; для полной очистки выполните update с пустым overlay (orphan-файлы будут удалены, base восстановлен), либо удалите .install-manifest-overlay.json вручную."
+    }
+    foreach ($of in $oldOverlayFiles) { $overlayManagedPaths[$of.path] = $true }
+}
+
+if ($OverlayPath) {
+    if (-not (Test-Path -LiteralPath $OverlayPath -PathType Container)) {
+        throw "OverlayPath не найден или не является каталогом: $OverlayPath"
+    }
+    $overlayRoot = (Get-Item -LiteralPath $OverlayPath).FullName
+    if ((Get-Item -LiteralPath $overlayRoot).Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+        throw "OverlayPath является symlink/junction: $OverlayPath — запрещено (path traversal protection)"
+    }
+    $targetRootFull = [System.IO.Path]::GetFullPath($Target).TrimEnd('\','/')
+
+    # Категории overlay (порядок: generic → специализированные → tool/<tool>).
+    # При конфликте двух категорий на один target-путь побеждает применённая позже.
+    $overlayCategories = @(
+        @{ src = "context";     dst = $ctx },
+        @{ src = "standards";   dst = "$ctx/standards" },
+        @{ src = "projects";    dst = "$ctx/projects" },
+        @{ src = "rules";       dst = "$ctx/rules" },
+        @{ src = "agents";      dst = $agents },
+        @{ src = "skills";      dst = $skills },
+        @{ src = "tool/$Tool";  dst = $null }   # tool/<tool>/** → <target>/**
+    )
+
+    $overlayPlan = @()
+    foreach ($cat in $overlayCategories) {
+        $catSrc = Join-Path $overlayRoot ($cat.src -replace '/','\')
+        if (-not (Test-Path -LiteralPath $catSrc -PathType Container)) { continue }
+        foreach ($sf in (Get-OverlayFiles $catSrc)) {
+            $relSrc = $sf.FullName.Substring($catSrc.Length).TrimStart('\','/') -replace '\\','/'
+            $relDst = if ($cat.dst) { "$($cat.dst)/$relSrc" } else { $relSrc }
+            if (-not (Test-OverlayRelPath $relDst)) {
+                throw "Overlay path отклонён (absolute/../.git): $($cat.src)/$relSrc"
+            }
+            $dstPath = [System.IO.Path]::GetFullPath((Join-Path $Target ($relDst -replace '/','\')))
+            if (-not $dstPath.StartsWith($targetRootFull + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "Overlay target вне project root: $relDst"
+            }
+            $skillName = $null
+            if ($cat.src -eq "skills") { $skillName = ($relSrc -split '/')[0] }
+            $overlayPlan += @{ src = $sf.FullName; relSrc = "$($cat.src)/$relSrc"; relDst = $relDst; dst = $dstPath; skill = $skillName }
+        }
+    }
+}
 
 # --- Чтение манифеста для update-режима ---
 $existingManifest = $null
@@ -84,7 +210,8 @@ if ($Mode -eq "update") {
             foreach ($f in $existingManifest.files) {
                 $fp = Join-Path $Target $f.path
                 $currentHash = (Get-FileHash -LiteralPath $fp -Algorithm SHA256 -ErrorAction SilentlyContinue).Hash
-                if ($currentHash -and $currentHash -ne $f.installedHash) {
+                # Overlay-managed пути исключаются: их обновляет overlay (шаг 8), не base
+                if ($currentHash -and $currentHash -ne $f.installedHash -and -not $overlayManagedPaths.ContainsKey($f.path)) {
                     $userModifiedFiles[$f.path] = $true
                 }
             }
@@ -145,7 +272,7 @@ function Safe-CopyFile($srcPath, $dstPath, $relPath) {
 
 # --- 1. Скиллы ---
 if ($config.copySkills) {
-    Write-Host "[1/7] Скиллы -> $skills"
+    Write-Host "[1/8] Скиллы -> $skills"
     $skillSrc = "$repo\core\skills"
     Get-ChildItem $skillSrc -Directory | ForEach-Object {
         $name = $_.Name
@@ -165,11 +292,11 @@ if ($config.copySkills) {
             }
         }
     }
-} else { Write-Host "[1/7] Скиллы: пропуск" }
+} else { Write-Host "[1/8] Скиллы: пропуск" }
 
 # --- 2. Агенты ---
 if ($config.copyAgents) {
-    Write-Host "[2/7] Агенты -> $agents"
+    Write-Host "[2/8] Агенты -> $agents"
     $agentSrc = "$repo\core\agents"
     $fmSrc = "$repo\adapters\$Tool\frontmatter"
     Get-ChildItem $agentSrc -Filter "*.md" | ForEach-Object {
@@ -194,11 +321,11 @@ if ($config.copyAgents) {
         New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
         [System.IO.File]::WriteAllText($dstPath, $combined, $utf8Bom)
     }
-} else { Write-Host "[2/7] Агенты: пропуск" }
+} else { Write-Host "[2/8] Агенты: пропуск" }
 
 # --- 3. Корневой конфиг ---
 if ($config.rootConfig -and $config.rootConfig -ne "") {
-    Write-Host "[3/7] Корневой конфиг -> $($config.rootConfig)"
+    Write-Host "[3/8] Корневой конфиг -> $($config.rootConfig)"
     $tplPath = "$repo\adapters\$Tool\$($config.rootConfig).tpl"
     if (-not (Test-Path $tplPath)) {
         $tpls = Get-ChildItem "$repo\adapters\$Tool" -Filter "*.tpl" -ErrorAction SilentlyContinue
@@ -210,11 +337,11 @@ if ($config.rootConfig -and $config.rootConfig -ne "") {
         Safe-CopyFile $tplPath $dstPath $config.rootConfig
     }
 } else {
-    Write-Host "[3/7] Корневой конфиг: пропуск (rootConfig не задан)"
+    Write-Host "[3/8] Корневой конфиг: пропуск (rootConfig не задан)"
 }
 
 # --- 4. Контекст ---
-Write-Host "[4/7] Контекст -> $ctx"
+Write-Host "[4/8] Контекст -> $ctx"
 $ctxSrc = "$repo\core\context"
 $ctxDst = Join-Path $Target $ctx
 # При update: не перезаписывать context-файлы целиком, а копировать пофайлово с защитой
@@ -253,7 +380,7 @@ if ($config.instructionsInRoot) {
 }
 
 # --- 5. On-demand правила ---
-Write-Host "[5/7] On-demand правила -> $ctx/rules"
+Write-Host "[5/8] On-demand правила -> $ctx/rules"
 $rulesSrc = "$repo\core\rules"
 $rulesDst = Join-Path $Target "$ctx/rules"
 if (Test-Path $rulesSrc) {
@@ -289,59 +416,18 @@ if (Test-Path "$repo\AGENT-INSTALL.md") {
 }
 # LICENSE harness НЕ копируется в корень целевого проекта (P0-2.2)
 
-# --- 5.5. External overlay (если указан -OverlayPath) ---
-if ($OverlayPath) {
-    Write-Host "[5.5/7] External overlay -> $OverlayPath"
-    if (-not (Test-Path $OverlayPath)) {
-        Write-Host "[5.5/7] OverlayPath не найден — пропуск"
-    } else {
-        # Проверка path safety
-        $overlayFull = (Get-Item $OverlayPath).FullName
-        # Копировать standards/ -> <context>/standards/standards.md
-        $overlayStandards = Join-Path $OverlayPath "standards"
-        if (Test-Path $overlayStandards) {
-            $stdDst = Join-Path $ctxDst "standards"
-            New-Item -ItemType Directory -Force -Path $stdDst | Out-Null
-            Get-ChildItem $overlayStandards -File | ForEach-Object {
-                Safe-CopyFile $_.FullName (Join-Path $stdDst $_.Name) "$ctx/standards/$($_.Name)"
-            }
-            Write-Host "[5.5/7] Корпоративные стандарты установлены"
-        }
-        # Копировать projects/ -> <context>/projects/<project>/
-        $overlayProjects = Join-Path $OverlayPath "projects"
-        if (Test-Path $overlayProjects) {
-            Get-ChildItem $overlayProjects -Directory | ForEach-Object {
-                $projName = $_.Name
-                $projDst = Join-Path $ctxDst "projects/$projName"
-                New-Item -ItemType Directory -Force -Path $projDst | Out-Null
-                Get-ChildItem $_.FullName -Recurse -File | ForEach-Object {
-                    $rel = $_.FullName.Substring($overlayProjects.Length).TrimStart('\','/')
-                    $dstFile = Join-Path $ctxDst "projects/$projName/$rel"
-                    $relPath = "$ctx/projects/$projName/$rel" -replace '\\','/'
-                    if (Test-ShouldOverwrite $relPath) {
-                        $dstDir = Split-Path $dstFile -Parent
-                        if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
-                        Copy-Item $_.FullName $dstFile -Force
-                    }
-                }
-            }
-            Write-Host "[5.5/7] Per-project контексты установлены"
-        }
-    }
-}
-
 # Создать pilot-control/ каталог (read-only для агентов)
 $pilotControlDir = Join-Path $Target "pilot-control"
 if (-not (Test-Path $pilotControlDir)) {
     New-Item -ItemType Directory -Force -Path $pilotControlDir | Out-Null
-    Write-Host "[5.5/7] pilot-control/ создан (для review.md, backup.md — read-only для агентов)"
+    Write-Host "[5.5/8] pilot-control/ создан (для review.md, backup.md — read-only для агентов)"
 }
 
 # --- 6. .dev.env ---
-Write-Host "[6/7] .dev.env -> параметры проекта"
+Write-Host "[6/8] .dev.env -> параметры проекта"
 $devEnvPath = Join-Path $Target ".dev.env"
 if (Test-Path $devEnvPath) {
-    Write-Host "[6/7] .dev.env уже существует — сохранён без изменений"
+    Write-Host "[6/8] .dev.env уже существует — сохранён без изменений"
 } else {
     $envExample = "$repo\core\context\.dev.env.example"
     if (Test-Path $envExample) {
@@ -377,12 +463,12 @@ if (Test-Path $devEnvPath) {
         }
         if ($detectedPrefix) { $envContent = $envContent -replace 'PREFIX=', "PREFIX=$detectedPrefix" }
         [System.IO.File]::WriteAllText($devEnvPath, $envContent, [System.Text.Encoding]::UTF8)
-        Write-Host "[6/7] .dev.env создан $(if ($detectedVersion) {'(version=' + $detectedVersion + ')'})$(if ($detectedPath) {' (path autodetected)'})"
-    } else { Write-Host "[6/7] .dev.env: шаблон не найден — пропуск" }
+        Write-Host "[6/8] .dev.env создан $(if ($detectedVersion) {'(version=' + $detectedVersion + ')'})$(if ($detectedPath) {' (path autodetected)'})"
+    } else { Write-Host "[6/8] .dev.env: шаблон не найден — пропуск" }
 }
 
 # --- 7. Скрипты + SDD + манифест ---
-Write-Host "[7/7] Скрипты + SDD + манифест"
+Write-Host "[7/8] Скрипты + SDD + манифест"
 $scriptsDst = Join-Path $Target "scripts"
 # Копировать содержимое каталога, а не сам каталог (предотвращает nesting: scripts/scripts/)
 if (Test-Path $scriptsDst) {
@@ -423,41 +509,50 @@ Safe-CopyFile "$repo\examples\v8-project.example.json" (Join-Path $examplesDst "
 Safe-CopyFile "$repo\examples\project-context.example.md" (Join-Path $examplesDst "project-context.example.md") "examples/project-context.example.md"
 
 # --- Манифест .ai-rules.json ---
-Write-Host "[7/7] Генерация манифеста .ai-rules.json"
+Write-Host "[7/8] Генерация манифеста .ai-rules.json"
 $manifestPath = Join-Path $Target ".ai-rules.json"
 $utcNow = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-$targetFull = (Get-Item $Target).FullName.TrimEnd('\','/')
 $files = @()
 
-function Add-ManifestEntry($dirPath, $filter, $sourcePrefix) {
-    if (Test-Path $dirPath) {
-        Get-ChildItem $dirPath -Filter $filter | ForEach-Object {
-            $rel = $_.FullName.Substring($script:targetFull.Length).TrimStart('\','/') -replace '\\','/'
-            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
-            $files += [PSCustomObject]@{ path=$rel; source="$sourcePrefix/$($_.BaseName)$($_.Extension)"; installedHash=$hash; userModified=$false }
+# Перечисление из ИСТОЧНИКА (core/**): base-манифест отражает только public-файлы.
+# Overlay-файлы (add/override) не попадают в base-манифест — их ведёт
+# .install-manifest-overlay.json (шаг 8).
+function Add-ManifestEntryFromSource($srcDir, $targetRelBase, $sourcePrefix) {
+    if (-not (Test-Path -LiteralPath $srcDir)) { return }
+    Get-ChildItem -LiteralPath $srcDir -File | ForEach-Object {
+        $relTarget = "$targetRelBase/$($_.Name)" -replace '\\','/'
+        $dstFile = Join-Path $Target ($relTarget -replace '/','\')
+        if (Test-Path -LiteralPath $dstFile) {
+            $hash = (Get-FileHash -LiteralPath $dstFile -Algorithm SHA256).Hash
+            # $script:files — иначе += создаёт локальную копию и записи теряются
+            $script:files += [PSCustomObject]@{ path=$relTarget; source="$sourcePrefix/$($_.Name)"; installedHash=$hash; userModified=$false }
         }
     }
 }
 
-# Агенты
-Add-ManifestEntry (Join-Path $Target $agents) "*.md" "core/agents"
-# On-demand правила
-Add-ManifestEntry (Join-Path $Target "$ctx/rules") "*.md" "core/rules"
-# Контекст (*.md в context/)
-Add-ManifestEntry (Join-Path $Target $ctx) "*.md" "core/context"
-# Скрипты (*.py)
-Add-ManifestEntry (Join-Path $Target "scripts") "*.py" "core/scripts"
-# Skills (по одному каталогу на скилл)
-$skillsDirFull = Join-Path $Target $skills
-if (Test-Path $skillsDirFull) {
-    Get-ChildItem $skillsDirFull -Directory | ForEach-Object {
+# Агенты (*.md в core/agents)
+Add-ManifestEntryFromSource "$repo\core\agents" $agents "core/agents"
+# On-demand правила (*.md в core/rules)
+Add-ManifestEntryFromSource "$repo\core\rules" "$ctx/rules" "core/rules"
+# Контекст (*.md top-level в core/context)
+Add-ManifestEntryFromSource "$repo\core\context" $ctx "core/context"
+# Скрипты (*.py в core/scripts)
+Add-ManifestEntryFromSource "$repo\core\scripts" "scripts" "core/scripts"
+# Skills (по одному каталогу на скилл — из core/skills)
+$skillsSrc = "$repo\core\skills"
+if (Test-Path -LiteralPath $skillsSrc) {
+    Get-ChildItem -LiteralPath $skillsSrc -Directory | ForEach-Object {
+        $skillDir = $_.FullName
         $skillName = $_.Name
-        $rel = "$skills/$skillName" -replace '\\','/'
-        $skillFiles = Get-ChildItem $_.FullName -Recurse -File
-        foreach ($sf in $skillFiles) {
-            $sfRel = $sf.FullName.Substring($targetFull.Length).TrimStart('\','/') -replace '\\','/'
-            $hash = (Get-FileHash -LiteralPath $sf.FullName -Algorithm SHA256).Hash
-            $files += [PSCustomObject]@{ path=$sfRel; source="core/skills/$skillName/$($sf.Name)"; installedHash=$hash; userModified=$false }
+        Get-ChildItem -LiteralPath $skillDir -Recurse -File | ForEach-Object {
+            $relInside = $_.FullName.Substring($skillDir.Length).TrimStart('\','/') -replace '\\','/'
+            if (-not $relInside) { return }
+            $relTarget = "$skills/$skillName/$relInside" -replace '\\','/'
+            $dstFile = Join-Path $Target ($relTarget -replace '/','\')
+            if (Test-Path -LiteralPath $dstFile) {
+                $hash = (Get-FileHash -LiteralPath $dstFile -Algorithm SHA256).Hash
+                $script:files += [PSCustomObject]@{ path=$relTarget; source="core/skills/$skillName/$relInside"; installedHash=$hash; userModified=$false }
+            }
         }
     }
 }
@@ -514,6 +609,119 @@ if ($Mode -eq "update" -and -not $Force -and (Test-Path $manifestPath)) {
 }
 $manifestJson = $manifest | ConvertTo-Json -Depth 4
 [System.IO.File]::WriteAllText($manifestPath, $manifestJson, $utf8Bom)
+
+# --- 8. External overlay: фаза B — применение ПОСЛЕ базовой установки и base-манифеста ---
+# Контракт: overlay > base installed copy (внутри target installation); public source не меняется.
+$ovEntries = @()
+$ovAdded = 0
+$ovOverridden = 0
+$ovSkipped = 0
+$ovOrphans = 0
+if ($OverlayPath) {
+    Write-Host ""
+    Write-Host "[8/8] External overlay -> $overlayRoot"
+    foreach ($plan in $overlayPlan) {
+        $relDst = $plan.relDst
+        $dstPath = $plan.dst
+        $exists = (Test-Path -LiteralPath $dstPath -PathType Leaf)
+        # Никогда не пишется overlay (LICENSE, манифесты, данные проекта) — независимо от -Force
+        if ($OVERLAY_NEVER_WRITE -contains $relDst) {
+            Write-Host "    skip (never-write): $relDst"
+            $ovSkipped++
+            continue
+        }
+        # Защищённые корневые конфиги: override только с -Force (add разрешён)
+        if ($exists -and ($OVERLAY_PROTECTED_ROOT -contains $relDst) -and -not $Force) {
+            Write-Host "    skip (protected, нужен -Force): $relDst"
+            $ovSkipped++
+            continue
+        }
+        $op = "add"
+        if ($exists) { $op = "override" }
+        if ($OverlayDryRun) {
+            Write-Host "    dry-run ${op}: $relDst"
+            if ($op -eq "add") { $ovAdded++ } else { $ovOverridden++ }
+            continue
+        }
+        $dstDir = Split-Path $dstPath -Parent
+        if (-not (Test-Path -LiteralPath $dstDir)) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
+        if ($exists -and $Force -and ($OVERLAY_PROTECTED_ROOT -contains $relDst)) {
+            $bakPath = "$dstPath.bak"
+            $bakIdx = 1
+            while (Test-Path -LiteralPath $bakPath) { $bakPath = "$dstPath.bak$bakIdx"; $bakIdx++ }
+            Copy-Item -LiteralPath $dstPath -Destination $bakPath -Force
+            Write-Host "    backup: $relDst -> $(Split-Path $bakPath -Leaf)"
+        }
+        Copy-Item -LiteralPath $plan.src -Destination $dstPath -Force
+        # Подстановка install-плейсхолдеров (как в base install) для текстовых файлов
+        $ext = [System.IO.Path]::GetExtension($dstPath).ToLower()
+        if (@(".md", ".json", ".jsonc", ".yml", ".yaml", ".toml", ".tpl") -contains $ext) {
+            $content = [System.IO.File]::ReadAllText($dstPath, [System.Text.Encoding]::UTF8)
+            if ($content -match '\{\{') {
+                $content = $content -replace '\{\{CONTEXT_DIR\}\}', $ctx
+                $content = $content -replace '\{\{LOGS_DIR\}\}', $logs
+                $content = $content -replace '\{\{SKILLS_DIR\}\}', $skills
+                $content = $content -replace '\{\{AGENTS_DIR\}\}', $agents
+                if ($plan.skill) { $content = $content -replace '\{\{SKILL_DIR\}\}', "$skills/$($plan.skill)" }
+                [System.IO.File]::WriteAllText($dstPath, $content, $utf8Bom)
+            }
+        }
+        $hash = (Get-FileHash -LiteralPath $dstPath -Algorithm SHA256).Hash
+        $ovEntries += [PSCustomObject]@{ path=$relDst; source=$plan.relSrc; operation=$op; installedHash=$hash }
+        if ($op -eq "add") { $ovAdded++ } else { $ovOverridden++; Write-Host "    override: $relDst" }
+    }
+
+    # Orphan cleanup: файлы старого overlay, отсутствующие в новом.
+    # base-манифест ($files) уже обновлён на шаге 7: override-осиротевшие пути,
+    # которыми владеет base, не трогаем (base их уже обновил).
+    if (-not $OverlayDryRun -and $oldOverlayFiles.Count -gt 0) {
+        $newOverlayPaths = @{}
+        foreach ($e in $ovEntries) { $newOverlayPaths[$e.path] = $true }
+        $basePaths = @{}
+        foreach ($f in $files) { $basePaths[$f.path] = $true }
+        foreach ($old in $oldOverlayFiles) {
+            if ($newOverlayPaths.ContainsKey($old.path) -or $basePaths.ContainsKey($old.path)) { continue }
+            $orphanPath = Join-Path $Target ($old.path -replace '/','\')
+            if (-not (Test-Path -LiteralPath $orphanPath -PathType Leaf)) { continue }
+            $curHash = (Get-FileHash -LiteralPath $orphanPath -Algorithm SHA256).Hash
+            if ($curHash -eq $old.installedHash) {
+                Remove-Item -LiteralPath $orphanPath -Force
+                $ovOrphans++
+                Write-Host "    orphan removed: $($old.path)"
+            } else {
+                Write-Host "    orphan kept (изменён после установки): $($old.path)"
+            }
+        }
+    }
+
+    # Overlay-манифест .install-manifest-overlay.json (содержимое файлов НЕ хранится)
+    if (-not $OverlayDryRun) {
+        $ovInstalledAt = $utcNow
+        if ($Mode -eq "update" -and (Test-Path $overlayManifestPath)) {
+            try {
+                $oldOvManifest = Get-Content $overlayManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ($oldOvManifest.installedAt) { $ovInstalledAt = $oldOvManifest.installedAt }
+            } catch {}
+        }
+        $ovManifest = [PSCustomObject]@{
+            protocolVersion = "1.0"
+            tool = $Tool
+            overlayPath = $overlayRoot
+            installedAt = $ovInstalledAt
+            updatedAt = $utcNow
+            files = $ovEntries
+        }
+        [System.IO.File]::WriteAllText($overlayManifestPath, ($ovManifest | ConvertTo-Json -Depth 4), $utf8Bom)
+    }
+
+    Write-Host ""
+    Write-Host "Overlay:"
+    Write-Host "  added: $ovAdded"
+    Write-Host "  overridden: $ovOverridden"
+    Write-Host "  skipped: $ovSkipped"
+    if ($ovOrphans -gt 0) { Write-Host "  orphans removed: $ovOrphans" }
+    if ($OverlayDryRun) { Write-Host "  (dry-run: записи не выполнялись, манифест не обновлён)" }
+}
 
 Write-Host ""
 Write-Host "=== Готово! Схема установлена для '$Tool' в '$Target'. ==="

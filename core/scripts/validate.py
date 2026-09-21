@@ -23,6 +23,8 @@ validate.py — единая переносимая локальная пров�
       scope-hash-drift, self-approval, env-per-db) — должны падать на сломанных данных.
   14. Консистентность путей frontmatter (self-path каждого агента).
   15. Отсутствие избыточных прав 1c-do (нет meta-*/form-*/cf-*/cfe-* в bash/skill).
+  16. Overlay contract: add/override/update/orphan/path-traversal/manifest/dry-run
+      через реальные запуски install.ps1 -OverlayPath (без PowerShell пропускается).
 
 Запуск:
   python scripts/validate.py
@@ -85,6 +87,7 @@ REQUIRED_FILES_SOURCE = [
     "AGENT-INSTALL.md",
     "examples/v8-project.example.json",
     "examples/project-context.example.md",
+    "examples/overlay/README.md",
     "core/sdd/README.md",
     "core/scripts/applier_guard.py",
     "core/scripts/safe_apply.py",
@@ -2006,6 +2009,373 @@ def check_task7_regression(rep: Report) -> None:
             rep.error("task7-regression: INSTRUCTIONS.md не содержит canonical review path (pilot-control/)")
 
 
+# ==================== OVERLAY CONTRACT (task_8) ====================
+
+_OVERLAY_TOOL_PATHS = {
+    "kilo":      {"ctx": ".kilo/context",     "logs": ".kilo/logs",     "skills": ".kilo/skills",     "agents": ".kilo/agent"},
+    "claude":    {"ctx": ".claude/context",   "logs": ".claude/logs",   "skills": ".claude/skills",   "agents": ".claude/agents"},
+    "openworks": {"ctx": ".opencode/context", "logs": ".opencode/logs", "skills": ".opencode/skills", "agents": ".opencode/agents"},
+    "codex":     {"ctx": "context",           "logs": "logs",           "skills": "skills",           "agents": "agents"},
+}
+
+
+def _overlay_assert_tool(rep: Report, t1: Path, tool: str, readf, sha256f, mark: str) -> list:
+    """Общие post-install assertions для overlay-установки tool (add/override/manifest/protected)."""
+    paths = _OVERLAY_TOOL_PATHS[tool]
+    ctx, agd = paths["ctx"], paths["agents"]
+    issues = []
+    # add
+    if not (t1 / ctx / "rules" / "example-rule.md").exists():
+        issues.append("add rule не установлен")
+    elif mark not in readf(t1 / ctx / "rules" / "example-rule.md"):
+        issues.append("add rule содержимое не из overlay")
+    if not (t1 / ctx / "projects" / "example_project" / "context.md").exists():
+        issues.append("add project context не установлен")
+    if not (t1 / agd / "example-agent.md").exists():
+        issues.append("add agent не установлен")
+    # placeholder substitution
+    ph = t1 / ctx / "placeholder-test.md"
+    if not ph.exists():
+        issues.append("placeholder-test.md не установлен")
+    elif readf(ph).strip() != f"path={ctx}/x":
+        issues.append(f"плейсхолдер {{{{CONTEXT_DIR}}}} не подставлен: {readf(ph)!r}")
+    # override
+    if mark not in readf(t1 / ctx / "rules" / "sdd-implementation.md"):
+        issues.append("override rule не применился (base-копия осталась)")
+    if mark not in readf(t1 / agd / "1c-do.md"):
+        issues.append("override agent не применился (base-копия осталась)")
+    # never-write: LICENSE
+    if (t1 / "LICENSE").exists():
+        issues.append("LICENSE записан overlay (never-write нарушен)")
+    # protected root config: содержимое base (tpl), не overlay.
+    # base пишет rootConfig только для kilo/claude/codex; для openworks rootConfig
+    # не задаётся — overlay add открыт (законный tool-config delivery, task #10)
+    base_root_config = {"kilo": "kilo.json", "claude": "CLAUDE.md", "codex": "AGENTS.md"}.get(tool)
+    if base_root_config:
+        tpl = ROOT / "adapters" / tool / f"{base_root_config}.tpl"
+        if tpl.exists() and (t1 / base_root_config).exists():
+            if readf(t1 / base_root_config) != readf(tpl):
+                issues.append(f"protected {base_root_config} заменён overlay без -Force")
+    else:
+        owj = t1 / "openworks.json"
+        if not owj.exists() or mark not in readf(owj):
+            issues.append("tool-config openworks.json не установлен (add, base его не пишет)")
+    # kilo tool-config add
+    if tool == "kilo":
+        kjsonc = t1 / ".kilo" / "kilo.jsonc"
+        if not kjsonc.exists() or "KJSONC" not in readf(kjsonc):
+            issues.append("tool-config .kilo/kilo.jsonc не установлен")
+    # manifest
+    om_path = t1 / ".install-manifest-overlay.json"
+    if not om_path.exists():
+        issues.append(".install-manifest-overlay.json не создан")
+    else:
+        try:
+            om = json.loads(readf(om_path))
+        except Exception as e:
+            issues.append(f"overlay-манифест не парсится: {e}")
+            om = {"files": []}
+        files = om.get("files") or []
+        by_path = {f.get("path"): f for f in files}
+        rule_ov_path = f"{ctx}/rules/sdd-implementation.md"
+        rule_add_path = f"{ctx}/rules/example-rule.md"
+        if rule_ov_path not in by_path or by_path[rule_ov_path].get("operation") != "override":
+            issues.append(f"manifest: нет override-записи для {rule_ov_path}")
+        elif rule_add_path not in by_path or by_path[rule_add_path].get("operation") != "add":
+            issues.append(f"manifest: нет add-записи для {rule_add_path}")
+        else:
+            h = by_path[rule_ov_path].get("installedHash", "")
+            actual = sha256f(t1 / ctx / "rules" / "sdd-implementation.md")
+            if str(h).lower() != actual:
+                issues.append("manifest: installedHash не совпадает с файлом")
+        for f in files:
+            if not (t1 / str(f.get("path", ""))).exists():
+                issues.append(f"manifest: файл отсутствует: {f.get('path')}")
+    return issues
+
+
+def check_overlay_contract(rep: Report, skip: bool) -> None:
+    """Overlay contract (task_8): add/override/update/orphan/traversal/manifest/dry-run.
+
+    Проверяет через реальные запуски install.ps1 во временные каталоги:
+      - no-overlay install: .install-manifest-overlay.json отсутствует (поведение
+        без OverlayPath не изменилось);
+      - add: новый private-файл появляется в target (для всех 4 адаптеров);
+      - override: overlay-файл заменяет установленную base-копию;
+      - reinstall/update: base обновляется, overlay накладывается снова и выигрывает;
+      - orphan cleanup: файлы, исчезнувшие из overlay, удаляются/восстанавливаются;
+      - path traversal (junction → absolute target) блокируется (exit != 0);
+      - запись в .git блокируется (exit != 0);
+      - OverlayPath без каталога блокируется (exit != 0);
+      - OverlayDryRun: файлы не записываются, манифест не создаётся;
+      - protected/never-write: LICENSE не появляется, корневой конфиг не заменяется;
+      - manifest: корректные add/override records с hash;
+      - public source install.ps1/core не модифицируется.
+    """
+    if skip:
+        rep.warn("overlay-contract: пропущен (--skip-smoke)")
+        return
+    install_ps1 = ROOT / "install" / "install.ps1"
+    if not IS_SOURCE_REPO or not install_ps1.exists():
+        rep.ok("overlay-contract: пропущен (не source repo / нет install.ps1)")
+        return
+    pwsh = shutil.which("powershell") or shutil.which("pwsh")
+    if not pwsh:
+        rep.warn("overlay-contract: PowerShell не найден — проверка пропущена")
+        return
+    is_win = os.name == "nt"
+
+    def run_install(tool: str, target: Path, extra: list) -> subprocess.CompletedProcess:
+        cmd = [pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(install_ps1),
+               "-Tool", tool, "-Target", str(target)] + extra
+        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", cwd=str(ROOT), timeout=600)
+
+    MARK = "OVERLAY-TEST-MARKER"
+
+    def make_overlay(od: Path, tool: str, extra_git: bool = False) -> None:
+        (od / "rules").mkdir(parents=True)
+        (od / "rules" / "example-rule.md").write_text(f"# Example rule\n{MARK}-ADD-RULE\n", encoding="utf-8")
+        (od / "rules" / "sdd-implementation.md").write_text(f"# Override\n{MARK}-OVERRIDE-RULE\n", encoding="utf-8")
+        proj = od / "projects" / "example_project"
+        proj.mkdir(parents=True)
+        (proj / "context.md").write_text(f"# Project\n{MARK}-ADD-PROJECT\n", encoding="utf-8")
+        (od / "agents").mkdir(parents=True)
+        (od / "agents" / "example-agent.md").write_text(f"# Example agent\n{MARK}-ADD-AGENT\n", encoding="utf-8")
+        (od / "agents" / "1c-do.md").write_text(f"# Override do\n{MARK}-OVERRIDE-AGENT\n", encoding="utf-8")
+        (od / "LICENSE").write_text(f"PRIVATE {MARK}\n", encoding="utf-8")
+        (od / "context").mkdir(parents=True)
+        (od / "context" / "placeholder-test.md").write_text("path={{CONTEXT_DIR}}/x\n", encoding="utf-8")
+        prot = {"kilo": "kilo.json", "claude": "CLAUDE.md", "openworks": "openworks.json", "codex": "AGENTS.md"}[tool]
+        tool_dir = od / "tool" / tool
+        tool_dir.mkdir(parents=True)
+        (tool_dir / prot).write_text(f'{{ "marker": "{MARK}-PROTECTED" }}\n', encoding="utf-8")
+        if tool == "kilo":
+            (tool_dir / ".kilo").mkdir()
+            (tool_dir / ".kilo" / "kilo.jsonc").write_text('{ "marker": "KJSONC" }\n', encoding="utf-8")
+        if extra_git:
+            (tool_dir / ".git").mkdir()
+            (tool_dir / ".git" / "config").write_text("[core]\n", encoding="utf-8")
+
+    def readf(p: Path) -> str:
+        return p.read_text(encoding="utf-8-sig", errors="replace")
+
+    def sha256f(p: Path) -> str:
+        return _hashlib.sha256(p.read_bytes()).hexdigest()
+
+    def base_manifest_hashes(target: Path) -> dict:
+        mpath = target / ".ai-rules.json"
+        out = {}
+        if mpath.exists():
+            try:
+                data = json.loads(readf(mpath))
+                for f in data.get("files") or []:
+                    out[f.get("path", "")] = f.get("installedHash", "")
+            except Exception:
+                pass
+        return out
+
+    def overlay_manifest(target: Path) -> dict:
+        mpath = target / ".install-manifest-overlay.json"
+        if not mpath.exists():
+            return {}
+        try:
+            return json.loads(readf(mpath))
+        except Exception as e:
+            rep.error(f"overlay-contract: .install-manifest-overlay.json не парсится: {e}")
+            return {"_broken": True}
+
+    # Public source не должен измениться
+    tracked = [install_ps1,
+               ROOT / "core" / "rules" / "sdd-implementation.md",
+               ROOT / "core" / "agents" / "1c-do.md"]
+    before_hashes = {str(p): sha256f(p) for p in tracked}
+
+    # --- 1. No overlay: манифест overlay не создаётся ---
+    with tempfile.TemporaryDirectory(prefix="ov_none_") as td:
+        t0 = Path(td) / "t"
+        r = run_install("kilo", t0, [])
+        if r.returncode != 0:
+            rep.error(f"overlay-contract: no-overlay install exit={r.returncode}; stderr={r.stderr[-400:]}")
+        else:
+            if (t0 / ".install-manifest-overlay.json").exists():
+                rep.error("overlay-contract: no-overlay install создал .install-manifest-overlay.json")
+            elif not (t0 / ".kilo" / "agent" / "1c-do.md").exists():
+                rep.error("overlay-contract: no-overlay install не установил агентов")
+            else:
+                rep.ok("overlay-contract: no-overlay install — overlay-манифест отсутствует, base установлен")
+
+    # --- 2. Add/Override/manifest: claude/openworks/codex (kilo — отдельный scope ниже) ---
+    for tool in [t for t in ADAPTERS if t != "kilo"]:
+        with tempfile.TemporaryDirectory(prefix=f"ov_{tool}_") as td:
+            tdp = Path(td)
+            od = tdp / "overlay"
+            make_overlay(od, tool)
+            t1 = tdp / "t"
+            r = run_install(tool, t1, ["-OverlayPath", str(od)])
+            if r.returncode != 0:
+                rep.error(f"overlay-contract: {tool} overlay install exit={r.returncode}; stderr={r.stderr[-400:]}")
+                continue
+            issues = _overlay_assert_tool(rep, t1, tool, readf, sha256f, MARK)
+            if issues:
+                rep.error(f"overlay-contract: {tool}: " + "; ".join(issues))
+            else:
+                rep.ok(f"overlay-contract: {tool} add/override/manifest/protected — OK")
+
+    # --- 3/4/5/6. Kilo: install + update + no-overlay guard + orphan cleanup ---
+    with tempfile.TemporaryDirectory(prefix="ov_kilo_") as td:
+        tdp = Path(td)
+        od = tdp / "overlay"
+        make_overlay(od, "kilo")
+        kilo_target = tdp / "t"
+        r = run_install("kilo", kilo_target, ["-OverlayPath", str(od)])
+        if r.returncode != 0:
+            rep.error(f"overlay-contract: kilo overlay install exit={r.returncode}; stderr={r.stderr[-400:]}")
+        else:
+            issues = _overlay_assert_tool(rep, kilo_target, "kilo", readf, sha256f, MARK)
+            if issues:
+                rep.error("overlay-contract: kilo: " + "; ".join(issues))
+            else:
+                rep.ok("overlay-contract: kilo add/override/manifest/protected — OK")
+        # update с тем же overlay: overlay снова выигрывает
+        r = run_install("kilo", kilo_target, ["-Mode", "update", "-OverlayPath", str(od)])
+        if r.returncode == 0 and MARK in readf(kilo_target / ".kilo" / "context" / "rules" / "sdd-implementation.md"):
+            rep.ok("overlay-contract: update — overlay reapply выигрывает (override сохранён)")
+        else:
+            rep.error(f"overlay-contract: update с overlay: exit={r.returncode}, override не применился")
+        # update без OverlayPath при существующем overlay-манифесте — ошибка
+        r = run_install("kilo", kilo_target, ["-Mode", "update"])
+        if r.returncode != 0:
+            rep.ok("overlay-contract: update без -OverlayPath при overlay-манифесте блокируется")
+        else:
+            rep.error("overlay-contract: update без -OverlayPath при overlay-манифесте НЕ блокируется")
+        # orphan cleanup: overlay B содержит только example-rule
+        odb = tdp / "overlay-b"
+        (odb / "rules").mkdir(parents=True)
+        (odb / "rules" / "example-rule.md").write_text(f"# Example rule\n{MARK}-ADD-RULE\n", encoding="utf-8")
+        r = run_install("kilo", kilo_target, ["-Mode", "update", "-OverlayPath", str(odb)])
+        if r.returncode != 0:
+            rep.error(f"overlay-contract: orphan update exit={r.returncode}; stderr={r.stderr[-400:]}")
+        else:
+            ctx = ".kilo/context"
+            issues = []
+            if MARK not in readf(kilo_target / ctx / "rules" / "example-rule.md"):
+                issues.append("example-rule.md не переприменён из overlay B")
+            bm = base_manifest_hashes(kilo_target)
+            f_rule = kilo_target / ctx / "rules" / "sdd-implementation.md"
+            if MARK in readf(f_rule):
+                issues.append("orphan override rule не восстановлен из base")
+            elif bm.get(f"{ctx}/rules/sdd-implementation.md", "").lower() != sha256f(f_rule):
+                issues.append("orphan override rule hash != base manifest")
+            f_agent = kilo_target / ".kilo" / "agent" / "1c-do.md"
+            if MARK in readf(f_agent):
+                issues.append("orphan override agent не восстановлен из base")
+            elif bm.get(".kilo/agent/1c-do.md", "").lower() != sha256f(f_agent):
+                issues.append("orphan override agent hash != base manifest")
+            for gone in [kilo_target / ctx / "projects" / "example_project" / "context.md",
+                         kilo_target / ".kilo" / "agent" / "example-agent.md",
+                         kilo_target / ".kilo" / "context" / "placeholder-test.md",
+                         kilo_target / ".kilo" / "kilo.jsonc"]:
+                if gone.exists():
+                    issues.append(f"orphan add не удалён: {gone.name}")
+            om = overlay_manifest(kilo_target)
+            files = om.get("files") or []
+            if len(files) != 1 or (files[0].get("path") != f"{ctx}/rules/example-rule.md"):
+                issues.append(f"overlay manifest после orphan update содержит {len(files)} записей (ожидалась 1)")
+            if issues:
+                rep.error("overlay-contract: orphan cleanup: " + "; ".join(issues))
+            else:
+                rep.ok("overlay-contract: orphan cleanup — adds удалены, overrides восстановлены из base")
+
+    # --- 6. Dry-run ---
+    with tempfile.TemporaryDirectory(prefix="ov_dry_") as td:
+        tdp = Path(td)
+        od = tdp / "overlay"
+        make_overlay(od, "kilo")
+        t1 = tdp / "t"
+        r = run_install("kilo", t1, ["-OverlayPath", str(od), "-OverlayDryRun"])
+        issues = []
+        if r.returncode != 0:
+            issues.append(f"exit={r.returncode}; stderr={r.stderr[-300:]}")
+        if (t1 / ".kilo" / "context" / "rules" / "example-rule.md").exists():
+            issues.append("dry-run записал add-файл")
+        if (t1 / ".kilo" / "context" / "rules" / "sdd-implementation.md").exists() and MARK in readf(t1 / ".kilo" / "context" / "rules" / "sdd-implementation.md"):
+            issues.append("dry-run записал override")
+        if (t1 / ".install-manifest-overlay.json").exists():
+            issues.append("dry-run записал overlay-манифест")
+        if issues:
+            rep.error("overlay-contract: dry-run: " + "; ".join(issues))
+        else:
+            rep.ok("overlay-contract: dry-run — файлы и манифест не записаны")
+
+    # --- 7. Negatives ---
+    # 7a. OverlayPath не существует
+    with tempfile.TemporaryDirectory(prefix="ov_missing_") as td:
+        r = run_install("kilo", Path(td) / "t", ["-OverlayPath", str(Path(td) / "no-such-overlay")])
+        if r.returncode != 0:
+            rep.ok("overlay-contract: несуществующий OverlayPath блокируется")
+        else:
+            rep.error("overlay-contract: несуществующий OverlayPath НЕ блокируется")
+    # 7b. OverlayDryRun без OverlayPath
+    with tempfile.TemporaryDirectory(prefix="ov_drynopath_") as td:
+        r = run_install("kilo", Path(td) / "t", ["-OverlayDryRun"])
+        if r.returncode != 0:
+            rep.ok("overlay-contract: OverlayDryRun без OverlayPath блокируется")
+        else:
+            rep.error("overlay-contract: OverlayDryRun без OverlayPath НЕ блокируется")
+    # 7c. запись в .git
+    with tempfile.TemporaryDirectory(prefix="ov_git_") as td:
+        tdp = Path(td)
+        od = tdp / "overlay"
+        make_overlay(od, "kilo", extra_git=True)
+        r = run_install("kilo", tdp / "t", ["-OverlayPath", str(od)])
+        if r.returncode != 0:
+            rep.ok("overlay-contract: запись в .git блокируется (exit != 0)")
+        else:
+            rep.error("overlay-contract: запись в .git НЕ блокируется")
+    # 7d. path traversal через junction/symlink (Windows; junction target — absolute path)
+    if is_win:
+        with tempfile.TemporaryDirectory(prefix="ov_trav_") as td:
+            tdp = Path(td)
+            od = tdp / "overlay"
+            make_overlay(od, "kilo")
+            outside = tdp / "outside"
+            outside.mkdir()
+            (outside / "secret.txt").write_text("SECRET", encoding="utf-8")
+            junction = od / "agents" / "evil-junction"
+            jr = subprocess.run(
+                [pwsh, "-NoProfile", "-Command",
+                 f"New-Item -ItemType Junction -Path '{junction}' -Target '{outside}' | Out-Null"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+            if jr.returncode != 0:
+                rep.warn("overlay-contract: не удалось создать junction — traversal-тест пропущен")
+            else:
+                r = run_install("kilo", tdp / "t", ["-OverlayPath", str(od)])
+                if r.returncode != 0:
+                    rep.ok("overlay-contract: path traversal (junction/absolute) блокируется (exit != 0)")
+                else:
+                    rep.error("overlay-contract: path traversal (junction/absolute) НЕ блокируется")
+
+    # --- 8. Публичный пример examples/overlay применим ---
+    ex_overlay = ROOT / "examples" / "overlay"
+    if ex_overlay.is_dir():
+        with tempfile.TemporaryDirectory(prefix="ov_example_") as td:
+            r = run_install("kilo", Path(td) / "t", ["-OverlayPath", str(ex_overlay)])
+            if r.returncode == 0:
+                rep.ok("overlay-contract: examples/overlay применяется без ошибок")
+            else:
+                rep.error(f"overlay-contract: examples/overlay падает: exit={r.returncode}; stderr={r.stderr[-300:]}")
+    else:
+        rep.error("overlay-contract: examples/overlay не найден")
+
+    # --- 9. Public source не изменён ---
+    changed = [p for p in tracked if sha256f(p) != before_hashes[str(p)]]
+    if changed:
+        rep.error("overlay-contract: public source изменён: " + ", ".join(str(c) for c in changed))
+    else:
+        rep.ok("overlay-contract: public source (install.ps1/core) не модифицировался")
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -2065,6 +2435,7 @@ def main() -> int:
     check_scope_hash_permissions(rep)
     check_bsl_comment_regression(rep)
     check_installer_smoke(rep, args.skip_smoke)
+    check_overlay_contract(rep, args.skip_smoke)
 
     print("\n=== VALIDATION REPORT ===")
     for o in rep.oks:

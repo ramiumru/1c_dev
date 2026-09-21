@@ -1,0 +1,8 @@
+{
+  // Dummy tool-specific config из examples/overlay/ (generic точка расширения).
+  // Категория tool/<tool>/ копируется в корень целевой установки ТОЛЬКО для
+  // выбранного -Tool: tool/kilo/.kilo/kilo.jsonc → <target>/.kilo/kilo.jsonc.
+  // Установщик не знает содержимое этого файла; private repo подставляет свои значения.
+  "$schema": "https://app.kilo.ai/config.json",
+  "snapshot": false
+}

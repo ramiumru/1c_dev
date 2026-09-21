@@ -46,10 +46,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<путь-к-harness>\insta
 ```
 
 Установщик:
-- копирует агенты, скиллы, контекст, on-demand правила, скрипты;
+- копирует агентов, скиллы, контекст, on-demand правила, скрипты;
 - создаёт `.dev.env` с автодетектом (`PLATFORM_PATH`, `PLATFORM_VERSION`, `PREFIX`);
 - генерирует `.ai-rules.json` манифест с hash-трекингом;
 - копирует `AGENT-INSTALL.md` и `LICENSE` в корень проекта.
+
+Опционально — external overlay (private-слой поверх base, если пользователь его
+предоставил):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "<путь-к-harness>\install\install.ps1" -Tool <tool> -Target "<корень-проекта>" -OverlayPath "<путь-к-overlay>"
+```
+
+Overlay применяется после базовой установки (override заменяет установленную
+копию; manifest — `.install-manifest-overlay.json`). Структура —
+`docs/corporate-overlay-recommendations.md`. Без явного запроса пользователя
+overlay НЕ подключать.
 
 ### Шаг 4: Проверить установку
 
@@ -79,6 +91,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<путь-к-harness>\insta
 ```
 
 User-modified файлы (hash расходится) сохраняются. Для принудительной перезаписи — `-Force`.
+
+Если целевой проект был установлен с `-OverlayPath` — повторяй update с тем же
+`-OverlayPath`: base обновится, overlay накладывается заново и его override
+имеет приоритет. Без `-OverlayPath` при наличии `.install-manifest-overlay.json`
+установщик завершится ошибкой (явный контракт, не молчаливое расхождение).
 
 ### Шаг 2: Проверить установку
 

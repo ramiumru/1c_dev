@@ -1,8 +1,8 @@
 ﻿$ErrorActionPreference = "Stop"
 # Миграция скиллов из .kilo/skills в core/skills с параметризацией путей.
-# Запуск: powershell -File install/migrate-skills.ps1
+# Запуск: powershell -File install/migrate-skills.ps1 -SourceRoot <путь-к-рабочему-проекту>
 param(
-    [string]$SourceRoot = "C:\Ramium\1c-vibe",
+    [Parameter(Mandatory=$true)][string]$SourceRoot,
     [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot)
 )
 $srcDir = Join-Path $SourceRoot ".kilo\skills"
