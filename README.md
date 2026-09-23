@@ -34,7 +34,7 @@
 
 - **1c-do** — точка входа: определяет проект, классифицирует запрос, ведёт SDD, делегирует.
 - **1c-analyst** — анализ конфигурации по XML/BSL-исходникам (без правки кода).
-- **1c-developer** — правка BSL/XML строго по спецификации (gate «нет кода без spec», `status: approved`).
+- **1c-developer** — правка BSL/XML строго по спецификации (gate «нет кода без spec», `status: approved`); в `intent: artifact` — read-only артефакт без spec (без правок исходников, без apply).
 - **1c-reviewer** — независимый review (соответствие spec/scope, регрессии, права/RLS, контракты); обязателен для `risk: high` и перед apply.
 - **1c-applier** — применение правок в ИБ (db-load-xml → db-update, бэкап dt), только по явному запросу, после preflight `applier_guard.py`; не работает с `production`.
 - **1c-tools** — исполнитель утилит (`build_summaries.py`), без самостоятельности.
@@ -89,11 +89,12 @@ analysis/artifact.
 **repository → БД**; автоматическое выгружение состояния БД поверх repository и silent
 БД→src reconciliation запрещены. Harness не имеет достоверного способа сверить baseline БД с
 repository, поэтому действует explicit UNKNOWN/BLOCK-политика: `DB baseline state: UNKNOWN`
-по умолчанию (guard WARN); для `risk: high` apply UNKNOWN не считается подтверждённым —
-требуется явное подтверждение/выполнение baseline sync repository → БД пользователем
-(`--baseline confirmed`); известная stale/несовместимость → apply BLOCKED (`--baseline
-stale`). Автоматическая полная загрузка конфигурации без явного действия пользователя
-запрещена; Partial task apply — существующий механизм для совместимого baseline.
+по умолчанию (guard: low/medium → WARN; `risk: high` → FAIL «high-risk apply BLOCKED» — hard
+gate, risk из `03_solution_spec.md`); для `risk: high` apply UNKNOWN не считается
+подтверждённым — требуется явное подтверждение/выполнение baseline sync repository → БД
+пользователем (`--baseline confirmed`); известная stale/несовместимость → apply BLOCKED
+(`--baseline stale`). Автоматическая полная загрузка конфигурации без явного действия
+пользователя запрещена; Partial task apply — существующий механизм для совместимого baseline.
 
 ## Скиллы (78)
 

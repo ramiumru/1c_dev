@@ -11,14 +11,17 @@ P0-7: Особо опасные операции (load-dt, create, load-cf, web-
 P0-8: approval.md и backup.md — в pilot-control/, не в specs/ (read-only для агентов).
 P0-10: --project-root для явного корня проекта (тесты не зависят от harness ROOT).
 
-DB baseline policy (repository — source of truth, направление только repository → DB):
-  --baseline unknown   (default) WARN: DB baseline state: UNKNOWN — harness не имеет
-                       достоверного способа сверить baseline БД с repository; для high-risk
-                       apply UNKNOWN не считается подтверждённым (поведение 1c-applier);
+DB baseline policy (repository — source of truth, направление только repository → DB).
+Risk берётся из фактической 03_solution_spec.md (не из CLI):
+  --baseline unknown   (default) low/medium → WARN (существующий Partial workflow не ломается);
+                        risk: high → FAIL: high-risk apply BLOCKED — требуется явное
+                        подтверждение совместимости или baseline sync repository → DB,
+                        затем --baseline confirmed;
   --baseline confirmed OK: только после явного подтверждения пользователя/выполненного
-                       baseline sync repository → DB;
-  --baseline stale     FAIL: известная несовместимость/устаревание — task apply BLOCKED,
-                       требуется baseline sync repository → DB (repository из БД не менять).
+                        baseline sync repository → DB;
+  --baseline stale     FAIL (для любого risk): известная несовместимость/устаревание —
+                        task apply BLOCKED, требуется baseline sync repository → DB
+                        (repository из БД не менять).
 
 Операции:
   Разрешённые для пилота: load-xml (Partial), update.
@@ -167,6 +170,7 @@ class Guard:
         self.notes: list[str] = []
         self._db_id = ""
         self._db_env = ""
+        self._spec_risk = ""
 
     def fail(self, msg: str) -> None:
         self.failures.append(msg)
@@ -281,9 +285,12 @@ class Guard:
         """DB baseline policy: repository — source of truth; направление только repository → DB.
 
         Harness не имеет достоверного способа сверить baseline БД с repository, поэтому
-        состояние по умолчанию — UNKNOWN (не подтверждено). Сверка не изобретается:
-        - stale    → FAIL (task apply BLOCKED; нужен baseline sync repository → DB);
-        - unknown  → WARN (для risk: high не считается подтверждённым — см. 1c-applier);
+        состояние по умолчанию — UNKNOWN (не подтверждено). Risk берётся из фактической
+        03_solution_spec.md (self._spec_risk из check_sdd), НЕ из CLI:
+        - stale    → FAIL для любого risk (task apply BLOCKED; нужен baseline sync
+                     repository → DB);
+        - unknown  → low/medium: WARN (существующий Partial workflow не ломается);
+                     risk: high: FAIL — high-risk apply BLOCKED;
         - confirmed→ OK (только явное подтверждение пользователя baseline sync repository → DB).
         """
         if self.baseline == "stale":
@@ -291,17 +298,24 @@ class Guard:
                 "baseline: DB baseline state: STALE — task apply BLOCKED: требуется baseline "
                 "sync repository → DB; repository из БД не перезаписывать (source of truth — repository)"
             )
-        elif self.baseline == "confirmed":
+            return
+        high_risk = (self._spec_risk == "high")
+        if self.baseline == "confirmed":
             self.notes.append(
                 "baseline: DB baseline state: CONFIRMED (явное подтверждение пользователя "
                 "совместимости/выполненного baseline sync repository → DB)"
             )
+        elif high_risk:
+            self.fail(
+                "baseline: DB baseline state: UNKNOWN — high-risk apply BLOCKED; требуется "
+                "явное подтверждение совместимости или baseline sync repository → DB, "
+                "затем --baseline confirmed"
+            )
         else:
             self.warn(
                 "baseline: DB baseline state: UNKNOWN — harness не имеет достоверного способа "
-                "сверить baseline БД с repository; для risk: high apply UNKNOWN не считается "
-                "подтверждённым — требуется явное подтверждение/выполнение baseline sync "
-                "repository → DB пользователем"
+                "сверить baseline БД с repository (risk: low/medium: WARN; для risk: high "
+                "guard блокирует apply до явного подтверждения)"
             )
 
     def check_sdd(self, task: str) -> None:
@@ -320,6 +334,7 @@ class Guard:
             self.fail(f"SDD: status='{status or '(пусто)'}' — требуется 'approved'")
 
         risk = str(meta.get("risk", "")).strip().lower()
+        self._spec_risk = risk
         if risk not in VALID_RISKS:
             self.fail(f"SDD: risk='{risk or '(пусто)'}' — требуется low/medium/high")
 
@@ -588,8 +603,8 @@ class Guard:
         self.check_environment(cfg, db)
         self.check_task_id(task)
         self.check_operation_class(op, mode)
-        self.check_baseline()
         self.check_sdd(task)
+        self.check_baseline()
         plan_files = self.check_plan_files(task, getattr(self, '_db_record', {}))
         self.check_cli_files_match(plan_files, op)
         self.check_backup(task, self._db_id, getattr(self, '_db_record', {}))
@@ -623,8 +638,10 @@ def main() -> int:
     parser.add_argument("--mode", default="Partial", choices=["Full", "Partial"], help="режим загрузки")
     parser.add_argument("--files", default="", help="CLI --files (относительные пути через запятую)")
     parser.add_argument("--baseline", default="unknown", choices=sorted(BASELINE_STATES),
-                        help="DB baseline state: unknown (default, WARN) | confirmed (явное подтверждение "
-                             "пользователя baseline sync repository → DB) | stale (BLOCKED — нужен baseline sync repository → DB)")
+                        help="DB baseline state: unknown (default: low/medium → WARN; risk: high → FAIL — "
+                             "high-risk apply BLOCKED) | confirmed (явное подтверждение пользователя "
+                             "baseline sync repository → DB) | stale (BLOCKED — нужен baseline sync "
+                             "repository → DB). Risk берётся из 03_solution_spec.md, не из CLI")
     parser.add_argument("--config", default=str(ROOT / ".v8-project.json"), help="путь к .v8-project.json")
     parser.add_argument("--specs-dir", default=str(ROOT / "specs"), help="каталог specs/")
     parser.add_argument("--control-dir", default="", help="каталог pilot-control/ (approval+backup)")
