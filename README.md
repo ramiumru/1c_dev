@@ -54,6 +54,47 @@ review (`1c-reviewer`, `pilot-control/<TASK-ID>/review.md`) перед прим�
 проверяет preflight через `scripts/applier_guard.py`. Шаблоны SDD-артефактов — в
 `core/sdd/README.md`.
 
+## Три режима использования (intent)
+
+`1c-do` классифицирует запрос по требуемому результату:
+
+| Режим | Примеры | Требуется | Завершение |
+|---|---|---|---|
+| **ANALYSIS / CONSULTATION** | «объясни, как работает реквизит», «какие регистры участвуют», «разбери механизм, ничего не менять» | Агенты/контекст (+ MCP при наличии); локальный `src` и БД НЕ обязательны | Ответ пользователю; developer/reviewer/applier принудительно не запускаются |
+| **ARTIFACT / CODE ADVICE** | «дай текст запроса 1С», «напиши пример BSL» (пользователь выполнит сам) | Локальный `src` НЕ обязателен; DB apply не нужен | Текст запроса/BSL/алгоритма в ответе; `1c-developer` в этом режиме read-only (`artifact-only`) — без правок исходников и без apply |
+| **IMPLEMENTATION** | «исправь», «реализуй»; после анализа — «теперь сделай это» | Writable локальный `projects/<источник>/src/**`; MCP не заменяет Git/source | Полный flow: analysis → spec → явное user approval → developer → reviewer → guard → явный apply |
+
+В intent IMPLEMENTATION при отсутствии writable source flow завершается чистым статусом
+`Analysis completed: YES` / `Implementation: BLOCKED` / `Reason: writable project source is
+not available`, а не общим сбоем.
+
+## Capability model (готовность)
+
+Три независимые capability (generic, проверяются `scripts/doctor.py`):
+
+- **Analysis-ready** — агенты + контекст + скрипты (+ MCP-конфигурация при наличии).
+  НЕ требует source checkout и БД.
+- **Development-ready** — Analysis-ready + локальный project source
+  (`projects/<источник>/src/**`). Нет source → `Development-ready: NO` (WARN), не FAIL.
+- **Apply-ready** — Development-ready + корректная запись БД в `.v8-project.json`
+  (допустимый `environment` + зарегистрированная база) + safety requirements
+  (guard/review/approval). Нет БД → `Apply-ready: NO` (WARN), не FAIL.
+
+Установка без `projects/` и `.v8-project.json` легитимна: схема работает в режиме
+analysis/artifact.
+
+### Repository vs БД
+
+При development/apply локальный repository — source of truth: направление доставки только
+**repository → БД**; автоматическое выгружение состояния БД поверх repository и silent
+БД→src reconciliation запрещены. Harness не имеет достоверного способа сверить baseline БД с
+repository, поэтому действует explicit UNKNOWN/BLOCK-политика: `DB baseline state: UNKNOWN`
+по умолчанию (guard WARN); для `risk: high` apply UNKNOWN не считается подтверждённым —
+требуется явное подтверждение/выполнение baseline sync repository → БД пользователем
+(`--baseline confirmed`); известная stale/несовместимость → apply BLOCKED (`--baseline
+stale`). Автоматическая полная загрузка конфигурации без явного действия пользователя
+запрещена; Partial task apply — существующий механизм для совместимого baseline.
+
 ## Скиллы (78)
 
 | Группа | Скиллы |

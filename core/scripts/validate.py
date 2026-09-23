@@ -439,7 +439,14 @@ def check_kilo_permission_order(rep: Report) -> None:
             ("bash", "python scripts/safe_apply.py --help", "deny"),
             ("bash", "python scripts/evil_script.py", "deny"),
             ("edit", "specs/TASK-1/00_request.md", "allow"),
+            ("edit", "nested/specs/TASK-1/00_request.md", "allow"),
+            ("edit", "sub/dir/specs/TASK-2/00_request.md", "allow"),
             ("edit", "pilot-control/TASK-1/review.md", "allow"),
+            ("edit", "nested/pilot-control/TASK-1/review.md", "allow"),
+            ("edit", ".kilo/logs/1c-do/2026-01-01/x.md", "allow"),
+            ("edit", "sub/.kilo/logs/1c-do/2026-01-01/x.md", "allow"),
+            ("read", "sub/specs/TASK-1/03_solution_spec.md", "allow"),
+            ("read", "nested/.kilo/logs/1c-do/2026-01-01/x.md", "allow"),
             ("edit", "projects/test/src/file.bsl", "deny"),
             ("edit", ".v8-project.json", "deny"),
             ("edit", "INSTRUCTIONS.md", "deny"),
@@ -1505,6 +1512,8 @@ def check_no_corporate_markers(rep: Report) -> None:
         r"БИТ\.",
         r"БИТ:",
         r"level-standards\.md",
+        r"z-ai",
+        r"glm-5",
     ]
     scan_dirs = []
     if IS_SOURCE_REPO:
@@ -2009,6 +2018,393 @@ def check_task7_regression(rep: Report) -> None:
             rep.error("task7-regression: INSTRUCTIONS.md не содержит canonical review path (pilot-control/)")
 
 
+# ==================== TASK: три режима / capability / baseline / permissions / model ====================
+
+
+def _parse_permission_blocks(text: str) -> dict:
+    """Простой парсер permission-блоков Kilo frontmatter: {block: [(pattern, action), ...]}."""
+    import re as _re
+    perm_maps: dict[str, list[tuple[str, str]]] = {}
+    current_map = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        m = _re.match(r"^(\w+):\s*$", stripped)
+        if m and m.group(1) in ("read", "glob", "grep", "list", "edit", "bash", "skill", "task"):
+            current_map = m.group(1)
+            perm_maps[current_map] = []
+            continue
+        if current_map:
+            m2 = _re.match(r'^"([^"]+)":\s*(allow|deny|ask)$', stripped)
+            if m2:
+                perm_maps[current_map].append((m2.group(1), m2.group(2)))
+    return perm_maps
+
+
+def check_do_recursive_paths(rep: Report) -> None:
+    """Regression (1c-do permissions): recursive specs/log paths (runtime fix в public source).
+
+    Для specs и собственных логов 1c-do должны поддерживаться как relative, так и recursive
+    paths (аналогично review): specs/**, **/specs/**, <logs>/**, **/<logs>/** — в картах
+    read/glob/grep/list/edit. Сохраняется last-match-wins: "*": deny ПЕРЕД narrow allow
+    в edit. Прав на projects/** у 1c-do быть не должно.
+    """
+    if not IS_SOURCE_REPO:
+        return
+    for tool, logs_pat in (("kilo", ".kilo/logs/1c-do/**"), ("openworks", ".opencode/logs/1c-do/**")):
+        fm = ROOT / "adapters" / tool / "frontmatter" / "1c-do.yml"
+        if not fm.exists():
+            continue
+        text = fm.read_text(encoding="utf-8", errors="replace")
+        blocks = _parse_permission_blocks(text)
+        required = {
+            "read": {"specs/**", "**/specs/**", logs_pat, f"**/{logs_pat}"},
+            "glob": {"specs/**", "**/specs/**", logs_pat, f"**/{logs_pat}"},
+            "grep": {"specs/**", "**/specs/**", logs_pat, f"**/{logs_pat}"},
+            "list": {"specs/**", "**/specs/**", logs_pat, f"**/{logs_pat}"},
+            "edit": {"specs/**", "**/specs/**", logs_pat, f"**/{logs_pat}"},
+        }
+        for block, need in required.items():
+            patterns = {p for p, _ in blocks.get(block, [])}
+            missing = need - patterns
+            if missing:
+                rep.error(f"do-recursive-paths: {tool}/1c-do.yml блок {block}: отсутствуют {sorted(missing)}")
+            else:
+                rep.ok(f"do-recursive-paths: {tool}/1c-do.yml блок {block}: recursive paths присутствуют")
+        # last-match-wins: "*": deny первым в edit
+        edit_rules = blocks.get("edit", [])
+        if edit_rules and edit_rules[0] == ("*", "deny"):
+            rep.ok(f"do-recursive-paths: {tool}/1c-do.yml edit: \"*\": deny перед narrow allow")
+        else:
+            rep.error(f"do-recursive-paths: {tool}/1c-do.yml edit: \"*\": deny должен идти первым")
+        # 1c-do не имеет прав на projects/**
+        if '"projects/' in text:
+            rep.error(f"do-recursive-paths: {tool}/1c-do.yml содержит паттерн \"projects/...\" (не должно быть)")
+        else:
+            rep.ok(f"do-recursive-paths: {tool}/1c-do.yml без прав на projects/**")
+
+
+def check_intent_modes(rep: Report) -> None:
+    """Regression (три режима использования): intent-классификация в 1c-do и исполнителях.
+
+    Проверяет точные маркеры (не NLP):
+    1. 1c-do.md: секция «Три режима использования (intent)» + три режима;
+    2. 1c-do.md: чистый BLOCKED-статус implementation без writable source;
+    3. task-brief.md: поле Intent + флаг artifact-only;
+    4. 1c-developer.md: artifact-режим read-only (без правок исходников и apply);
+    5. 1c-analyst.md: analysis — самостоятельный завершённый результат;
+    6. INSTRUCTIONS.md: секция трёх режимов;
+    7. developer artifact-режим реализован поведением брифа, а не расширением прав.
+    """
+    if not IS_SOURCE_REPO:
+        return
+
+    do_md = ROOT / "core" / "agents" / "1c-do.md"
+    if do_md.exists():
+        text = do_md.read_text(encoding="utf-8", errors="replace")
+        markers = [
+            ("секция intent", "Три режима использования (intent)"),
+            ("intent analysis", "ANALYSIS / CONSULTATION"),
+            ("intent artifact", "ARTIFACT / CODE ADVICE"),
+            ("intent implementation", "IMPLEMENTATION"),
+            ("intent в брифе", "intent: artifact"),
+            ("artifact-only флаг", "artifact-only: true"),
+            ("BLOCKED-статус", "Reason: writable project source is not available"),
+            ("BLOCKED-секция", "Implementation без writable source (BLOCKED)"),
+            ("продолжение analysis→implementation", "теперь сделай это"),
+            ("baseline в 6.6", "DB baseline (для high-risk apply)"),
+        ]
+        for label, marker in markers:
+            if marker in text:
+                rep.ok(f"intent-modes: 1c-do.md содержит «{label}»")
+            else:
+                rep.error(f"intent-modes: 1c-do.md не содержит «{label}» (marker: {marker[:60]})")
+    else:
+        rep.error("intent-modes: core/agents/1c-do.md не найден")
+
+    brief = ROOT / "core" / "rules" / "task-brief.md"
+    if brief.exists():
+        text = brief.read_text(encoding="utf-8", errors="replace")
+        for label, marker in [
+            ("поле Intent", "**Intent**"),
+            ("artifact-only", "artifact-only: true"),
+            ("artifact read-only", "НЕ редактирует `projects/**/src/**`"),
+            ("implementation требует source", "требуется writable локальный source"),
+        ]:
+            if marker in text:
+                rep.ok(f"intent-modes: task-brief.md содержит «{label}»")
+            else:
+                rep.error(f"intent-modes: task-brief.md не содержит «{label}» (marker: {marker[:60]})")
+    else:
+        rep.error("intent-modes: core/rules/task-brief.md не найден")
+
+    dev_md = ROOT / "core" / "agents" / "1c-developer.md"
+    if dev_md.exists():
+        text = dev_md.read_text(encoding="utf-8", errors="replace")
+        for label, marker in [
+            ("artifact-режим", "Artifact / Code advice режим (read-only)"),
+            ("artifact read-only", "НЕ редактировать** `projects/**/src/**`"),
+            ("artifact без apply", "НЕ запускать** apply/DB-скиллы"),
+            ("отсутствие src — не ошибка", "не ошибка"),
+        ]:
+            if marker in text:
+                rep.ok(f"intent-modes: 1c-developer.md содержит «{label}»")
+            else:
+                rep.error(f"intent-modes: 1c-developer.md не содержит «{label}» (marker: {marker[:60]})")
+    else:
+        rep.error("intent-modes: core/agents/1c-developer.md не найден")
+
+    an_md = ROOT / "core" / "agents" / "1c-analyst.md"
+    if an_md.exists():
+        text = an_md.read_text(encoding="utf-8", errors="replace")
+        marker = "Analysis/consultation — самостоятельный завершённый результат"
+        if marker in text:
+            rep.ok("intent-modes: 1c-analyst.md — analysis как завершённый результат")
+        else:
+            rep.error("intent-modes: 1c-analyst.md не фиксирует analysis как завершённый результат")
+
+    instr = ROOT / "core" / "context" / "INSTRUCTIONS.md"
+    if instr.exists():
+        text = instr.read_text(encoding="utf-8", errors="replace")
+        for label, marker in [
+            ("секция intent", "Три режима использования (intent)"),
+            ("capability секция", "Capability model (готовность по уровням)"),
+        ]:
+            if marker in text:
+                rep.ok(f"intent-modes: INSTRUCTIONS.md содержит «{label}»")
+            else:
+                rep.error(f"intent-modes: INSTRUCTIONS.md не содержит «{label}»")
+
+    # artifact-режим developer — поведенческий (бриф), права frontmatter не расширялись
+    for tool in ("kilo", "openworks"):
+        dev_yml = ROOT / "adapters" / tool / "frontmatter" / "1c-developer.yml"
+        if not dev_yml.exists():
+            continue
+        text = dev_yml.read_text(encoding="utf-8", errors="replace")
+        if "artifact" in text:
+            rep.error(f"intent-modes: {tool}/1c-developer.yml упоминает artifact — режим должен быть "
+                      "поведенческим (бриф), а не расширением прав")
+        else:
+            rep.ok(f"intent-modes: {tool}/1c-developer.yml — artifact-режим без расширения прав")
+
+
+def check_capability_model(rep: Report) -> None:
+    """Regression (capability model): Analysis/Development/Apply-ready в doctor + README;
+    отсутствие source/БД — не FAIL (существующие сценарии установки не ломаются)."""
+    if not IS_SOURCE_REPO:
+        return
+    doctor = ROOT / "core" / "scripts" / "doctor.py"
+    if not doctor.exists():
+        rep.error("capability-model: doctor.py не найден")
+        return
+    text = doctor.read_text(encoding="utf-8", errors="replace")
+    for marker in ("Analysis-ready", "Development-ready", "Apply-ready"):
+        if marker in text:
+            rep.ok(f"capability-model: doctor.py содержит «{marker}»")
+        else:
+            rep.error(f"capability-model: doctor.py не содержит «{marker}»")
+
+    readme = ROOT / "README.md"
+    if readme.exists():
+        rm = readme.read_text(encoding="utf-8", errors="replace")
+        for marker in ("Analysis-ready", "Development-ready", "Apply-ready", "Capability model"):
+            if marker in rm:
+                rep.ok(f"capability-model: README.md содержит «{marker}»")
+            else:
+                rep.error(f"capability-model: README.md не содержит «{marker}»")
+    instr = ROOT / "core" / "context" / "INSTRUCTIONS.md"
+    if instr.exists():
+        it = instr.read_text(encoding="utf-8", errors="replace")
+        if "Analysis-ready" in it and "Apply-ready" in it:
+            rep.ok("capability-model: INSTRUCTIONS.md описывает capability model")
+        else:
+            rep.error("capability-model: INSTRUCTIONS.md не описывает capability model")
+
+    # Behavioral: doctor на source repo (без projects/ и .v8-project.json) — exit 0,
+    # Analysis-ready YES, Development/Apply-ready NO (WARN), не FAIL
+    r = subprocess.run([sys.executable, str(doctor)],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+    out = (r.stdout or "") + (r.stderr or "")
+    if r.returncode == 0:
+        rep.ok("capability-model: doctor на source repo → exit 0 (без src/БД — не FAIL)")
+    else:
+        rep.error(f"capability-model: doctor на source repo → exit {r.returncode} (ожидался 0)")
+    for marker, label in (
+        ("Analysis-ready: YES", "analysis работает без src/БД"),
+        ("Development-ready: NO", "отсутствие source → NO (WARN)"),
+        ("Apply-ready: NO", "отсутствие БД → NO (WARN)"),
+    ):
+        if marker in out:
+            rep.ok(f"capability-model: doctor выводит «{marker}» ({label})")
+        else:
+            rep.error(f"capability-model: doctor не выводит «{marker}»")
+
+
+def check_baseline_policy(rep: Report) -> None:
+    """Regression (repository source of truth / DB baseline policy).
+
+    1. guard: --baseline {unknown,confirmed,stale}; UNKNOWN → WARN (не FAIL, не CONFIRMED);
+       stale → FAIL (task apply BLOCKED); confirmed → OK note;
+    2. guard/safe_apply/agents/rules/skills содержат политику repository → DB;
+    3. db-dump-xml запрещает выгрузку БД поверх projects/**/src/** (нет DB→repo overwrite);
+    4. автоматической DB→repo-синхронизации нигде не появилось (нет dump→src инструкций).
+    """
+    if not IS_SOURCE_REPO:
+        return
+    g = ROOT / "core" / "scripts" / "applier_guard.py"
+    if not g.exists():
+        rep.error("baseline: applier_guard.py не найден")
+        return
+    text = g.read_text(encoding="utf-8", errors="replace")
+    for marker in ("--baseline", "DB baseline state: UNKNOWN", "DB baseline state: STALE",
+                   "DB baseline state: CONFIRMED"):
+        if marker in text:
+            rep.ok(f"baseline: applier_guard.py содержит «{marker}»")
+        else:
+            rep.error(f"baseline: applier_guard.py не содержит «{marker}»")
+
+    sa = ROOT / "core" / "scripts" / "safe_apply.py"
+    if sa.exists():
+        t = sa.read_text(encoding="utf-8", errors="replace")
+        if "--baseline" in t:
+            rep.ok("baseline: safe_apply.py пробрасывает --baseline в guard")
+        else:
+            rep.error("baseline: safe_apply.py не пробрасывает --baseline в guard")
+
+    # Behavioral guard tests
+    def _run_baseline(baseline: str) -> tuple:
+        with tempfile.TemporaryDirectory(prefix="baseline_guard_") as td:
+            tdpath = Path(td)
+            specs_dir = tdpath / "specs"
+            control_dir = tdpath / "pilot-control"
+            proj_dir = tdpath / "projects" / "test" / "src"
+            proj_dir.mkdir(parents=True, exist_ok=True)
+            (proj_dir / "test.bsl").write_text("// test\n", encoding="utf-8")
+            h = _make_spec_file(specs_dir, "TASK-BL", status="approved", risk="low",
+                                approved_by="user", approved_at="2026-01-01T12:00:00+00:00",
+                                spec_version="1")
+            _make_report_file(specs_dir, "TASK-BL", h, "1")
+            _make_review_file(control_dir, "TASK-BL", h, "1", reviewed_by="1c-reviewer")
+            _make_backup_file(control_dir, "TASK-BL", "db1", "local", tdpath,
+                              created_at=datetime.now(timezone.utc).isoformat())
+            cfg = {"environment": "local", "v8path": "C:\\fake",
+                   "databases": [{"id": "db1", "type": "file", "path": ".\\base",
+                                  "environment": "local",
+                                  "username_env": "V8_USER", "password_mode": "none"}]}
+            cfg_path = tdpath / "cfg.json"
+            cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+            cmd = [sys.executable, str(g), "--config", str(cfg_path),
+                   "--specs-dir", str(specs_dir), "--control-dir", str(control_dir),
+                   "--project-root", str(tdpath), "--mode", "Partial",
+                   "--task", "TASK-BL", "--db", "db1", "--op", "update"]
+            if baseline:
+                cmd += ["--baseline", baseline]
+            r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=60)
+            return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+    rc, out = _run_baseline("stale")
+    if rc != 0 and "baseline" in out and "STALE" in out:
+        rep.ok("baseline: guard BLOCKS stale baseline (task apply BLOCKED)")
+    else:
+        rep.error(f"baseline: guard не заблокировал stale baseline (exit={rc})")
+
+    rc, out = _run_baseline("")
+    if rc == 0 and "DB baseline state: UNKNOWN" in out and "CONFIRMED" not in out:
+        rep.ok("baseline: guard default = UNKNOWN → WARN, не FAIL, не CONFIRMED")
+    else:
+        rep.error(f"baseline: guard default UNKNOWN-WARN некорректен (exit={rc})")
+
+    rc, out = _run_baseline("confirmed")
+    if rc == 0 and "DB baseline state: CONFIRMED" in out:
+        rep.ok("baseline: guard confirmed → OK note (явное подтверждение)")
+    else:
+        rep.error(f"baseline: guard confirmed некорректен (exit={rc})")
+
+    # Policy markers: agents / rules / skills
+    applier = ROOT / "core" / "agents" / "1c-applier.md"
+    if applier.exists():
+        t = applier.read_text(encoding="utf-8", errors="replace")
+        for label, marker in [
+            ("UNKNOWN policy", "DB baseline state: UNKNOWN"),
+            ("high-risk не подтверждён", "не считается подтверждённым"),
+            ("stale BLOCKED", "--baseline stale"),
+            ("confirmed из подтверждения пользователя", "--baseline confirmed"),
+            ("направление repository → БД", "repository → БД"),
+        ]:
+            if marker in t:
+                rep.ok(f"baseline: 1c-applier.md содержит «{label}»")
+            else:
+                rep.error(f"baseline: 1c-applier.md не содержит «{label}» (marker: {marker[:60]})")
+
+    proc = ROOT / "core" / "rules" / "apply-procedure.md"
+    if proc.exists():
+        t = proc.read_text(encoding="utf-8", errors="replace")
+        if "Repository — source of truth (DB baseline policy)" in t and "baseline sync" in t:
+            rep.ok("baseline: apply-procedure.md содержит DB baseline policy")
+        else:
+            rep.error("baseline: apply-procedure.md не содержит DB baseline policy")
+
+    for skill, marker in (
+        ("db-load-xml", "Направление — repository → БД"),
+        ("db-load-git", "Направление — repository (Git) → БД"),
+        ("db-dump-xml", "НЕ выгружайте БД поверх"),
+    ):
+        sk = ROOT / "core" / "skills" / skill / "SKILL.md"
+        if not sk.exists():
+            rep.error(f"baseline: skills/{skill}/SKILL.md не найден")
+            continue
+        t = sk.read_text(encoding="utf-8", errors="replace")
+        if marker in t:
+            rep.ok(f"baseline: skills/{skill}/SKILL.md — направление source of truth зафиксировано")
+        else:
+            rep.error(f"baseline: skills/{skill}/SKILL.md не содержит «{marker}»")
+
+    # Никакой автоматической DB→repo-синхронизации: db-dump-xml не инструктирует
+    # выгрузку поверх projects/**/src/**
+    dump = ROOT / "core" / "skills" / "db-dump-xml" / "SKILL.md"
+    if dump.exists():
+        t = dump.read_text(encoding="utf-8", errors="replace")
+        if "не должно затирать repository" in t or "Source of truth — repository, не БД" in t:
+            rep.ok("baseline: db-dump-xml запрещает DB→repo overwrite (source of truth — repository)")
+        else:
+            rep.error("baseline: db-dump-xml не запрещает DB→repo overwrite")
+
+
+def check_no_hardcoded_model(rep: Report) -> None:
+    """Regression (provider/model-neutral): public repo не содержит hard-coded GLM-выбор.
+
+    Public 1c_dev — model-neutral: агенты наследуют default/inherited модель инструмента.
+    Запрещены упоминания конкретной корпоративной модели (GLM/z-ai/level-...) в adapters/,
+    core/agents/, core/context/, install/, docs/, examples/, README, AGENT-INSTALL.
+    """
+    import re as _re
+    if not IS_SOURCE_REPO:
+        return
+    pattern = _re.compile(r"(glm[-_ ]?5|z-ai)", _re.IGNORECASE)
+    scan: list = [ROOT / "adapters", ROOT / "core" / "agents", ROOT / "core" / "context",
+                  ROOT / "install", ROOT / "docs", ROOT / "examples",
+                  ROOT / "README.md", ROOT / "AGENT-INSTALL.md", ROOT / "CONTRIBUTING.md",
+                  ROOT / "NOTICE.md", ROOT / "SECURITY.md"]
+    suffixes = (".md", ".yml", ".ps1", ".py", ".tpl", ".toml", ".json", ".example", ".jsonc")
+    offenders = []
+    for p in scan:
+        if not p.exists():
+            continue
+        targets = [p] if p.is_file() else [f for f in p.rglob("*") if f.is_file() and f.suffix in suffixes]
+        for f in targets:
+            if f.name == "validate.py":
+                continue
+            text = f.read_text(encoding="utf-8", errors="replace")
+            m = pattern.search(text)
+            if m:
+                offenders.append(f"{f.relative_to(ROOT)}: /{m.group(0)}/")
+    if offenders:
+        for item in offenders[:10]:
+            rep.error(f"hardcoded-model: корпоративный model ID в public — {item}")
+    else:
+        rep.ok("hardcoded-model: public repo не содержит GLM/z-ai model references (model-neutral)")
+
+
 # ==================== OVERLAY CONTRACT (task_8) ====================
 
 _OVERLAY_TOOL_PATHS = {
@@ -2424,6 +2820,11 @@ def main() -> int:
         check_mcp_permissions_flat(rep)
         check_task6_regression(rep)
         check_task7_regression(rep)
+        check_do_recursive_paths(rep)
+        check_intent_modes(rep)
+        check_capability_model(rep)
+        check_baseline_policy(rep)
+        check_no_hardcoded_model(rep)
     else:
         rep.ok("license/corporate: пропущено (установленный проект — не требуется)")
     check_no_update_db(rep)

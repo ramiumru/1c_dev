@@ -1,4 +1,4 @@
-﻿<!-- Agent: 1c-tools | Mode: subagent | Model: level/z-ai/glm-5.2 -->
+﻿<!-- Agent: 1c-tools | Mode: subagent | Model: inherited (public repo — model-neutral) -->
 
 # ⛔ ЖЁСТКИЕ ПРАВИЛА (инварианты — не нарушать никогда)
 

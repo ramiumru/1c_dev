@@ -80,6 +80,11 @@ python "<корень-проекта>\scripts\validate.py"
 2. Разместить исходники конфигурации в `projects/<источник>/src/` (DumpConfigToFiles).
 3. Первичный индекс: `python scripts/build_summaries.py --project <имя> --scan`.
 
+Схема работоспособна сразу после установки в режиме **analysis/artifact** (вопросы «как
+работает», тексты запросов/BSL-примеры). Правка исходников (development) и apply в БД
+активируются при появлении `projects/<источник>/src/` и `.v8-project.json` соответственно —
+см. «Capability model» в `README.md`; их отсутствие не ошибка установки.
+
 ## Протокол обновления
 
 ### Шаг 1: Проверить .ai-rules.json

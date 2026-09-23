@@ -17,6 +17,30 @@
    `configSrc` оканчивается на `projects/<проект>/src`. Несколько совпадений → СТОП.
 3. Не найдена / неоднозначна / среда недопустима → СТОП.
 
+## Repository — source of truth (DB baseline policy)
+
+Repository/source — source of truth; направление доставки — только **repository → БД**.
+Никогда не выгружать состояние устаревшей БД поверх repository (`db-dump-xml` — только в
+отдельный каталог экспорта/бэкапа); silent БД→src reconciliation запрещён.
+
+Harness не имеет достоверного способа определить divergence БД ↔ repository, поэтому:
+
+1. **DB baseline state: UNKNOWN** (по умолчанию; guard `--baseline unknown` → WARN) —
+   состояние не считается подтверждённым.
+2. **Для `risk: high` apply** UNKNOWN не подтверждён: остановиться до apply и потребовать от
+   пользователя явного подтверждения совместимости либо выполнения **baseline sync
+   repository → БД** (например, `db-load-xml` Full из repository — только явное действие
+   пользователя), затем повторить apply с `--baseline confirmed` (safe_apply.py пробрасывает
+   флаг в guard). Лог `WARN baseline-unknown-high-risk`.
+3. **Известно, что БД stale/несовместима** → apply BLOCKED (`--baseline stale` → guard FAIL):
+   объяснить, что требуется baseline sync repository → БД; repository из БД не менять.
+4. **Автоматическая полная загрузка конфигурации без явного действия пользователя запрещена.**
+5. **Partial task apply** остаётся существующим механизмом для совместимого baseline
+   (load-xml Partial выбранных файлов плана → db-update).
+6. `--baseline confirmed` ставится только из явного подтверждения пользователя (прямой режим —
+   вопрос; Task-режим — бриф от `1c-do` с зафиксированным подтверждением); само-подтверждение
+   запрещено.
+
 ## Алгоритм работы
 1. **Разрешить целевую базу** (см. выше). Неоднозначна/недопустима → СТОП.
 2. **Проверить политику backup.** При `backup_mode: external` — не запускать backup и не
