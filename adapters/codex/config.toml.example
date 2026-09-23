@@ -3,8 +3,9 @@
 # Документация: https://github.com/openai/codex (актуальная версия).
 
 [model]
-# Модель для роутера 1c-do (указать доступную).
-name = "level/z-ai/glm-5.2"
+# Модель для роутера 1c-do — provider/model-neutral: укажите доступную в вашем
+# окружении (public repo не фиксирует конкретного провайдера/модели).
+name = "<your-model-id>"
 
 [instructions]
 # Инструкции читаются из AGENTS.md (корень проекта) автоматически.

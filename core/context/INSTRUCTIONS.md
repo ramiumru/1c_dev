@@ -87,6 +87,41 @@ MCP failure **не блокирует** работу при доступных �
 project MCP aliases у `1c-do`/`1c-tools`/`1c-applier`; `1c-analyst`/`1c-developer`/`1c-reviewer`
 разрешают `metadata_*`/`code_*`/`platform_help_*`/`standards_*`/`v8std_*` (см. `project-sources.md`).
 
+## Три режима использования (intent)
+
+`1c-do` классифицирует запрос по **требуемому результату** (intent), а не по должности
+пользователя. Intent передаётся в Task-брифе и определяет завершение flow:
+
+| Intent | Суть | Что требуется | Чем завершается |
+|---|---|---|---|
+| **ANALYSIS / CONSULTATION** (`analysis`) | «объясни, как работает», «откуда берётся значение», «какие регистры участвуют», «разбери механизм, ничего не менять» | Агенты/контекст/MCP-конфигурация; локальный `src` и БД НЕ обязательны (MCP-only допустим) | Ответ пользователю; developer/reviewer/applier принудительно не запускаются |
+| **ARTIFACT / CODE ADVICE** (`artifact`) | «дай текст запроса 1С», «напиши пример BSL», «покажи, как получить данные» (пользователь выполнит сам) | Локальный `src` НЕ обязателен; DB apply не нужен; MCP — для подтверждения метаданных | Текст запроса/BSL/алгоритма в ответе; `1c-developer` в этом режиме read-only (`artifact-only`), без правок исходников и без apply |
+| **IMPLEMENTATION** (`implementation`) | «исправь», «реализуй», «внеси изменение»; после анализа — «теперь сделай это» | Writable локальный `projects/<источник>/src/**` перед реальным изменением; MCP не заменяет Git/source | Полный flow: analysis → spec → явное user approval → developer → reviewer → guard → явный apply |
+
+- В intent `implementation` при отсутствии writable source flow завершается чистым статусом
+  (`Analysis completed: YES` / `Implementation: BLOCKED` / `Reason: writable project source is
+  not available`), а не общим сбоем; подготовленные анализ/spec сохраняются.
+- Подтверждённый контекст предыдущего анализа переиспользуется как вход в implementation flow
+  (повторное исследование с нуля не требуется).
+
+## Capability model (готовность по уровням)
+
+Три **независимые** capability — универсальная (generic) модель готовности установки; не привязана
+к конкретному проекту/компании. Проверяется `scripts/doctor.py`:
+
+- **Analysis-ready** — агенты + контекст + скрипты (+ MCP-конфигурация при наличии).
+  НЕ требует локального source checkout и зарегистрированной БД.
+- **Development-ready** — Analysis-ready + локальный project source (`projects/<источник>/src/**`
+  соответствующего проекта). Отсутствие source не является FAIL — просто `Development-ready: NO`
+  (WARN); analysis продолжает работать.
+- **Apply-ready** — Development-ready + корректная запись БД в `.v8-project.json`
+  (допустимый `environment` ∈ {local, test, staging} + зарегистрированная база) + существующие
+  safety requirements (guard/review/approval). Отсутствие БД не является FAIL для
+  Analysis/Development — просто `Apply-ready: NO` (WARN).
+
+Установка harness без `projects/` и `.v8-project.json` легитимна: схема работает в режиме
+analysis/artifact; development/apply активируются при появлении соответствующих ресурсов.
+
 ## Источник истины
 
 Корень исходников: `projects/<проект>/src/**` — по одному подкаталогу `projects/<имя>/src`
@@ -102,6 +137,25 @@ profile (`{{CONTEXT_DIR}}/rules/project-sources.md`), разрешены как 
 Не используются как источники анализа: GitLab, интернет, внешние стандарты, общие знания вместо
 исходников, произвольные/необъявленные MCP. Каталоги prompts/ и queries/ — вспомогательные, не
 источник истины.
+
+### Repository vs БД (направление при development/apply)
+
+При implementation/apply **локальный repository/source — source of truth**:
+
+- Направление доставки — только **repository → БД** (`db-load-xml`/`db-load-git`/`safe_apply.py`).
+- **Никогда** автоматически не выгружать состояние устаревшей БД поверх repository; silent
+  БД→src reconciliation запрещён (`db-dump-xml` — только в отдельный каталог экспорта/бэкапа,
+  не поверх `projects/**/src/**`).
+- Если база отличается от repository, направление восстановления — только repository → БД.
+- **DB baseline policy (explicit UNKNOWN/BLOCK):** harness не имеет достоверного способа
+  определить divergence БД ↔ repository, поэтому состояние baseline БД по умолчанию —
+  `UNKNOWN` (guard: `--baseline unknown` → WARN; `--baseline stale` → BLOCK; `--baseline
+  confirmed` — только после явного подтверждения пользователя/выполненного baseline sync
+  repository → БД). Для `risk: high` apply состояние UNKNOWN не считается подтверждённым:
+  `1c-applier` останавливается и требует от пользователя подтвердить/выполнить baseline sync
+  repository → БД, после чего task apply повторяется. Автоматическая полная загрузка
+  конфигурации без явного действия пользователя запрещена; Partial task apply остаётся
+  существующим механизмом для совместимого baseline.
 
 ---
 

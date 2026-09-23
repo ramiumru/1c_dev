@@ -172,7 +172,8 @@ def build_ps_args(db: dict, config_src: str, files_rel: list[str], is_update: bo
     return ps_args
 
 
-def run_guard(task: str, db: str, config_src: str, files_rel: list[str], project_root: str) -> int:
+def run_guard(task: str, db: str, config_src: str, files_rel: list[str], project_root: str,
+              baseline: str = "unknown") -> int:
     """Запустить applier_guard.py для load-xml Partial."""
     guard = ROOT / "scripts" / "applier_guard.py"
     if not guard.exists():
@@ -184,6 +185,7 @@ def run_guard(task: str, db: str, config_src: str, files_rel: list[str], project
         "--db", db,
         "--op", "load-xml",
         "--mode", "Partial",
+        "--baseline", baseline,
         "--specs-dir", str(root_path / "specs"),
         "--control-dir", str(root_path / "pilot-control"),
         "--config", str(root_path / ".v8-project.json"),
@@ -245,6 +247,10 @@ def main() -> int:
     parser.add_argument("--db", required=True, help="id базы из .v8-project.json")
     parser.add_argument("--project-root", default="", help="явный корень проекта (для тестов)")
     parser.add_argument("--dry-run", action="store_true", help="только проверки, без вызова skill")
+    parser.add_argument("--baseline", default="unknown", choices=["unknown", "confirmed", "stale"],
+                        help="DB baseline state: unknown (default, WARN в guard) | confirmed "
+                             "(явное подтверждение пользователя baseline sync repository → DB) | "
+                             "stale (guard заблокирует apply)")
     args = parser.parse_args()
 
     task = args.task.strip()
@@ -283,7 +289,8 @@ def main() -> int:
     print(f"=== safe_apply: configSrc={config_src}, files={len(files_rel)} ===")
 
     # 5. Guard (load-xml Partial)
-    guard_exit = run_guard(task, db_id, config_src, files_rel, project_root)
+    guard_exit = run_guard(task, db_id, config_src, files_rel, project_root,
+                           baseline=str(getattr(args, "baseline", "unknown")))
     if guard_exit != 0:
         return 1
 

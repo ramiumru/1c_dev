@@ -28,14 +28,13 @@ foreach ($name in $agents) {
         "1c-tools"     { "Read, Glob, Grep, Bash" }
     }
 
-    $model = "level/z-ai/glm-5.2"
-
+    # Model selection is NOT hardcoded in public repo: Claude Code uses its
+    # default/user-configured model when `model:` is omitted (inherited).
     $claudeFm = @"
 ---
 name: $name
 description: $desc
 tools: $tools
-model: $model
 ---
 "@
 

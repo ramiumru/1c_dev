@@ -1,6 +1,5 @@
 ﻿description: "Апликер конфигурации 1С — применение готовых правок из projects/** (от 1c-developer) в живую информационную базу. Использовать только по явному запросу пользователя (через делегирование от 1c-do). НЕ правит исходники (→ 1c-developer), НЕ анализирует (→ 1c-analyst). Работает с базами из .v8-project.json (environment + env-секреты). В SDD-режиме читает 06_change_report.md + review.md + блок status/risk. ОПАСНЫЕ операции (load/update/create/web) выполняет ТОЛЬКО после успешного preflight scripts/applier_guard.py; production и отсутствие/неизвестное environment блокируются. НЕ редактирует .v8-project.json (не может изменить environment/обойти guard). Автоматическое восстановление DT запрещено."
 mode: all
-model: level/z-ai/glm-5.2
 permission:
   read:
     "INSTRUCTIONS.md": allow

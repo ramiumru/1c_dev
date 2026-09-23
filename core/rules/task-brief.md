@@ -2,7 +2,19 @@
 
 При каждом вызове Task передавать минимум:
 - **Исполнитель** и **режим** (обычный / SDD / уточнение / summaries: `--objects` / `--scan` /
-  `--scan --objects` / `--subsystem` / `--force` / apply: SDD / direct / Full / quick-fix / docs-fix).
+  `--scan --objects` / `--subsystem` / `--force` / apply: SDD / direct / Full / quick-fix / docs-fix /
+  artifact).
+- **Intent** — режим использования по требуемому результату (`analysis` / `artifact` /
+  `implementation`): определяет, чем завершается flow (ответ / артефакт / полный SDD-flow).
+  - `analysis` — анализ/консультация: src и БД не обязательны (MCP-only допустим); ответ
+    возвращается пользователю; developer/reviewer/applier не запускаются.
+  - `artifact` — совет-артефакт (текст запроса 1С / пример BSL / алгоритм; пользователь выполнит
+    сам): передавать с исполнителем флаг `artifact-only: true`. Исполнитель (analyst по
+    умолчанию; developer для BSL/запрос-специфики) работает read-only: анализирует и возвращает
+    артефакт в ответе; НЕ редактирует `projects/**/src/**`; НЕ запускает apply; отсутствие
+    writable source — не ошибка.
+  - `implementation` — правка конфигурации: полный существующий flow (SDD для нетривиальных,
+    triage для тривиальных); требуется writable локальный source.
 - **Проект** (определён на шаге 1.5) — логический проект (напр. `finance`). Per-project данные
   исполнители читают в `{{CONTEXT_DIR}}/projects/<проект>/` (context.md, objects-index.md,
   summaries/, requirements/, analyst-scope.md).

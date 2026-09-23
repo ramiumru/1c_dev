@@ -11,6 +11,15 @@ P0-7: Особо опасные операции (load-dt, create, load-cf, web-
 P0-8: approval.md и backup.md — в pilot-control/, не в specs/ (read-only для агентов).
 P0-10: --project-root для явного корня проекта (тесты не зависят от harness ROOT).
 
+DB baseline policy (repository — source of truth, направление только repository → DB):
+  --baseline unknown   (default) WARN: DB baseline state: UNKNOWN — harness не имеет
+                       достоверного способа сверить baseline БД с repository; для high-risk
+                       apply UNKNOWN не считается подтверждённым (поведение 1c-applier);
+  --baseline confirmed OK: только после явного подтверждения пользователя/выполненного
+                       baseline sync repository → DB;
+  --baseline stale     FAIL: известная несовместимость/устаревание — task apply BLOCKED,
+                       требуется baseline sync repository → DB (repository из БД не менять).
+
 Операции:
   Разрешённые для пилота: load-xml (Partial), update.
   Заблокированные (всегда FAIL): load-dt, create, load-cf, web-publish, web-unpublish, Full.
@@ -60,6 +69,7 @@ ALLOWED_OPS = {"load-xml", "update"}
 BLOCKED_OPS = {"load-dt", "create", "load-cf", "web-publish", "web-unpublish"}
 ALL_DANGEROUS_OPS = ALLOWED_OPS | BLOCKED_OPS
 VALID_RISKS = {"low", "medium", "high"}
+BASELINE_STATES = {"unknown", "confirmed", "stale"}
 BACKUP_MAX_AGE_HOURS = 24
 _TASK_ID_RE = re.compile(r"^TASK-[A-Za-z0-9]+(-[A-Za-z0-9]+)*$")
 _SELF_APPROVAL_DENY = {"1c-developer"}
@@ -143,15 +153,18 @@ def validate_path_safe(path_str: str, base: Path) -> bool:
 
 class Guard:
     def __init__(self, config: Path, specs_dir: Path, control_dir: Path,
-                 cli_files: str = "", cli_mode: str = "Partial", project_root: Path = None):
+                 cli_files: str = "", cli_mode: str = "Partial", project_root: Path = None,
+                 baseline: str = "unknown"):
         self.config = config
         self.specs_dir = specs_dir
         self.control_dir = control_dir
         self.cli_files = cli_files
         self.cli_mode = cli_mode
         self.project_root = project_root or ROOT
+        self.baseline = baseline if baseline in BASELINE_STATES else "unknown"
         self.failures: list[str] = []
         self.warnings: list[str] = []
+        self.notes: list[str] = []
         self._db_id = ""
         self._db_env = ""
 
@@ -262,6 +275,33 @@ class Guard:
             self.fail(
                 f"особо опасная операция: '{op}' заблокирована — "
                 f"операция технически отключена для первого пилота"
+            )
+
+    def check_baseline(self) -> None:
+        """DB baseline policy: repository — source of truth; направление только repository → DB.
+
+        Harness не имеет достоверного способа сверить baseline БД с repository, поэтому
+        состояние по умолчанию — UNKNOWN (не подтверждено). Сверка не изобретается:
+        - stale    → FAIL (task apply BLOCKED; нужен baseline sync repository → DB);
+        - unknown  → WARN (для risk: high не считается подтверждённым — см. 1c-applier);
+        - confirmed→ OK (только явное подтверждение пользователя baseline sync repository → DB).
+        """
+        if self.baseline == "stale":
+            self.fail(
+                "baseline: DB baseline state: STALE — task apply BLOCKED: требуется baseline "
+                "sync repository → DB; repository из БД не перезаписывать (source of truth — repository)"
+            )
+        elif self.baseline == "confirmed":
+            self.notes.append(
+                "baseline: DB baseline state: CONFIRMED (явное подтверждение пользователя "
+                "совместимости/выполненного baseline sync repository → DB)"
+            )
+        else:
+            self.warn(
+                "baseline: DB baseline state: UNKNOWN — harness не имеет достоверного способа "
+                "сверить baseline БД с repository; для risk: high apply UNKNOWN не считается "
+                "подтверждённым — требуется явное подтверждение/выполнение baseline sync "
+                "repository → DB пользователем"
             )
 
     def check_sdd(self, task: str) -> None:
@@ -548,12 +588,15 @@ class Guard:
         self.check_environment(cfg, db)
         self.check_task_id(task)
         self.check_operation_class(op, mode)
+        self.check_baseline()
         self.check_sdd(task)
         plan_files = self.check_plan_files(task, getattr(self, '_db_record', {}))
         self.check_cli_files_match(plan_files, op)
         self.check_backup(task, self._db_id, getattr(self, '_db_record', {}))
         self.check_tools(op)
 
+        for n in self.notes:
+            print(f"OK {n}")
         for w in self.warnings:
             print(f"WARN {w}")
         if self.failures:
@@ -579,6 +622,9 @@ def main() -> int:
     parser.add_argument("--op", required=True, choices=sorted(ALL_DANGEROUS_OPS), help="класс операции")
     parser.add_argument("--mode", default="Partial", choices=["Full", "Partial"], help="режим загрузки")
     parser.add_argument("--files", default="", help="CLI --files (относительные пути через запятую)")
+    parser.add_argument("--baseline", default="unknown", choices=sorted(BASELINE_STATES),
+                        help="DB baseline state: unknown (default, WARN) | confirmed (явное подтверждение "
+                             "пользователя baseline sync repository → DB) | stale (BLOCKED — нужен baseline sync repository → DB)")
     parser.add_argument("--config", default=str(ROOT / ".v8-project.json"), help="путь к .v8-project.json")
     parser.add_argument("--specs-dir", default=str(ROOT / "specs"), help="каталог specs/")
     parser.add_argument("--control-dir", default="", help="каталог pilot-control/ (approval+backup)")
@@ -590,7 +636,8 @@ def main() -> int:
     control_dir = Path(args.control_dir).resolve() if args.control_dir else (project_root / "pilot-control")
     config = Path(args.config).resolve()
 
-    guard = Guard(config, specs_dir, control_dir, args.files.strip(), args.mode, project_root)
+    guard = Guard(config, specs_dir, control_dir, args.files.strip(), args.mode, project_root,
+                  baseline=args.baseline.strip())
     try:
         return guard.run(args.task.strip(), args.db.strip(), args.op.strip(), args.mode)
     except Exception as e:

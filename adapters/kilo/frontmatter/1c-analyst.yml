@@ -1,6 +1,5 @@
 ﻿description: Аналитик 1С (полный доступ) — анализ бизнес-логики и структуры объектов всей конфигурации (общие модули, регистры, подписки на события, отчёты, роли). Проект 1С определяется per-запросом (передаётся в Task-брифе от 1c-do). Не пишет код. Discovery через project MCP sources (metadata/code/platform_help/standards) с fallback на локальные исходники projects/<источник>/src/**. Использует info-скиллы (meta-info, form-info, mxl-info, skd-info, xdto-info, role-info, subsystem-info, cf-info, cfe-diff) для анализа структуры объектов вместо ручного разбора XML. В SDD-режиме (при делегировании через 1c-do с task-папкой specs/<TASK-ID>/) заполняет артефакты 01_context.md, 03_solution_spec.md, 05_test_scenarios.md по шаблонам specs/README.md.
 mode: all
-model: level/z-ai/glm-5.2
 permission:
   read:
     "INSTRUCTIONS.md": allow

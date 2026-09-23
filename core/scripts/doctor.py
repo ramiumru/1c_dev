@@ -16,7 +16,14 @@ doctor.py — безопасная диагностика локальной у�
   - допустимость environment (local|test|staging — ok; production/отсутствие — блокирует изменяющие операции);
   - SDD-статусы (specs/*/03_solution_spec.md содержат машиночитаемый блок status/risk);
   - готовность локальной установки (наличие скриптов: bsl-check.py, build_summaries.py,
-    applier_guard.py, validate.py, doctor.py; наличие PowerShell — опционально).
+    applier_guard.py, validate.py, doctor.py; наличие PowerShell — опционально);
+  - capability model (готовность по уровням):
+      Analysis-ready   — агенты + контекст + скрипты (source checkout и БД НЕ требуются);
+      Development-ready — Analysis-ready + локальный project source (projects/<src>/src/**);
+      Apply-ready      — Development-ready + корректная запись БД в .v8-project.json
+                         (допустимый environment + зарегистрированная база) + safety requirements.
+    Отсутствие source/БД — не FAIL: соответствующая capability = NO (WARN). Установка без
+    projects/ и .v8-project.json легитимна (режим analysis/artifact).
 
 Запуск:
   python scripts/doctor.py
@@ -320,6 +327,77 @@ def doctor(root: Path, d: Doc) -> None:
                     d.warn(f"{td.name}: high-risk без review verdict approved — apply будет заблокирован")
     else:
         d.info("specs/ не найден (задач нет)")
+
+    # --- Capability model (Analysis / Development / Apply) ---
+    # Три независимые capability (generic, не привязан к проекту/компании).
+    # Отсутствие source/БД — НЕ FAIL: соответствующая capability = NO (WARN),
+    # чтобы существующие сценарии установки без этих ресурсов не ломались.
+    d.section("Capability model (Analysis / Development / Apply)")
+
+    def _agents_present() -> bool:
+        for meta in ADAPTERS.values():
+            adir = root / meta["agents_dir"]
+            if adir.is_dir() and all((adir / f"{a}.md").exists() for a in AGENTS):
+                return True
+        ca = root / "core" / "agents"
+        return ca.is_dir() and all((ca / f"{a}.md").exists() for a in AGENTS)
+
+    def _context_present() -> bool:
+        for cd in ("core/context", ".kilo/context", ".claude/context", ".opencode/context", "context"):
+            if (root / cd).is_dir():
+                return True
+        return False
+
+    def _scripts_present() -> bool:
+        required = ["bsl-check.py", "build_summaries.py", "applier_guard.py", "validate.py", "doctor.py", "_root.py"]
+        return all((SCRIPT_DIR / s).exists() for s in required)
+
+    def _source_present() -> bool:
+        projects = root / "projects"
+        if not projects.is_dir():
+            return False
+        return any(p.is_dir() and (p / "src").is_dir() for p in projects.iterdir())
+
+    def _db_ready() -> bool:
+        """Apply-ready precondition: .v8-project.json с допустимым environment и хотя бы одной базой."""
+        cfg_p = root / ".v8-project.json"
+        if not cfg_p.exists():
+            return False
+        try:
+            c = json.loads(cfg_p.read_text(encoding="utf-8-sig", errors="replace"))
+        except Exception:
+            return False
+        dbs = c.get("databases") or []
+        if not isinstance(dbs, list) or not dbs:
+            return False
+        global_env = str(c.get("environment", "")).strip()
+        for db in dbs:
+            if not isinstance(db, dict):
+                continue
+            env = str(db.get("environment", "")).strip() or global_env
+            if env in ALLOWED_ENVS:
+                return True
+        return False
+
+    analysis_ready = _agents_present() and _context_present() and _scripts_present()
+    development_ready = analysis_ready and _source_present()
+    apply_ready = development_ready and _db_ready()
+
+    if analysis_ready:
+        d.ok("Analysis-ready: YES (агенты + контекст + скрипты; source checkout и БД не требуются)")
+    else:
+        d.warn("Analysis-ready: NO — отсутствуют агенты/контекст/скрипты (см. разделы выше)")
+    if development_ready:
+        d.ok("Development-ready: YES (найден локальный project source: projects/<источник>/src/)")
+    else:
+        d.warn("Development-ready: NO — локальный project source (projects/<источник>/src/) не найден: "
+               "analysis/artifact работают, implementation (правка исходников) невозможен")
+    if apply_ready:
+        d.ok("Apply-ready: YES (.v8-project.json: допустимый environment + зарегистрированная база; "
+             "прочие safety requirements проверяет applier_guard.py при apply)")
+    else:
+        d.warn("Apply-ready: NO — нет .v8-project.json с допустимым environment и зарегистрированной базой: "
+               "apply заблокирован (analysis/development не затронуты)")
 
 
 def main() -> int:

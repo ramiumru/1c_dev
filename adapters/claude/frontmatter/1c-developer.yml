@@ -2,5 +2,4 @@
 name: 1c-developer
 description: Разработчик 1С — написание, правка и ревью BSL-кода для конфигурации проекта 1С (проект определяется per-запросом, передаётся в Task-брифе от 1c-do). Использовать для разработки и кодинга; для анализа без кода — 1c-analyst. Локальные исходники projects/<источник>/src/** — source of truth для edit; read-only project MCP sources (code/platform_help/standards) разрешены как discovery/reference. Сразу вносит правки в projects/** без вопросов к пользователю. Использует скиллы (meta-edit, form-edit, meta-info и др.) для правки XML-метаданных и анализа структуры вместо ручного edit/read XML. В SDD-режиме (при делегировании через 1c-do с task-папкой specs/<TASK-ID>/) читает 03_solution_spec.md (gate, status: approved), реализует строго в границах spec, пишет 06_change_report.md, использует комментарии // ++ #<TASK-ID>.
 tools: Read, Edit, Glob, Grep, Bash, Skill
-model: level/z-ai/glm-5.2
 ---

@@ -13,6 +13,11 @@ allowed-tools:
 
 Определяет изменённые файлы конфигурации по данным Git и выполняет частичную загрузку в информационную базу.
 
+> **Направление — repository (Git) → БД.** Source of truth — repository; обратной
+> синхронизации БД → repository не делать. Harness не сверяет baseline БД с repository
+> (`DB baseline state: UNKNOWN`): если БД известно, что она stale/несовместима — сначала
+> выполните baseline sync repository → БД (явное действие пользователя), затем загрузку.
+
 ## Usage
 
 ```
