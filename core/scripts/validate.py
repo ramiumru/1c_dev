@@ -2187,6 +2187,103 @@ def check_intent_modes(rep: Report) -> None:
             rep.ok(f"intent-modes: {tool}/1c-developer.yml — artifact-режим без расширения прав")
 
 
+def check_sdd_gate_artifact_exception(rep: Report) -> None:
+    """Regression (SDD-gate × artifact): инвариант 1c-do не противоречит artifact-режиму.
+
+    Проверяет точные маркеры (не NLP):
+    1. 1c-do.md: инвариант скоупится на implementation («SDD-gate прежде implementation») и
+       содержит явное исключение `intent: artifact` (developer без SDD spec, read-only,
+       без apply); старая абсолютная формулировка «SDD-gate прежде разработки» отсутствует;
+       в «Запретах» — «на implementation» + исключение artifact;
+    2. INSTRUCTIONS.md: gate-секция содержит исключение artifact;
+    3. README.md / task-brief.md / 1c-developer.md: artifact не требует SDD spec;
+    4. implementation нетривиальной правки по-прежнему требует approved spec (маркеры
+       approved в 1c-do SDD-шаге, INSTRUCTIONS и developer gate);
+    5. docs-fix/quick-fix не сломаны (маркеры triage в 1c-do).
+    """
+    if not IS_SOURCE_REPO:
+        return
+
+    do_md = ROOT / "core" / "agents" / "1c-do.md"
+    if not do_md.exists():
+        rep.error("sdd-gate-artifact: core/agents/1c-do.md не найден")
+        return
+    do_text = do_md.read_text(encoding="utf-8", errors="replace")
+
+    # Новая скоупленная формулировка присутствует, старая абсолютная — отсутствует
+    if "SDD-gate прежде implementation" in do_text:
+        rep.ok("sdd-gate-artifact: инвариант скоуплен на implementation («SDD-gate прежде implementation»)")
+    else:
+        rep.error("sdd-gate-artifact: 1c-do.md не содержит «SDD-gate прежде implementation»")
+    if "SDD-gate прежде разработки" in do_text:
+        rep.error("sdd-gate-artifact: 1c-do.md содержит старую абсолютную формулировку «SDD-gate прежде разработки»")
+    else:
+        rep.ok("sdd-gate-artifact: старая абсолютная формулировка удалена")
+
+    # Явное исключение artifact в инварианте и в Запретах
+    if "Явное исключение" in do_text and "без SDD spec" in do_text:
+        rep.ok("sdd-gate-artifact: инвариант содержит явное исключение artifact (developer без SDD spec)")
+    else:
+        rep.error("sdd-gate-artifact: инвариант не содержит исключение artifact «без SDD spec»")
+    if "на implementation без непустого" in do_text and "SDD spec не требуется" in do_text:
+        rep.ok("sdd-gate-artifact: «Запреты» — gate скоуплен на implementation + исключение artifact")
+    else:
+        rep.error("sdd-gate-artifact: «Запреты» 1c-do.md не отражают implementation-scope + artifact-исключение")
+
+    # implementation по-прежнему требует approved spec (не ослаблен)
+    if "обязательно, `status: approved`" in do_text:
+        rep.ok("sdd-gate-artifact: implementation SDD-шаг по-прежнему требует `status: approved`")
+    else:
+        rep.error("sdd-gate-artifact: 1c-do.md SDD-шаг не требует `status: approved` (gate ослаблен!)")
+
+    # docs-fix / quick-fix не сломаны
+    if "docs-fix" in do_text and "quick-fix" in do_text:
+        rep.ok("sdd-gate-artifact: docs-fix/quick-fix маршруты на месте (не сломаны)")
+    else:
+        rep.error("sdd-gate-artifact: 1c-do.md потерял docs-fix/quick-fix маршруты")
+
+    instr = ROOT / "core" / "context" / "INSTRUCTIONS.md"
+    if instr.exists():
+        t = instr.read_text(encoding="utf-8", errors="replace")
+        if "Явное исключение — `intent: artifact`" in t:
+            rep.ok("sdd-gate-artifact: INSTRUCTIONS gate-секция содержит исключение artifact")
+        else:
+            rep.error("sdd-gate-artifact: INSTRUCTIONS gate-секция не содержит исключение artifact")
+        if "только `approved`" in t and "не начинает реализацию" in t:
+            rep.ok("sdd-gate-artifact: INSTRUCTIONS — implementation по-прежнему только по approved")
+        else:
+            rep.error("sdd-gate-artifact: INSTRUCTIONS ослабил approved-требование для implementation")
+
+    readme = ROOT / "README.md"
+    if readme.exists():
+        t = readme.read_text(encoding="utf-8", errors="replace")
+        if "read-only артефакт без spec" in t:
+            rep.ok("sdd-gate-artifact: README — artifact без spec (read-only)")
+        else:
+            rep.error("sdd-gate-artifact: README не отражает artifact-без-spec")
+
+    brief = ROOT / "core" / "rules" / "task-brief.md"
+    if brief.exists():
+        t = brief.read_text(encoding="utf-8", errors="replace")
+        if "SDD spec/task-папка не требуются" in t:
+            rep.ok("sdd-gate-artifact: task-brief — artifact не требует SDD spec/task-папки")
+        else:
+            rep.error("sdd-gate-artifact: task-brief не фиксирует «artifact без SDD spec»")
+
+    dev_md = ROOT / "core" / "agents" / "1c-developer.md"
+    if dev_md.exists():
+        t = dev_md.read_text(encoding="utf-8", errors="replace")
+        if "SDD spec/task-папка в этом режиме не требуются" in t:
+            rep.ok("sdd-gate-artifact: 1c-developer — artifact-режим без SDD spec")
+        else:
+            rep.error("sdd-gate-artifact: 1c-developer не фиксирует «artifact без SDD spec»")
+        # developer gate остаётся scoped на task-папку (implementation)
+        if "Если задача делегирована с task-папкой" in t and "status ≠ approved" in t:
+            rep.ok("sdd-gate-artifact: developer gate по-прежнему требует approved для task-папки")
+        else:
+            rep.error("sdd-gate-artifact: developer gate изменён (не требует approved)")
+
+
 def check_capability_model(rep: Report) -> None:
     """Regression (capability model): Analysis/Development/Apply-ready в doctor + README;
     отсутствие source/БД — не FAIL (существующие сценарии установки не ломаются)."""
@@ -2242,8 +2339,11 @@ def check_capability_model(rep: Report) -> None:
 def check_baseline_policy(rep: Report) -> None:
     """Regression (repository source of truth / DB baseline policy).
 
-    1. guard: --baseline {unknown,confirmed,stale}; UNKNOWN → WARN (не FAIL, не CONFIRMED);
-       stale → FAIL (task apply BLOCKED); confirmed → OK note;
+    1. guard: --baseline {unknown,confirmed,stale}; risk — из фактической 03_solution_spec.md:
+       low/medium + UNKNOWN → WARN (exit 0, существующий Partial workflow не ломается);
+       high + UNKNOWN → FAIL «high-risk apply BLOCKED» (hard gate);
+       high + confirmed → проходит baseline gate (exit 0 + OK note);
+       stale (любой risk) → FAIL (task apply BLOCKED);
     2. guard/safe_apply/agents/rules/skills содержат политику repository → DB;
     3. db-dump-xml запрещает выгрузку БД поверх projects/**/src/** (нет DB→repo overwrite);
     4. автоматической DB→repo-синхронизации нигде не появилось (нет dump→src инструкций).
@@ -2256,7 +2356,7 @@ def check_baseline_policy(rep: Report) -> None:
         return
     text = g.read_text(encoding="utf-8", errors="replace")
     for marker in ("--baseline", "DB baseline state: UNKNOWN", "DB baseline state: STALE",
-                   "DB baseline state: CONFIRMED"):
+                   "DB baseline state: CONFIRMED", "high-risk apply BLOCKED", "_spec_risk"):
         if marker in text:
             rep.ok(f"baseline: applier_guard.py содержит «{marker}»")
         else:
@@ -2270,8 +2370,8 @@ def check_baseline_policy(rep: Report) -> None:
         else:
             rep.error("baseline: safe_apply.py не пробрасывает --baseline в guard")
 
-    # Behavioral guard tests
-    def _run_baseline(baseline: str) -> tuple:
+    # Behavioral guard tests: risk-aware baseline matrix
+    def _run_baseline(baseline: str, risk: str = "low") -> tuple:
         with tempfile.TemporaryDirectory(prefix="baseline_guard_") as td:
             tdpath = Path(td)
             specs_dir = tdpath / "specs"
@@ -2279,7 +2379,7 @@ def check_baseline_policy(rep: Report) -> None:
             proj_dir = tdpath / "projects" / "test" / "src"
             proj_dir.mkdir(parents=True, exist_ok=True)
             (proj_dir / "test.bsl").write_text("// test\n", encoding="utf-8")
-            h = _make_spec_file(specs_dir, "TASK-BL", status="approved", risk="low",
+            h = _make_spec_file(specs_dir, "TASK-BL", status="approved", risk=risk,
                                 approved_by="user", approved_at="2026-01-01T12:00:00+00:00",
                                 spec_version="1")
             _make_report_file(specs_dir, "TASK-BL", h, "1")
@@ -2302,23 +2402,49 @@ def check_baseline_policy(rep: Report) -> None:
                                errors="replace", timeout=60)
             return r.returncode, (r.stdout or "") + (r.stderr or "")
 
-    rc, out = _run_baseline("stale")
-    if rc != 0 and "baseline" in out and "STALE" in out:
-        rep.ok("baseline: guard BLOCKS stale baseline (task apply BLOCKED)")
+    # 1. low-risk + baseline unknown (default) → exit 0 + WARN (не FAIL, не CONFIRMED)
+    rc, out = _run_baseline("", risk="low")
+    if rc == 0 and "DB baseline state: UNKNOWN" in out and "CONFIRMED" not in out \
+            and "BLOCKED" not in out:
+        rep.ok("baseline: low-risk + unknown → exit 0 + WARN (Partial workflow не ломается)")
     else:
-        rep.error(f"baseline: guard не заблокировал stale baseline (exit={rc})")
+        rep.error(f"baseline: low-risk + unknown некорректен (exit={rc})")
 
-    rc, out = _run_baseline("")
-    if rc == 0 and "DB baseline state: UNKNOWN" in out and "CONFIRMED" not in out:
-        rep.ok("baseline: guard default = UNKNOWN → WARN, не FAIL, не CONFIRMED")
+    # 2. medium-risk + baseline unknown → exit 0 + WARN
+    rc, out = _run_baseline("", risk="medium")
+    if rc == 0 and "DB baseline state: UNKNOWN" in out and "CONFIRMED" not in out \
+            and "BLOCKED" not in out:
+        rep.ok("baseline: medium-risk + unknown → exit 0 + WARN")
     else:
-        rep.error(f"baseline: guard default UNKNOWN-WARN некорректен (exit={rc})")
+        rep.error(f"baseline: medium-risk + unknown некорректен (exit={rc})")
 
-    rc, out = _run_baseline("confirmed")
+    # 3. high-risk + baseline unknown → exit 1 (hard gate)
+    rc, out = _run_baseline("", risk="high")
+    if rc != 0 and "high-risk apply BLOCKED" in out and "--baseline confirmed" in out:
+        rep.ok("baseline: high-risk + unknown → exit 1 (high-risk apply BLOCKED; hard gate)")
+    else:
+        rep.error(f"baseline: high-risk + unknown НЕ заблокирован технически (exit={rc})")
+
+    # 4. high-risk + baseline confirmed → проходит baseline gate (exit 0)
+    rc, out = _run_baseline("confirmed", risk="high")
     if rc == 0 and "DB baseline state: CONFIRMED" in out:
-        rep.ok("baseline: guard confirmed → OK note (явное подтверждение)")
+        rep.ok("baseline: high-risk + confirmed → проходит baseline gate (exit 0)")
     else:
-        rep.error(f"baseline: guard confirmed некорректен (exit={rc})")
+        rep.error(f"baseline: high-risk + confirmed некорректен (exit={rc})")
+
+    # 5. high-risk + baseline stale → exit 1 (STALE message)
+    rc, out = _run_baseline("stale", risk="high")
+    if rc != 0 and "baseline" in out and "STALE" in out:
+        rep.ok("baseline: high-risk + stale → exit 1 (task apply BLOCKED)")
+    else:
+        rep.error(f"baseline: high-risk + stale не заблокирован (exit={rc})")
+
+    # 6. safe_apply не определяет risk сам — только пробрасывает --baseline
+    sa_text = sa.read_text(encoding="utf-8", errors="replace") if sa.exists() else ""
+    if "risk" not in sa_text.lower() or "--baseline" in sa_text:
+        rep.ok("baseline: safe_apply.py не определяет risk (только проброс --baseline)")
+    else:
+        rep.error("baseline: safe_apply.py самостоятельно определяет risk — не должно")
 
     # Policy markers: agents / rules / skills
     applier = ROOT / "core" / "agents" / "1c-applier.md"
@@ -2326,7 +2452,7 @@ def check_baseline_policy(rep: Report) -> None:
         t = applier.read_text(encoding="utf-8", errors="replace")
         for label, marker in [
             ("UNKNOWN policy", "DB baseline state: UNKNOWN"),
-            ("high-risk не подтверждён", "не считается подтверждённым"),
+            ("high-risk hard gate", "high-risk apply BLOCKED"),
             ("stale BLOCKED", "--baseline stale"),
             ("confirmed из подтверждения пользователя", "--baseline confirmed"),
             ("направление repository → БД", "repository → БД"),
@@ -2822,6 +2948,7 @@ def main() -> int:
         check_task7_regression(rep)
         check_do_recursive_paths(rep)
         check_intent_modes(rep)
+        check_sdd_gate_artifact_exception(rep)
         check_capability_model(rep)
         check_baseline_policy(rep)
         check_no_hardcoded_model(rep)

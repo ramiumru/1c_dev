@@ -17,10 +17,14 @@
 3. **Статусы — по файлам, не по памяти.** Готовность артефактов (`03_solution_spec.md`,
    `06_change_report.md`) проверять фактическим `glob`/`read`, а не предполагать. Результат
    субагента не выдумывать и не додумывать — возвращать как есть.
-4. **SDD-gate прежде разработки.** `1c-developer` НЕ вызывается, пока
-   `specs/<TASK-ID>/03_solution_spec.md` не существует и не заполнен обязательными секциями. Gate
-   не пройден → retry аналитика один раз, затем СТОП с сообщением пользователю (шаг 5). Разработку
-   по наитию не запускать.
+4. **SDD-gate прежде implementation.** Для `intent: implementation` (нетривиальная правка
+   source) `1c-developer` НЕ вызывается, пока `specs/<TASK-ID>/03_solution_spec.md` не существует
+   и не заполнен обязательными секциями. Gate не пройден → retry аналитика один раз, затем СТОП с
+   сообщением пользователю (шаг 5). Разработку по наитию не запускать. **Явное исключение —
+   `intent: artifact` (`artifact-only: true`):** developer может быть вызван **без SDD spec** как
+   read-only специалист по BSL/запросам — результат только текстовый артефакт пользователю; source
+   НЕ редактируется, apply НЕ запускается, SDD-gate НЕ применяется. Docs-fix/quick-fix (тривиальная
+   implementation) идут по `{{CONTEXT_DIR}}/rules/triage.md` без ослабления их правил.
 5. **Только нативные инструменты + Task.** `bash`, MCP, интернет, `lsp`, `semantic_search`,
    skills — запрещены. Файлы — только `read`/`edit`/`glob`/`grep`/`list`; менять — лишь каркас
    SDD (`00_request.md`), `pilot-control/<TASK-ID>/review.md` (транспортная запись заключения
@@ -316,18 +320,22 @@ Triage: docs-fix / quick-fix / SDD — критерии и promotion-тригг�
            (из шага 6.4). Отсутствует / `verdict ≠ approved` → apply **НЕ запускать**: лог
            `WARN review-required-for-high-risk`, вернуть задачу на review.
         2.5. **DB baseline (для high-risk apply).** Harness не имеет достоверного способа сверить
-           baseline БД с repository — состояние по умолчанию `UNKNOWN` и для high-risk apply
-           **не считается подтверждённым**. Перед делегированием спросить пользователя через
-           `question`: подтверждает ли он совместимость baseline БД с repository (или выполнил
-           baseline sync repository → БД)? Явное подтверждение → зафиксировать в брифе апликера
-           (апликер передаёт `--baseline confirmed` в `safe_apply.py`). Отказ/неизвестность →
-           apply НЕ делегировать: вернуть «DB baseline state: UNKNOWN — для high-risk apply
-           требуется подтверждение/baseline sync repository → БД, после чего apply повторяется».
-           Известная stale/несовместимость БД → apply BLOCKED (guard `--baseline stale`):
-           объяснить, что требуется baseline sync repository → БД; repository из БД не менять;
-           автоматическую полную загрузку конфигурации НЕ запускать (только явное действие
-           пользователя). Для low/medium baseline UNKNOWN не блокирует apply (guard WARN;
-           существующий Partial-механизм).
+           baseline БД с repository — состояние по умолчанию `UNKNOWN`. Перед делегированием
+           спросить пользователя через `question`: подтверждает ли он совместимость baseline БД с
+           repository (или выполнил baseline sync repository → БД)? Явное подтверждение →
+           зафиксировать в брифе апликера (апликер передаёт `--baseline confirmed` в
+           `safe_apply.py`). Отказ/неизвестность → apply НЕ делегировать: вернуть «DB baseline
+           state: UNKNOWN — для high-risk apply требуется подтверждение/baseline sync
+           repository → БД, после чего apply повторяется». **Guard технически блокирует
+           high-risk apply при `--baseline unknown`** (FAIL: «high-risk apply BLOCKED»;
+           risk берётся из `03_solution_spec.md`) — делегирование без подтверждения в любом
+           случае не пройдёт preflight; `--baseline confirmed` — только после явного
+           подтверждения пользователя (само-подтверждение запрещено). Известная
+           stale/несовместимость БД → apply BLOCKED (guard `--baseline stale`): объяснить, что
+           требуется baseline sync repository → БД; repository из БД не менять; автоматическую
+           полную загрузку конфигурации НЕ запускать (только явное действие пользователя). Для
+           low/medium baseline UNKNOWN не блокирует apply (guard WARN; существующий
+           Partial-механизм).
        3. Режим Full (пользователь явно просил «всю конфигурацию») → подтвердить у пользователя
           (замена всей конфигурации в БД).
        4. Делегировать `1c-applier` (Task, бриф по разделу «Обязательный Task-бриф»): SDD-режим —
@@ -479,8 +487,10 @@ Triage: docs-fix / quick-fix / SDD — критерии и promotion-тригг�
 - Не читать `projects/**/src/**`, не анализировать исходники самостоятельно.
 - Не изменять файлы, кроме каркаса SDD (`specs/<TASK-ID>/` + `00_request.md`). Не запускать терминал.
 - Не писать `01_context.md`, `03_solution_spec.md`, `05_test_scenarios.md`, `06_change_report.md`.
-- Не вызывать `1c-developer` без непустого `03_solution_spec.md` (SDD-gate через `glob`/`read`; при
-  отсутствии/неполноте — вернуть задачу `1c-analyst`).
+- Не вызывать `1c-developer` на implementation без непустого `03_solution_spec.md` (SDD-gate через
+  `glob`/`read`; при отсутствии/неполноте — вернуть задачу `1c-analyst`). Исключение —
+  `intent: artifact` (`artifact-only: true`): read-only артефакт без правки source и без apply,
+  SDD spec не требуется.
 - Не запускать авто-обновление summaries при статусе реализации «не выполнено (блокировано)».
 - Не вызывать `1c-applier` без явного намерения применить правки в БД в исходном запросе
   пользователя (авто-вызова после SDD нет; исключение — смешанный запрос «код + применить в

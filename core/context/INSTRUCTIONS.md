@@ -149,13 +149,15 @@ profile (`{{CONTEXT_DIR}}/rules/project-sources.md`), разрешены как 
 - Если база отличается от repository, направление восстановления — только repository → БД.
 - **DB baseline policy (explicit UNKNOWN/BLOCK):** harness не имеет достоверного способа
   определить divergence БД ↔ repository, поэтому состояние baseline БД по умолчанию —
-  `UNKNOWN` (guard: `--baseline unknown` → WARN; `--baseline stale` → BLOCK; `--baseline
-  confirmed` — только после явного подтверждения пользователя/выполненного baseline sync
-  repository → БД). Для `risk: high` apply состояние UNKNOWN не считается подтверждённым:
-  `1c-applier` останавливается и требует от пользователя подтвердить/выполнить baseline sync
-  repository → БД, после чего task apply повторяется. Автоматическая полная загрузка
+  `UNKNOWN` (guard: `--baseline unknown` → low/medium WARN, `risk: high` → FAIL «high-risk
+  apply BLOCKED»; `--baseline stale` → BLOCK; `--baseline confirmed` — только после явного
+  подтверждения пользователя/выполненного baseline sync
+  repository → БД; risk берётся из фактической `03_solution_spec.md`). Для `risk: high` apply
+  состояние UNKNOWN не считается подтверждённым: `1c-do`/`1c-applier` спрашивают пользователя
+  до делегирования, guard технически блокирует apply при UNKNOWN, и после явного подтверждения
+  task apply повторяется с `--baseline confirmed`. Автоматическая полная загрузка
   конфигурации без явного действия пользователя запрещена; Partial task apply остаётся
-  существующим механизмом для совместимого baseline.
+  существующим механизмом для совместимого baseline (low/medium).
 
 ---
 
@@ -311,6 +313,13 @@ profile (`{{CONTEXT_DIR}}/rules/project-sources.md`), разрешены как 
 при делегировании с task-папкой — остановиться, вернуть «spec отсутствует», код не
 менять. `1c-developer` не начинает реализацию по spec со `status: draft` /
 `rejected` / без статуса — только `approved`.
+
+Gate относится к `intent: implementation` (делегирование с task-папкой SDD; «нет кода
+без spec» — про правку source). **Явное исключение — `intent: artifact`
+(`artifact-only: true`)**: developer может быть вызван без SDD spec как read-only
+специалист (текст запроса/BSL в ответе), source не редактируется, apply не запускается.
+Docs-fix/quick-fix (тривиальная implementation) не затронуты — triage по
+`{{CONTEXT_DIR}}/rules/triage.md`.
 
 ### Машиночитаемый блок статуса и риска (risk gates)
 

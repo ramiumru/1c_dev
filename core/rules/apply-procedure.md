@@ -25,13 +25,14 @@ Repository/source — source of truth; направление доставки �
 
 Harness не имеет достоверного способа определить divergence БД ↔ repository, поэтому:
 
-1. **DB baseline state: UNKNOWN** (по умолчанию; guard `--baseline unknown` → WARN) —
+1. **DB baseline state: UNKNOWN** (по умолчанию; guard `--baseline unknown`: low/medium → WARN) —
    состояние не считается подтверждённым.
-2. **Для `risk: high` apply** UNKNOWN не подтверждён: остановиться до apply и потребовать от
-   пользователя явного подтверждения совместимости либо выполнения **baseline sync
-   repository → БД** (например, `db-load-xml` Full из repository — только явное действие
-   пользователя), затем повторить apply с `--baseline confirmed` (safe_apply.py пробрасывает
-   флаг в guard). Лог `WARN baseline-unknown-high-risk`.
+2. **Для `risk: high` apply** UNKNOWN не подтверждён: guard технически блокирует apply
+   (FAIL «high-risk apply BLOCKED»; risk — из `03_solution_spec.md`, не из CLI). До apply
+   остановиться и потребовать от пользователя явного подтверждения совместимости либо
+   выполнения **baseline sync repository → БД** (например, `db-load-xml` Full из repository —
+   только явное действие пользователя), затем повторить apply с `--baseline confirmed`
+   (safe_apply.py пробрасывает флаг в guard). Лог `WARN baseline-unknown-high-risk`.
 3. **Известно, что БД stale/несовместима** → apply BLOCKED (`--baseline stale` → guard FAIL):
    объяснить, что требуется baseline sync repository → БД; repository из БД не менять.
 4. **Автоматическая полная загрузка конфигурации без явного действия пользователя запрещена.**

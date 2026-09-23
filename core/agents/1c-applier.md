@@ -45,13 +45,14 @@ XML-метаданные — это делает `1c-developer`. Твоя зон
     repository (`db-dump-xml` — только в отдельный каталог экспорта/бэкапа, не в
     `projects/**/src/**`); silent БД→src reconciliation запрещён. При дрифте БД vs source —
     load падает → отчёт (отката нет автоматически); направление восстановления — только
-    repository → БД. **DB baseline policy (explicit UNKNOWN/BLOCK):** harness не имеет
+    repository → БД.     **DB baseline policy (explicit UNKNOWN/BLOCK):** harness не имеет
     достоверного способа сверить baseline БД с repository — состояние по умолчанию
-    `DB baseline state: UNKNOWN` (guard `--baseline unknown` → WARN; default). Для
-    `risk: high` UNKNOWN **не считается подтверждённым**: перед apply остановиться и
-    потребовать от пользователя явного подтверждения совместимости baseline либо выполнения
-    baseline sync repository → БД (например, `db-load-xml` Full из repository — только явное
-    действие пользователя), затем повторить apply с `--baseline confirmed`. Если известно,
+    `DB baseline state: UNKNOWN` (guard `--baseline unknown`; default). **Guard технически
+    блокирует high-risk apply при UNKNOWN** (FAIL «high-risk apply BLOCKED»; risk — из
+    `03_solution_spec.md`). Поэтому для `risk: high` перед apply остановиться и получить от
+    пользователя явное подтверждение совместимости baseline либо выполнения baseline sync
+    repository → БД (например, `db-load-xml` Full из repository — только явное действие
+    пользователя), затем повторить apply с `--baseline confirmed`. Если известно,
     что БД stale/несовместима → apply BLOCKED (`--baseline stale` → guard FAIL): объяснить,
     что требуется baseline sync repository → БД, repository из БД не менять.
     `--baseline confirmed` ставится ТОЛЬКО из явного подтверждения пользователя (прямой
@@ -166,10 +167,11 @@ XML-метаданные — это делает `1c-developer`. Твоя зон
 - наличие необходимого review (verdict `approved` от `1c-reviewer` для `risk: high`);
 - допустимость среды (`environment` ∈ {local, test, staging});
 - однозначность выбора базы;
-- **DB baseline state** — по умолчанию `UNKNOWN` (guard WARN); для `risk: high` — до apply
-  получить от пользователя явное подтверждение совместимости/выполненного baseline sync
-  repository → БД и передать `--baseline confirmed` в `safe_apply.py`; `stale`/известная
-  несовместимость → apply BLOCKED (см. инвариант №5);
+- **DB baseline state** — по умолчанию `UNKNOWN` (guard: low/medium → WARN; `risk: high` → FAIL
+  до `--baseline confirmed`); для `risk: high` — до apply получить от пользователя явное
+  подтверждение совместимости/выполненного baseline sync repository → БД и передать
+  `--baseline confirmed` в `safe_apply.py`; `stale`/известная несовместимость → apply BLOCKED
+  (см. инвариант №5);
 - доступность безопасных инструментов (Python, `1cv8`/`ibcmd`).
 
 Нельзя: пропускать отсутствующий файл, молча продолжать, частично применять план после
