@@ -13,7 +13,7 @@
 |---|---|---|---|
 | **Kilo** | `install.ps1 -Tool kilo` | Multi-agent | `.kilo/agent`, `.kilo/skills`, `kilo.json` |
 | **Claude Code** | `install.ps1 -Tool claude` | Multi-agent | `.claude/agents`, `.claude/skills`, `CLAUDE.md` |
-| **OpenWork** | `install.ps1 -Tool openworks` | Multi-agent | `.opencode/agents`, `.opencode/skills`, `openworks.json` (default agent `1c-do`) |
+| **OpenWork** | `install.ps1 -Tool openworks` | Multi-agent | `.opencode/agents`, `.opencode/skills`, `opencode.json` (default agent `1c-do`) |
 | **Codex CLI** | `install.ps1 -Tool codex` | Single-agent | `AGENTS.md` + скрипты (одноагентный режим) |
 
 ## Архитектура
@@ -87,7 +87,7 @@ analysis/artifact.
 
 `v8std` (https://ai.v8std.ru/mcp) — публичный сторонний источник стандартов 1С; не
 корпоративная зависимость. Регистрируется установщиком в tool-конфиге (`kilo.json` /
-`openworks.json`, mcp-секция) и доступен только агентам, которым нужны стандарты
+`opencode.json`, mcp-секция) и доступен только агентам, которым нужны стандарты
 (`1c-analyst`, `1c-developer`, `1c-reviewer`). Семантика доступности (`doctor.py`):
 configured + reachable → OK; временно недоступен → `v8std: DEGRADED` — WARN, не FAIL:
 harness остаётся установленным, агенты работают по fallback (level-стандарт /
@@ -144,7 +144,7 @@ gate, risk из `03_solution_spec.md`); для `risk: high` apply UNKNOWN не �
 │   ├── kilo/                — kilo.json.tpl + frontmatter/*.yml
 │   ├── claude/              — CLAUDE.md.tpl + frontmatter/*.yml
 │   ├── codex/               — AGENTS.md.tpl + config.toml.example
-│   └── openworks/           — openworks.json.tpl + frontmatter/*.yml
+│   └── openworks/           — opencode.json.tpl + frontmatter/*.yml
 ├── install/                 — install.ps1 + миграционные скрипты
 ├── examples/                — v8-project.example.json (безопасный, без секретов)
 └── docs/                    — adding-skills.md

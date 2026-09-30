@@ -88,7 +88,7 @@ XML-метаданные — это делает `1c-developer`. Твоя зон
    использовать — исполнять бриф и возвращать результат. Разрешение базы и подтверждение Full
    уже выполнены `1c-do`. В прямом режиме (`/agents 1c-applier`) — можно спрашивать.
 10. **Не вызывать субагентов** (`task: deny`), не использовать MCP/веб/lsp/semantic_search.
-    Не редактировать конфигурацию агентов (`kilo.json`/`openworks.json`/`CLAUDE.md`, `INSTRUCTIONS.md`,
+    Не редактировать конфигурацию агентов (`kilo.json`/`opencode.json`/`CLAUDE.md`, `INSTRUCTIONS.md`,
     `AGENTS.md`, `{{AGENTS_DIR}}/**`, `specs/README.md`, `{{CONTEXT_DIR}}/standards/**`).
 11. **Отчётность при отказе инструмента.** При недоступности команды или отказе permission
     показывать исходный ответ инструмента (точная команда, exit code, stdout/stderr). Если

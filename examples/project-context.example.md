@@ -4,7 +4,7 @@
 > `{{CONTEXT_DIR}}/projects/<проект>/context.md` и создаётся пользователем/`1c-analyst`.
 > **Не содержит** корпоративных URL/UUID/credentials — только generic placeholders и логические
 > MCP aliases (`metadata`, `code`, `platform_help`, `v8std`). MCP endpoint/credentials регистрируются
-> локально в конфигурации инструмента (`kilo.json`/`openworks.json`); project-specific `project_id`
+> локально в конфигурации инструмента (`kilo.json`/`opencode.json`); project-specific `project_id`
 > и repository mapping задаются в локальном gitignored profile.
 > Корпоративный профиль (напр. Finance) живёт только в локальной/корпоративной среде
 > (gitignored `projects/`, overlay/, `.dev.env`), никогда в публичном репозитории.
@@ -33,7 +33,7 @@ sources:
   metadata:
     type: mcp
     enabled: false                       # true в корпоративной среде
-    server: metadata                     # логическое имя MCP-сервера (регистрируется в kilo.json/openworks.json)
+    server: metadata                     # логическое имя MCP-сервера (регистрируется в kilo.json/opencode.json)
     project_id: ""                       # UUID конфигурации — задаётся в локальном overlay, не в публичном репо
 
   code:
@@ -57,7 +57,7 @@ sources:
 
 > Поле `enabled: false` = источник недоступен (публичный репозиторий). Корпоративная среда
 > выставляет `enabled: true` и регистрирует соответствующий MCP-сервер в конфигурации
-> инструмента (`kilo.json`/`openworks.json`) под логическим именем (`metadata`, `code`,
+> инструмента (`kilo.json`/`opencode.json`) под логическим именем (`metadata`, `code`,
 > `platform_help`, `v8std`). Реальные корпоративные URL/UUID/credentials — **только** в
 > локальной конфигурации (gitignored overlay/, `.dev.env`), никогда в публичном репозитории.
 > Политика приоритета и graceful degradation — `{{CONTEXT_DIR}}/rules/project-sources.md`.

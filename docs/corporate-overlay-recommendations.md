@@ -115,7 +115,7 @@ Overlay не может:
 `.ai-rules.json`, `.install-manifest-overlay.json`, `.dev.env`, `.v8-project.json`.
 
 Корневые конфиги (`AGENTS.md`, `CLAUDE.md`, `INSTRUCTIONS.md`, `kilo.json`,
-`openworks.json`, `specs/README.md`) — override только с `-Force` (создаётся
+`opencode.json`, `specs/README.md`) — override только с `-Force` (создаётся
 `.bak`); их add разрешён.
 
 ### Manifest `.install-manifest-overlay.json`

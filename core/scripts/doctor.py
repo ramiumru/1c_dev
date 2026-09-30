@@ -85,11 +85,14 @@ ALLOWED_ENVS = {"local", "test", "staging"}
 
 V8STD_URL = "https://ai.v8std.ru/mcp"
 V8STD_PROBE_TIMEOUT = 5.0
-# Root-config файлы, в которых может быть зарегистрирован v8std (mcp-секция)
+# Root-config файлы, в которых может быть зарегистрирован v8std (mcp-секция).
+# opencode.json — настоящий root config OpenWork/OpenCode; openworks.json — legacy-имя
+# прошлых установок (остаётся для обратной совместимости, активным config не считается).
 V8STD_CONFIG_CANDIDATES = (
-    "kilo.json", "kilo.jsonc", "openworks.json",
+    "kilo.json", "kilo.jsonc", "opencode.json", "opencode.jsonc",
     ".kilo/kilo.json", ".kilo/kilo.jsonc",
-    ".opencode/openworks.json", ".opencode/openworks.jsonc",
+    ".opencode/opencode.json", ".opencode/opencode.jsonc",
+    "openworks.json",
 )
 
 

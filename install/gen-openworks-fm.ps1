@@ -21,7 +21,7 @@ foreach ($name in $agents) {
     $fm = $fm -replace '(?m)^\s*semantic_search:\s*deny\s*\r?\n', ''
 
     # 3. Replace mcp: block with comment (Open Works controls MCP at server level)
-    $fm = $fm -replace '(?ms)(^\s*mcp:\s*\r?\n.*?)(?=^\S|\Z)', "# MCP permissions: configured at server level in openworks.json (mcp key)`r`n"
+    $fm = $fm -replace '(?ms)(^\s*mcp:\s*\r?\n.*?)(?=^\S|\Z)', "# MCP permissions: configured at server level in opencode.json (mcp key)`r`n"
 
     # 4. Clean up trailing whitespace/empty lines
     $fm = $fm -replace '(\r?\n){3,}', "`r`n`r`n"
