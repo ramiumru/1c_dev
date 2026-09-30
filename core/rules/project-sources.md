@@ -22,7 +22,7 @@
 Поля `enabled`, `server`, `project_id`, `repositories` — логические имена/placeholders.
 Реальные корпоративные URL/UUID/credentials — **только** в локальном `context.md` (gitignored
 `projects/`, overlay/, `.dev.env`) и в локальной конфигурации инструмента (`kilo.json`/
-`openworks.json`), **никогда** в публичном репозитории. Поле `server` содержит логическое имя
+`opencode.json`), **никогда** в публичном репозитории. Поле `server` содержит логическое имя
 MCP-сервера (напр. `metadata`, `code`, `platform_help`, `v8std`), регистрируемого в конфигурации
 инструмента; `${ENV}`-переменные в Markdown не используются (harness не подставляет их).
 
@@ -147,7 +147,7 @@ permission:
 ```
 
 Разрешения на конкретные project MCP-серверы (endpoint/credentials) — **локальная конфигурация**
-(корневой конфигурационный файл инструмента `kilo.json`/`openworks.json` или overlay), аналогично
+(корневой конфигурационный файл инструмента `kilo.json`/`opencode.json` или overlay), аналогично
 секретам в `.v8-project.json` / `.dev.env`. В публичный репозиторий имена корпоративных MCP-серверов
 **не попадают**. Nested `mcp:` категория **не используется** (deprecated).
 

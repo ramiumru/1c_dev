@@ -8,12 +8,12 @@
 
     Безопасность установки (P0-2):
     - Корневые пользовательские файлы (AGENTS.md, CLAUDE.md, INSTRUCTIONS.md, kilo.json,
-      openworks.json, .ai-rules.json, .dev.env, LICENSE, specs/README.md) НЕ перезаписываются
-      без явного разрешения (-Force или подтверждение в install-режиме).
+      opencode.json, .ai-rules.json, .dev.env, LICENSE, specs/README.md) НЕ перезаписываются
+    без явного разрешения (-Force или подтверждение в install-режиме).
     - LICENSE целевого проекта НИКОГДА не заменяется лицензией harness.
     - При update: изменённые пользователем файлы (hash расходится) сохраняются.
-    - При -Force: перезапись разрешена, но LICENSE целевого проекта всё равно не трогается.
-    - Перед разрешённой заменой создаётся резервная копия с уникальным именем.
+    - При -Force: перед заменой защищённого корневого файла создаётся резервная копия
+      с уникальным именем (backup → harness config); LICENSE целевого проекта всё равно не трогается.
 
 .PARAMETER Tool
     Целевой инструмент: kilo | claude | codex | openworks
@@ -70,7 +70,7 @@ if (-not (Test-Path "$repo\core\agents")) {
 $config = @{
     kilo = @{ skillDir=".kilo/skills"; agentDir=".kilo/agent"; contextDir=".kilo/context"; logsDir=".kilo/logs"; rootConfig="kilo.json"; instructionsInRoot=$true; copySkills=$true; copyAgents=$true }
     claude = @{ skillDir=".claude/skills"; agentDir=".claude/agents"; contextDir=".claude/context"; logsDir=".claude/logs"; rootConfig="CLAUDE.md"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
-    openworks = @{ skillDir=".opencode/skills"; agentDir=".opencode/agents"; contextDir=".opencode/context"; logsDir=".opencode/logs"; rootConfig="openworks.json"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
+    openworks = @{ skillDir=".opencode/skills"; agentDir=".opencode/agents"; contextDir=".opencode/context"; logsDir=".opencode/logs"; rootConfig="opencode.json"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
     codex = @{ skillDir="skills"; agentDir="agents"; contextDir="context"; logsDir="logs"; rootConfig="AGENTS.md"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
 }[$Tool]
 
@@ -80,8 +80,11 @@ $skills = $config.skillDir
 $agents = $config.agentDir
 
 # --- Защищённые файлы: никогда не перезаписывать без явного разрешения ---
+# opencode.json — настоящий root config OpenWork/OpenCode (project-level configuration).
+# openworks.json — legacy-имя прошлых установок: остаётся в защите для обратной совместимости,
+# активным root config больше не считается.
 $PROTECTED_ROOT_FILES = @(
-    "AGENTS.md", "CLAUDE.md", "INSTRUCTIONS.md", "kilo.json", "openworks.json",
+    "AGENTS.md", "CLAUDE.md", "INSTRUCTIONS.md", "kilo.json", "opencode.json", "openworks.json",
     ".ai-rules.json", ".dev.env", ".v8-project.json", "LICENSE", "specs/README.md"
 )
 
@@ -96,7 +99,7 @@ $OVERLAY_NEVER_WRITE = @(
 )
 # Корневые конфиги: override только с -Force (с бэкапом); add разрешён (если файла нет)
 $OVERLAY_PROTECTED_ROOT = @(
-    "AGENTS.md", "CLAUDE.md", "INSTRUCTIONS.md", "kilo.json", "openworks.json",
+    "AGENTS.md", "CLAUDE.md", "INSTRUCTIONS.md", "kilo.json", "opencode.json", "openworks.json",
     "specs/README.md"
 )
 
@@ -231,14 +234,15 @@ function Test-ShouldOverwrite($relPath) {
     if ($LICENSE_NEVER_OVERWRITE -contains $relPath) {
         return $false
     }
-    # Защищённые корневые файлы в install-режиме — не перезаписывать без -Force
-    if ($script:Mode -eq "install" -and -not $script:Force) {
-        if ($PROTECTED_ROOT_FILES -contains $relPath) {
-            $fullPath = Join-Path $script:Target $relPath
-            if (Test-Path $fullPath) {
+    # Защищённые корневые файлы в install-режиме — не перезаписывать молча;
+    # с -Force перезапись выполняется через backup-ветку Safe-CopyFile (backup → harness config)
+    if ($script:Mode -eq "install" -and $PROTECTED_ROOT_FILES -contains $relPath) {
+        $fullPath = Join-Path $script:Target $relPath
+        if (Test-Path $fullPath) {
+            if (-not $script:Force) {
                 Write-Host "    skip (protected, exists): $relPath"
-                return $false
             }
+            return $false
         }
     }
     # update-режим: user-modified файлы сохраняются без -Force
@@ -574,11 +578,16 @@ if (Test-Path $projCtxExamplePath) {
     $hash = (Get-FileHash -LiteralPath $projCtxExamplePath -Algorithm SHA256).Hash
     $files += [PSCustomObject]@{ path="examples/project-context.example.md"; source="examples/project-context.example.md"; installedHash=$hash; userModified=$false }
 }
-# Корневой конфиг
+# Корневой конфиг: hash берётся из ШАБЛОНА (source), а не из установленного файла.
+# Существующий пользовательский root config (protected-skip) в манифесте получает
+# hash своего источника → при update расценивается как user-modified → не затирается.
 $rootConfigPath = Join-Path $Target $config.rootConfig
 if (Test-Path $rootConfigPath) {
-    $hash = (Get-FileHash -LiteralPath $rootConfigPath -Algorithm SHA256).Hash
-    $files += [PSCustomObject]@{ path=$config.rootConfig; source="adapters/$Tool/$($config.rootConfig).tpl"; installedHash=$hash; userModified=$false }
+    $rootConfigTpl = "$repo\adapters\$Tool\$($config.rootConfig).tpl"
+    if (Test-Path $rootConfigTpl) {
+        $hash = (Get-FileHash -LiteralPath $rootConfigTpl -Algorithm SHA256).Hash
+        $files += [PSCustomObject]@{ path=$config.rootConfig; source="adapters/$Tool/$($config.rootConfig).tpl"; installedHash=$hash; userModified=$false }
+    }
 }
 # .dev.env
 if (Test-Path $devEnvPath) {

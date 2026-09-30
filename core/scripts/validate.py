@@ -1197,21 +1197,26 @@ def check_installer_smoke(rep: Report, skip_smoke: bool) -> None:
                     content = reviewer.read_text(encoding="utf-8-sig", errors="replace")
                     if not _parse_frontmatter(content):
                         issues.append("frontmatter .opencode/agents/1c-reviewer.md пустой/двойной (8.9)")
-                # E: openworks.json (default agent 1c-do + v8std MCP) устанавливается installer-ом
-                owj = tdp / "openworks.json"
-                if not owj.exists():
-                    issues.append("нет openworks.json (default agent / tool config)")
+                # E: opencode.json — настоящий root config OpenWork/OpenCode (не openworks.json)
+                ocj = tdp / "opencode.json"
+                if not ocj.exists():
+                    issues.append("нет opencode.json (root config OpenWork)")
                 else:
                     try:
-                        owj_data = json.loads(owj.read_text(encoding="utf-8-sig", errors="replace"))
+                        ocj_data = json.loads(ocj.read_text(encoding="utf-8-sig", errors="replace"))
                     except Exception as e:
-                        issues.append(f"openworks.json не парсится: {e}")
-                        owj_data = {}
-                    if owj_data.get("default_agent") != "1c-do":
-                        issues.append("openworks.json без default_agent = 1c-do")
-                    mcp_v8std = ((owj_data.get("mcp") or {}).get("v8std") or {})
+                        issues.append(f"opencode.json не парсится: {e}")
+                        ocj_data = {}
+                    if ocj_data.get("default_agent") != "1c-do":
+                        issues.append("opencode.json без default_agent = 1c-do")
+                    instr = ocj_data.get("instructions") or []
+                    if not instr or not all(str(i).startswith(".opencode/context/") for i in instr):
+                        issues.append("opencode.json instructions не указывают на .opencode/context/")
+                    mcp_v8std = ((ocj_data.get("mcp") or {}).get("v8std") or {})
                     if mcp_v8std.get("url") != "https://ai.v8std.ru/mcp" or not mcp_v8std.get("enabled"):
-                        issues.append("openworks.json без корректной регистрации v8std MCP")
+                        issues.append("opencode.json без корректной регистрации v8std MCP")
+                if (tdp / "openworks.json").exists():
+                    issues.append("install создал openworks.json (legacy-имя; активный root config — opencode.json)")
                 # E: повторная установка идемпотентна (protected root config не ломает install)
                 r2 = subprocess.run(
                     [pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
@@ -1222,8 +1227,8 @@ def check_installer_smoke(rep: Report, skip_smoke: bool) -> None:
                     issues.append(f"повторная установка не идемпотентна (exit={r2.returncode})")
                 elif not (tdp / ".opencode" / "agents" / "1c-do.md").exists():
                     issues.append("повторная установка потеряла .opencode/agents/1c-do.md")
-                elif not (tdp / "openworks.json").exists():
-                    issues.append("повторная установка потеряла openworks.json")
+                elif not (tdp / "opencode.json").exists():
+                    issues.append("повторная установка потеряла opencode.json")
             elif tool == "codex":
                 if not (tdp / "agents" / "1c-reviewer.md").exists():
                     issues.append("нет agents/1c-reviewer.md")
@@ -1231,6 +1236,95 @@ def check_installer_smoke(rep: Report, skip_smoke: bool) -> None:
                 rep.error(f"smoke {tool}: " + "; ".join(issues))
             else:
                 rep.ok(f"smoke install -Tool {tool}: OK (frontmatter проверен)")
+
+
+def check_openworks_user_config_protection(rep: Report, skip: bool) -> None:
+    """OpenWork protected root config (opencode.json) — safety-семантика installer-а.
+
+    1. install без -Force поверх существующего пользовательского opencode.json —
+       конфиг не затирается, backup не создаётся;
+    2. install -Force — создаётся backup пользовательского конфига, затем
+       устанавливается harness config (default_agent = 1c-do);
+    3. update после пользовательской модификации (user-modified) — изменения сохранены.
+    """
+    if skip:
+        rep.warn("openworks-user-config: пропущен (--skip-smoke)")
+        return
+    install_ps1 = ROOT / "install" / "install.ps1"
+    if not IS_SOURCE_REPO or not install_ps1.exists():
+        rep.ok("openworks-user-config: пропущен (не source repo / нет install.ps1)")
+        return
+    pwsh = shutil.which("powershell") or shutil.which("pwsh")
+    if not pwsh:
+        rep.error("openworks-user-config: PowerShell не найден — проверка пропущена, успех не объявляется")
+        return
+    USER_MARKER = "openworks-user-config-protected-marker"
+    user_cfg = {"default_agent": "my-agent", "custom": USER_MARKER}
+    with tempfile.TemporaryDirectory(prefix="ow_usercfg_") as td:
+        tdp = Path(td)
+        ocj = tdp / "opencode.json"
+        ocj.write_text(json.dumps(user_cfg, indent=2), encoding="utf-8")
+
+        def _run(*extra):
+            return subprocess.run(
+                [pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(install_ps1),
+                 "-Tool", "openworks", "-Target", str(tdp), *extra],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                cwd=str(ROOT), timeout=600)
+
+        # 1. install без -Force: пользовательский конфиг нетронут
+        r = _run()
+        try:
+            kept = json.loads(ocj.read_text(encoding="utf-8-sig", errors="replace"))
+        except Exception:
+            kept = {}
+        if r.returncode == 0 and kept.get("custom") == USER_MARKER and kept.get("default_agent") == "my-agent":
+            rep.ok("openworks-user-config: install без -Force сохраняет пользовательский opencode.json")
+        else:
+            rep.error(f"openworks-user-config: install без -Force затёр/сломал конфиг (exit={r.returncode})")
+        if list(tdp.glob("opencode.json.bak*")):
+            rep.error("openworks-user-config: backup создан без -Force (не должно быть)")
+        else:
+            rep.ok("openworks-user-config: без -Force backup не создаётся (конфиг не тронут)")
+
+        # 2. -Force: backup пользовательского конфига + harness config
+        r2 = _run("-Force")
+        baks = sorted(tdp.glob("opencode.json.bak*"))
+        harness_ok = False
+        try:
+            new_cfg = json.loads(ocj.read_text(encoding="utf-8-sig", errors="replace"))
+            harness_ok = new_cfg.get("default_agent") == "1c-do"
+        except Exception:
+            harness_ok = False
+        backup_ok = False
+        if baks:
+            try:
+                bak = json.loads(baks[0].read_text(encoding="utf-8-sig", errors="replace"))
+                backup_ok = bak.get("custom") == USER_MARKER
+            except Exception:
+                backup_ok = False
+        if r2.returncode == 0 and harness_ok and baks and backup_ok:
+            rep.ok("openworks-user-config: -Force → backup пользовательского конфига + harness config")
+        else:
+            rep.error(f"openworks-user-config: -Force некорректен "
+                      f"(exit={r2.returncode}, harness={harness_ok}, backup={backup_ok}, baks={len(baks)})")
+
+        # 3. update после пользовательской модификации — изменения сохранены
+        try:
+            cur = json.loads(ocj.read_text(encoding="utf-8-sig", errors="replace"))
+        except Exception:
+            cur = {}
+        cur["user_tweak"] = "keep-me"
+        ocj.write_text(json.dumps(cur, indent=2), encoding="utf-8")
+        r3 = _run("-Mode", "update")
+        try:
+            after = json.loads(ocj.read_text(encoding="utf-8-sig", errors="replace"))
+        except Exception:
+            after = {}
+        if r3.returncode == 0 and after.get("user_tweak") == "keep-me":
+            rep.ok("openworks-user-config: update сохраняет user-modified opencode.json")
+        else:
+            rep.error(f"openworks-user-config: update затёр user-modified конфиг (exit={r3.returncode})")
 
 
 def _parse_frontmatter(content: str) -> dict:
@@ -2576,8 +2670,10 @@ def check_pilot_release_regression(rep: Report) -> None:
        офлайн-семантика WARN (DEGRADED), не FAIL (pure v8std_status, без сети);
     D. no-source/no-DB readiness — статические маркеры doctor (behavioral — в
        check_capability_model);
-    E. OpenWork default agent: install.ps1 rootConfig=openworks.json, tpl содержит
-       default_agent 1c-do (smoke/идемпотентность — в check_installer_smoke);
+    E. OpenWork default agent: install.ps1 rootConfig=opencode.json (настоящий OpenCode
+       project config), tpl opencode.json.tpl содержит default_agent 1c-do
+       (smoke/идемпотентность — в check_installer_smoke; protected/Force/update —
+       в check_openworks_user_config_protection);
     F. summary/context — не исчерпывающий каталог (см. project-sources.md + analyst).
     """
     if not IS_SOURCE_REPO:
@@ -2653,7 +2749,7 @@ def check_pilot_release_regression(rep: Report) -> None:
             rep.error(f"pilot-release B: 1c-do.md не содержит «{label}» (marker: {marker[:50]})")
 
     # --- C. v8std registration + семантика ---
-    for rel in ("adapters/kilo/kilo.json.tpl", "adapters/openworks/openworks.json.tpl"):
+    for rel in ("adapters/kilo/kilo.json.tpl", "adapters/openworks/opencode.json.tpl"):
         p = ROOT / rel
         if not p.exists():
             rep.error(f"pilot-release C: {rel} не найден")
@@ -2731,20 +2827,31 @@ def check_pilot_release_regression(rep: Report) -> None:
     # --- E. OpenWork default agent (статические; smoke — в check_installer_smoke) ---
     ips = ROOT / "install" / "install.ps1"
     ips_text = ips.read_text(encoding="utf-8", errors="replace") if ips.exists() else ""
-    if 'rootConfig="openworks.json"' in ips_text:
-        rep.ok("pilot-release E: install.ps1 устанавливает openworks.json (rootConfig)")
+    if 'rootConfig="opencode.json"' in ips_text:
+        rep.ok("pilot-release E: install.ps1 устанавливает opencode.json (rootConfig)")
     else:
-        rep.error("pilot-release E: install.ps1 не устанавливает openworks.json (rootConfig не задан)")
-    ow_tpl = ROOT / "adapters" / "openworks" / "openworks.json.tpl"
-    if ow_tpl.exists():
+        rep.error("pilot-release E: install.ps1 не устанавливает opencode.json (rootConfig не задан)")
+    if 'rootConfig="openworks.json"' in ips_text:
+        rep.error("pilot-release E: install.ps1 всё ещё использует openworks.json как rootConfig (legacy-имя)")
+    oc_tpl = ROOT / "adapters" / "openworks" / "opencode.json.tpl"
+    if oc_tpl.exists():
+        rep.ok("pilot-release E: opencode.json.tpl существует (exact template для rootConfig.tpl)")
+    else:
+        rep.error("pilot-release E: opencode.json.tpl не найден (installer упадёт в fallback 'первый *.tpl')")
+    ow_tpl_legacy = ROOT / "adapters" / "openworks" / "openworks.json.tpl"
+    if ow_tpl_legacy.exists():
+        rep.error("pilot-release E: legacy openworks.json.tpl остался (двусмысленность имён)")
+    else:
+        rep.ok("pilot-release E: legacy openworks.json.tpl удалён")
+    if oc_tpl.exists():
         try:
-            ow = json.loads(ow_tpl.read_text(encoding="utf-8-sig", errors="replace"))
+            ow = json.loads(oc_tpl.read_text(encoding="utf-8-sig", errors="replace"))
             if ow.get("default_agent") == "1c-do":
-                rep.ok("pilot-release E: openworks.json.tpl задаёт default_agent = 1c-do")
+                rep.ok("pilot-release E: opencode.json.tpl задаёт default_agent = 1c-do")
             else:
-                rep.error("pilot-release E: openworks.json.tpl без default_agent = 1c-do")
+                rep.error("pilot-release E: opencode.json.tpl без default_agent = 1c-do")
         except Exception as e:
-            rep.error(f"pilot-release E: openworks.json.tpl не парсится: {e}")
+            rep.error(f"pilot-release E: opencode.json.tpl не парсится: {e}")
     # kilo.json.tpl тоже остаётся с default agent (не сломан)
     kilo_tpl = ROOT / "adapters" / "kilo" / "kilo.json.tpl"
     if kilo_tpl.exists():
@@ -2819,9 +2926,10 @@ def _overlay_assert_tool(rep: Report, t1: Path, tool: str, readf, sha256f, mark:
         issues.append("LICENSE записан overlay (never-write нарушен)")
     # protected root config: содержимое base (tpl), не overlay.
     # base пишет rootConfig для всех 4 адаптеров (kilo.json, CLAUDE.md, AGENTS.md,
-    # openworks.json — default agent 1c-do); overlay override только с -Force
+    # opencode.json — OpenWork/OpenCode project config, default agent 1c-do);
+    # overlay override только с -Force
     base_root_config = {"kilo": "kilo.json", "claude": "CLAUDE.md", "codex": "AGENTS.md",
-                        "openworks": "openworks.json"}.get(tool)
+                        "openworks": "opencode.json"}.get(tool)
     if base_root_config:
         tpl = ROOT / "adapters" / tool / f"{base_root_config}.tpl"
         if tpl.exists() and (t1 / base_root_config).exists():
@@ -2913,7 +3021,7 @@ def check_overlay_contract(rep: Report, skip: bool) -> None:
         (od / "LICENSE").write_text(f"PRIVATE {MARK}\n", encoding="utf-8")
         (od / "context").mkdir(parents=True)
         (od / "context" / "placeholder-test.md").write_text("path={{CONTEXT_DIR}}/x\n", encoding="utf-8")
-        prot = {"kilo": "kilo.json", "claude": "CLAUDE.md", "openworks": "openworks.json", "codex": "AGENTS.md"}[tool]
+        prot = {"kilo": "kilo.json", "claude": "CLAUDE.md", "openworks": "opencode.json", "codex": "AGENTS.md"}[tool]
         tool_dir = od / "tool" / tool
         tool_dir.mkdir(parents=True)
         (tool_dir / prot).write_text(f'{{ "marker": "{MARK}-PROTECTED" }}\n', encoding="utf-8")
@@ -3209,6 +3317,7 @@ def main() -> int:
     check_scope_hash_permissions(rep)
     check_bsl_comment_regression(rep)
     check_installer_smoke(rep, args.skip_smoke)
+    check_openworks_user_config_protection(rep, args.skip_smoke)
     check_overlay_contract(rep, args.skip_smoke)
 
     print("\n=== VALIDATION REPORT ===")

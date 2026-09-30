@@ -166,7 +166,7 @@ profile (`{{CONTEXT_DIR}}/rules/project-sources.md`), разрешены как 
 ```
 <корень>/
 ├── INSTRUCTIONS.md                        — общий (схемный) контекст
-├── <root-config>                          — kilo.json | CLAUDE.md | openworks.json | AGENTS.md (корневой конфиг инструмента)
+├── <root-config>                          — kilo.json | CLAUDE.md | opencode.json | AGENTS.md (корневой конфиг инструмента)
 ├── .v8-project.json                       — реестр информационных баз (project↔БД; environment + env-секреты; читают db-* скиллы)
 ├── <AGENTS_DIR>/                          — каталог агентов инструмента (.kilo/agent | .claude/agents | .opencode/agents | agents)
 │   ├── 1c-do.md                           — точка входа / маршрутизатор + SDD-оркестратор
@@ -250,7 +250,7 @@ profile (`{{CONTEXT_DIR}}/rules/project-sources.md`), разрешены как 
 ## Правка конфигурации агентов
 
 Файлы `{{AGENTS_DIR}}/**`, `AGENTS.md`, `INSTRUCTIONS.md`, корневой конфиг инструмента
-(`kilo.json` / `CLAUDE.md` / `openworks.json`) — конфигурация агентской схемы.
+(`kilo.json` / `CLAUDE.md` / `opencode.json`) — конфигурация агентской схемы.
 **Их правит только пользователь вручную вне сессии агента.**
 
 - Агенты не должны редактировать эти файлы (явный `deny` в правах `edit` +
