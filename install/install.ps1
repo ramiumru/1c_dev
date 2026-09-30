@@ -70,7 +70,7 @@ if (-not (Test-Path "$repo\core\agents")) {
 $config = @{
     kilo = @{ skillDir=".kilo/skills"; agentDir=".kilo/agent"; contextDir=".kilo/context"; logsDir=".kilo/logs"; rootConfig="kilo.json"; instructionsInRoot=$true; copySkills=$true; copyAgents=$true }
     claude = @{ skillDir=".claude/skills"; agentDir=".claude/agents"; contextDir=".claude/context"; logsDir=".claude/logs"; rootConfig="CLAUDE.md"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
-    openworks = @{ skillDir=".opencode/skills"; agentDir=".opencode/agents"; contextDir=".opencode/context"; logsDir=".opencode/logs"; rootConfig=""; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
+    openworks = @{ skillDir=".opencode/skills"; agentDir=".opencode/agents"; contextDir=".opencode/context"; logsDir=".opencode/logs"; rootConfig="openworks.json"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
     codex = @{ skillDir="skills"; agentDir="agents"; contextDir="context"; logsDir="logs"; rootConfig="AGENTS.md"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
 }[$Tool]
 

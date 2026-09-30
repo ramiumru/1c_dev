@@ -22,12 +22,19 @@ doctor.py — безопасная диагностика локальной у�
       Development-ready — Analysis-ready + локальный project source (projects/<src>/src/**);
       Apply-ready      — Development-ready + корректная запись БД в .v8-project.json
                          (допустимый environment + зарегистрированная база) + safety requirements.
-    Отсутствие source/БД — не FAIL: соответствующая capability = NO (WARN). Установка без
-    projects/ и .v8-project.json легитимна (режим analysis/artifact).
+      Отсутствие source/БД — не FAIL: соответствующая capability = NO (WARN). Установка без
+      projects/ и .v8-project.json легитимна (режим analysis/artifact);
+  - внешний standards MCP `v8std` (https://ai.v8std.ru/mcp, публичный сторонний сервис):
+      configured + reachable → OK; NOT CONFIGURED → info (опционален);
+      configured + временно недоступен → WARN (DEGRADED), harness остаётся установленным.
+      Внешний сервис не является частью установки: его недоступность НЕ даёт FAIL и
+      не «чинится» автоматически. Сетевая проверка выполняется только если v8std
+      сконфигурирован; отключается флагом --no-network.
 
 Запуск:
   python scripts/doctor.py
   python scripts/doctor.py --root <путь к установленной раскладке>  (диагностика целевого каталога)
+  python scripts/doctor.py --no-network  (без сетевой проверки v8std)
 
 Exit codes:
   0 — проверка пройдена (или только предупреждения)
@@ -76,6 +83,68 @@ ADAPTERS = {
 }
 ALLOWED_ENVS = {"local", "test", "staging"}
 
+V8STD_URL = "https://ai.v8std.ru/mcp"
+V8STD_PROBE_TIMEOUT = 5.0
+# Root-config файлы, в которых может быть зарегистрирован v8std (mcp-секция)
+V8STD_CONFIG_CANDIDATES = (
+    "kilo.json", "kilo.jsonc", "openworks.json",
+    ".kilo/kilo.json", ".kilo/kilo.jsonc",
+    ".opencode/openworks.json", ".opencode/openworks.jsonc",
+)
+
+
+def v8std_status(configured: bool, probe: str) -> tuple:
+    """Статус внешнего standards MCP v8std. Pure-функция (без сети).
+
+    configured: зарегистрирован ли v8std в root-config (mcp-секция).
+    probe: 'ok' | 'down' | 'skipped' (сетевая проверка отключена/не выполнялась).
+    Возвращает (level, message): level — 'ok' | 'warn' | 'info'.
+    Семантика: внешний сторонний сервис опционален; его недоступность — WARN
+    (DEGRADED), никогда FAIL: harness остаётся установленным.
+    """
+    if not configured:
+        return ("info", "v8std: NOT CONFIGURED (опциональный внешний standards MCP; "
+                       "регистрируется в root-config инструмента, mcp-секция)")
+    if probe == "ok":
+        return ("ok", "v8std: OK (configured + reachable)")
+    if probe == "skipped":
+        return ("ok", "v8std: CONFIGURED (network probe skipped)")
+    return ("warn", "v8std: DEGRADED — внешний MCP временно недоступен; "
+                    "harness остаётся установленным (WARN, не FAIL)")
+
+
+def _v8std_configured(root: Path) -> bool:
+    """v8std зарегистрирован в root-config (строковый поиск — работает и для jsonc)."""
+    for rel in V8STD_CONFIG_CANDIDATES:
+        p = root / rel
+        if not p.exists():
+            continue
+        try:
+            text = p.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            continue
+        if "v8std" in text and "ai.v8std.ru" in text:
+            return True
+    return False
+
+
+def _v8std_probe(url: str = V8STD_URL, timeout: float = V8STD_PROBE_TIMEOUT) -> str:
+    """Сетевая reachability-проверка v8std. Возвращает 'ok' | 'down'.
+
+    HTTPError (4xx/5xx) трактуется как 'ok': сервер отвечает — сервис жив,
+    метод/авторизация не относятся к reachability. Сетевые/timeout-ошибки → 'down'.
+    """
+    import urllib.error
+    import urllib.request
+    try:
+        req = urllib.request.Request(url, method="GET", headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return "ok" if 0 < getattr(resp, "status", 200) < 600 else "down"
+    except urllib.error.HTTPError:
+        return "ok"
+    except Exception:
+        return "down"
+
 
 class Doc:
     def __init__(self):
@@ -101,7 +170,7 @@ class Doc:
         self.lines.append(f"\n{m}")
 
 
-def doctor(root: Path, d: Doc) -> None:
+def doctor(root: Path, d: Doc, no_network: bool = False) -> None:
     # --- Python ---
     d.section("Python")
     d.info(f"python {platform.python_version()} ({sys.executable})")
@@ -380,13 +449,18 @@ def doctor(root: Path, d: Doc) -> None:
         return False
 
     analysis_ready = _agents_present() and _context_present() and _scripts_present()
-    development_ready = analysis_ready and _source_present()
-    apply_ready = development_ready and _db_ready()
+    source_present = _source_present()
+    db_ready = _db_ready()
+    development_ready = analysis_ready and source_present
+    apply_ready = development_ready and db_ready
 
     if analysis_ready:
         d.ok("Analysis-ready: YES (агенты + контекст + скрипты; source checkout и БД не требуются)")
     else:
         d.warn("Analysis-ready: NO — отсутствуют агенты/контекст/скрипты (см. разделы выше)")
+    # Явные строки ресурсов (installed без source/БД — легитимная MCP-only analysis-установка)
+    d.info(f"Local source: {'CONFIGURED (projects/<источник>/src/)' if source_present else 'NOT CONFIGURED'}")
+    d.info(f"Database: {'CONFIGURED (.v8-project.json)' if db_ready else 'NOT CONFIGURED'}")
     if development_ready:
         d.ok("Development-ready: YES (найден локальный project source: projects/<источник>/src/)")
     else:
@@ -399,6 +473,22 @@ def doctor(root: Path, d: Doc) -> None:
         d.warn("Apply-ready: NO — нет .v8-project.json с допустимым environment и зарегистрированной базой: "
                "apply заблокирован (analysis/development не затронуты)")
 
+    # --- External MCP: v8std (публичный сторонний standards-сервис) ---
+    # Недоступность внешнего сервиса — WARN (DEGRADED), не FAIL; harness остаётся установленным.
+    # Сетевая проверка — только если v8std сконфигурирован; --no-network её отключает.
+    d.section("External MCP (v8std)")
+    configured = _v8std_configured(root)
+    probe = "skipped"
+    if configured and not no_network:
+        probe = _v8std_probe(V8STD_URL, V8STD_PROBE_TIMEOUT)
+    level, msg = v8std_status(configured, probe)
+    if level == "ok":
+        d.ok(msg)
+    elif level == "warn":
+        d.warn(msg)
+    else:
+        d.info(msg)
+
 
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
@@ -407,12 +497,14 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(prog="doctor.py", description="Безопасная диагностика локальной установки 1C Dev (без 1С, без секретов).")
     parser.add_argument("--root", default=str(DEFAULT_ROOT), help="Корень раскладки (по умолчанию — рядом со скриптом)")
+    parser.add_argument("--no-network", action="store_true",
+                        help="Не выполнять сетевую проверку внешнего v8std MCP (офлайн-режим)")
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
     d = Doc()
     print(f"=== doctor: {root} ===")
-    doctor(root, d)
+    doctor(root, d, no_network=args.no_network)
     print("\n".join(d.lines))
     print(f"\n=== Итог: FAIL={d.errors}, WARN={d.warns} ===")
     if d.errors:

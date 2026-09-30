@@ -1197,6 +1197,33 @@ def check_installer_smoke(rep: Report, skip_smoke: bool) -> None:
                     content = reviewer.read_text(encoding="utf-8-sig", errors="replace")
                     if not _parse_frontmatter(content):
                         issues.append("frontmatter .opencode/agents/1c-reviewer.md пустой/двойной (8.9)")
+                # E: openworks.json (default agent 1c-do + v8std MCP) устанавливается installer-ом
+                owj = tdp / "openworks.json"
+                if not owj.exists():
+                    issues.append("нет openworks.json (default agent / tool config)")
+                else:
+                    try:
+                        owj_data = json.loads(owj.read_text(encoding="utf-8-sig", errors="replace"))
+                    except Exception as e:
+                        issues.append(f"openworks.json не парсится: {e}")
+                        owj_data = {}
+                    if owj_data.get("default_agent") != "1c-do":
+                        issues.append("openworks.json без default_agent = 1c-do")
+                    mcp_v8std = ((owj_data.get("mcp") or {}).get("v8std") or {})
+                    if mcp_v8std.get("url") != "https://ai.v8std.ru/mcp" or not mcp_v8std.get("enabled"):
+                        issues.append("openworks.json без корректной регистрации v8std MCP")
+                # E: повторная установка идемпотентна (protected root config не ломает install)
+                r2 = subprocess.run(
+                    [pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                     str(ROOT / "install" / "install.ps1"), "-Tool", "openworks", "-Target", td],
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(ROOT),
+                )
+                if r2.returncode != 0:
+                    issues.append(f"повторная установка не идемпотентна (exit={r2.returncode})")
+                elif not (tdp / ".opencode" / "agents" / "1c-do.md").exists():
+                    issues.append("повторная установка потеряла .opencode/agents/1c-do.md")
+                elif not (tdp / "openworks.json").exists():
+                    issues.append("повторная установка потеряла openworks.json")
             elif tool == "codex":
                 if not (tdp / "agents" / "1c-reviewer.md").exists():
                     issues.append("нет agents/1c-reviewer.md")
@@ -2329,11 +2356,14 @@ def check_capability_model(rep: Report) -> None:
         ("Analysis-ready: YES", "analysis работает без src/БД"),
         ("Development-ready: NO", "отсутствие source → NO (WARN)"),
         ("Apply-ready: NO", "отсутствие БД → NO (WARN)"),
+        ("Local source: NOT CONFIGURED", "явная строка local source (no-source установка легитимна)"),
+        ("Database: NOT CONFIGURED", "явная строка database (no-DB установка легитимна)"),
+        ("v8std: NOT CONFIGURED", "v8std не настроен → info (опционален, не FAIL)"),
     ):
         if marker in out:
             rep.ok(f"capability-model: doctor выводит «{marker}» ({label})")
         else:
-            rep.error(f"capability-model: doctor не выводит «{marker}»")
+            rep.error(f"capability-model: doctor не выводит «{marker}» ({label})")
 
 
 def check_baseline_policy(rep: Report) -> None:
@@ -2531,6 +2561,224 @@ def check_no_hardcoded_model(rep: Report) -> None:
         rep.ok("hardcoded-model: public repo не содержит GLM/z-ai model references (model-neutral)")
 
 
+# ==================== PILOT RELEASE REGRESSION (task_1: 6 разделов) ====================
+
+
+def check_pilot_release_regression(rep: Report) -> None:
+    """Regression checks релизной итерации public harness по результатам пилота.
+
+    Статические инварианты конфигурации/instructions (не NLP, точные маркеры):
+    A. Developer: generic self-verification step (implementation + artifact-only), без
+       SDD-требования для artifact и без расширения прав;
+    B. Routing-first у 1c-do: intent → исполнитель → делегирование → orchestration,
+       раннее делегирование analyst для analysis, известный контекст сохранён;
+    C. v8std: registration в public tool-конфигах, доступ только нужным агентам,
+       офлайн-семантика WARN (DEGRADED), не FAIL (pure v8std_status, без сети);
+    D. no-source/no-DB readiness — статические маркеры doctor (behavioral — в
+       check_capability_model);
+    E. OpenWork default agent: install.ps1 rootConfig=openworks.json, tpl содержит
+       default_agent 1c-do (smoke/идемпотентность — в check_installer_smoke);
+    F. summary/context — не исчерпывающий каталог (см. project-sources.md + analyst).
+    """
+    if not IS_SOURCE_REPO:
+        return
+
+    # --- A. Developer self-verification step ---
+    dv = ROOT / "core" / "rules" / "developer-verification.md"
+    dv_text = dv.read_text(encoding="utf-8", errors="replace") if dv.exists() else ""
+    dv_checks = [
+        ("generic-секция", "Self-verification перед выдачей результата"),
+        ("применимо к artifact-only", "artifact-only"),
+        ("реальные сигнатуры (не память)", "не по памяти"),
+        ("обязательные параметры", "Обязательные параметры"),
+        ("Экспорт/доступность", "`Экспорт`"),
+        ("клиент/сервер", "Клиент/сервер"),
+        ("конструкции языка запросов", "языка запросов"),
+        ("справочные источники при неуверенности", "Не уверен в API/конструкции"),
+        ("не превращать в review-flow", "не разворачивать в отдельный"),
+    ]
+    for label, marker in dv_checks:
+        if marker in dv_text:
+            rep.ok(f"pilot-release A: developer-verification.md содержит «{label}»")
+        else:
+            rep.error(f"pilot-release A: developer-verification.md не содержит «{label}» (marker: {marker[:50]})")
+
+    dev = ROOT / "core" / "agents" / "1c-developer.md"
+    dev_text = dev.read_text(encoding="utf-8", errors="replace") if dev.exists() else ""
+    for label, marker in [
+        ("self-verification в implementation (шаг 10)", "Self-verification перед выдачей результата (generic)"),
+        ("self-verification в artifact-режиме", "Self-verification перед выдачей артефакта"),
+        ("artifact-режим без SDD не сломан", "SDD spec/task-папка в этом режиме не требуются"),
+        ("implementation flow: сверка 3 уровня", "Сверка BSL (3 уровня, level обязателен всегда)"),
+        ("implementation flow: bsl-check на месте", "bsl-check.py"),
+        ("gate: approved для task-папки не ослаблен", "status ≠ approved"),
+    ]:
+        if marker in dev_text:
+            rep.ok(f"pilot-release A: 1c-developer.md содержит «{label}»")
+        else:
+            rep.error(f"pilot-release A: 1c-developer.md не содержит «{label}» (marker: {marker[:50]})")
+
+    # A: developer-verification не расширяет права (без DB/apply-инструкций и новых bash-команд)
+    if "safe_apply" in dv_text or "db-load" in dv_text:
+        rep.error("pilot-release A: developer-verification.md содержит правки-вне-scope (safe_apply/db-load)")
+    else:
+        rep.ok("pilot-release A: developer-verification.md без расширения прав (safe_apply/db-load отсутствуют)")
+
+    # A: developer не получил лишних MCP-прав — flat aliases ровно code/platform_help/v8std/standards
+    # (полная матрица — в check_mcp_permissions_flat; здесь защита от случайного добавления v8std-соседей)
+    for tool in ("kilo", "openworks"):
+        yml = ROOT / "adapters" / tool / "frontmatter" / "1c-developer.yml"
+        if not yml.exists():
+            continue
+        t = yml.read_text(encoding="utf-8", errors="replace")
+        if '"metadata_*"' in t:
+            rep.error(f"pilot-release A: {tool}/1c-developer.yml получил metadata_* (лишние права)")
+        else:
+            rep.ok(f"pilot-release A: {tool}/1c-developer.yml без metadata_* (права не расширены)")
+
+    # --- B. Routing-first у 1c-do ---
+    do_md = ROOT / "core" / "agents" / "1c-do.md"
+    do_text = do_md.read_text(encoding="utf-8", errors="replace") if do_md.exists() else ""
+    for label, marker in [
+        ("секция Routing-first", "Routing-first (порядок работы оркестратора)"),
+        ("порядок intent → исполнитель → делегирование → orchestration", "затем orchestration"),
+        ("analysis: раннее делегирование analyst", "делегирование `1c-analyst`"),
+        ("не исследовать домен самостоятельно", "не «знакомится с"),
+        ("известный контекст сохранён", "уже известный контекст"),
+        ("лишние Task-вызовы не добавляются", "лишние Task-вызовы не добавляются"),
+    ]:
+        if marker in do_text:
+            rep.ok(f"pilot-release B: 1c-do.md содержит «{label}»")
+        else:
+            rep.error(f"pilot-release B: 1c-do.md не содержит «{label}» (marker: {marker[:50]})")
+
+    # --- C. v8std registration + семантика ---
+    for rel in ("adapters/kilo/kilo.json.tpl", "adapters/openworks/openworks.json.tpl"):
+        p = ROOT / rel
+        if not p.exists():
+            rep.error(f"pilot-release C: {rel} не найден")
+            continue
+        try:
+            data = json.loads(p.read_text(encoding="utf-8-sig", errors="replace"))
+        except Exception as e:
+            rep.error(f"pilot-release C: {rel} не парсится: {e}")
+            continue
+        v8 = (data.get("mcp") or {}).get("v8std") or {}
+        if v8.get("type") == "remote" and v8.get("url") == "https://ai.v8std.ru/mcp" and v8.get("enabled") is True:
+            rep.ok(f"pilot-release C: {rel} регистрирует v8std (remote, ai.v8std.ru/mcp, enabled)")
+        else:
+            rep.error(f"pilot-release C: {rel} без корректной регистрации v8std MCP")
+
+    # C: v8std-прав нет у do/tools/applier (не раздаём MCP всем)
+    for agent in ("1c-do", "1c-tools", "1c-applier"):
+        for tool in ("kilo", "openworks"):
+            yml = ROOT / "adapters" / tool / "frontmatter" / f"{agent}.yml"
+            if not yml.exists():
+                continue
+            t = yml.read_text(encoding="utf-8", errors="replace")
+            if "v8std" in t:
+                rep.error(f"pilot-release C: {tool}/{agent}.yml упоминает v8std (MCP не для этого агента)")
+            else:
+                rep.ok(f"pilot-release C: {tool}/{agent}.yml без v8std-доступа")
+
+    # C: офлайн-семантика v8std_status (pure, без сети) — недоступность = WARN, не FAIL
+    doctor_path = ROOT / "core" / "scripts" / "doctor.py"
+    try:
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location("_doctor_mod_pilot", doctor_path)
+        _mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        status_cases = [
+            (False, "skipped", "info", "not configured → info"),
+            (False, "down", "info", "not configured (probe не выполнялся) → info"),
+            (True, "ok", "ok", "configured + reachable → OK"),
+            (True, "skipped", "ok", "configured + probe skipped → OK"),
+            (True, "down", "warn", "configured + unreachable → WARN (DEGRADED)"),
+        ]
+        for configured, probe, expected, label in status_cases:
+            level, msg = _mod.v8std_status(configured, probe)
+            if level == expected:
+                rep.ok(f"pilot-release C: v8std_status {label}")
+            else:
+                rep.error(f"pilot-release C: v8std_status {label} → level={level} (ожидался {expected})")
+        level, msg = _mod.v8std_status(True, "down")
+        if "DEGRADED" in msg and "не FAIL" in msg:
+            rep.ok("pilot-release C: unreachable → DEGRADED/WARN, harness остаётся установленным")
+        else:
+            rep.error("pilot-release C: unreachable-сообщение не фиксирует WARN/не-FAIL семантику")
+        # probe — функция с timeout и try/except (внешний сервис не обязателен для установки)
+        src = doctor_path.read_text(encoding="utf-8", errors="replace")
+        if "--no-network" in src and "urllib" in src:
+            rep.ok("pilot-release C: doctor.py поддерживает --no-network и timeout-probe")
+        else:
+            rep.error("pilot-release C: doctor.py без --no-network/probe (офлайн-режим)")
+    except Exception as e:
+        rep.error(f"pilot-release C: не удалось импортировать doctor.py для v8std-тестов: {e}")
+
+    # --- D. no-source / no-DB readiness (статические маркеры) ---
+    doctor_src = doctor_path.read_text(encoding="utf-8", errors="replace") if doctor_path.exists() else ""
+    for label, marker in [
+        ("явная строка Local source", "Local source: "),
+        ("явная строка Database", "Database: "),
+        ("no-source — WARN-семантика capability", "не FAIL: соответствующая capability = NO (WARN)"),
+        ("v8std недоступность — WARN (DEGRADED), не FAIL", "harness остаётся установленным (WARN, не FAIL)"),
+    ]:
+        if marker in doctor_src:
+            rep.ok(f"pilot-release D: doctor.py содержит «{label}»")
+        else:
+            rep.error(f"pilot-release D: doctor.py не содержит «{label}» (marker: {marker[:50]})")
+
+    # --- E. OpenWork default agent (статические; smoke — в check_installer_smoke) ---
+    ips = ROOT / "install" / "install.ps1"
+    ips_text = ips.read_text(encoding="utf-8", errors="replace") if ips.exists() else ""
+    if 'rootConfig="openworks.json"' in ips_text:
+        rep.ok("pilot-release E: install.ps1 устанавливает openworks.json (rootConfig)")
+    else:
+        rep.error("pilot-release E: install.ps1 не устанавливает openworks.json (rootConfig не задан)")
+    ow_tpl = ROOT / "adapters" / "openworks" / "openworks.json.tpl"
+    if ow_tpl.exists():
+        try:
+            ow = json.loads(ow_tpl.read_text(encoding="utf-8-sig", errors="replace"))
+            if ow.get("default_agent") == "1c-do":
+                rep.ok("pilot-release E: openworks.json.tpl задаёт default_agent = 1c-do")
+            else:
+                rep.error("pilot-release E: openworks.json.tpl без default_agent = 1c-do")
+        except Exception as e:
+            rep.error(f"pilot-release E: openworks.json.tpl не парсится: {e}")
+    # kilo.json.tpl тоже остаётся с default agent (не сломан)
+    kilo_tpl = ROOT / "adapters" / "kilo" / "kilo.json.tpl"
+    if kilo_tpl.exists():
+        try:
+            kj = json.loads(kilo_tpl.read_text(encoding="utf-8-sig", errors="replace"))
+            if kj.get("default_agent") == "1c-do":
+                rep.ok("pilot-release E: kilo.json.tpl default_agent = 1c-do (не сломан)")
+            else:
+                rep.error("pilot-release E: kilo.json.tpl потерял default_agent = 1c-do")
+        except Exception as e:
+            rep.error(f"pilot-release E: kilo.json.tpl не парсится: {e}")
+
+    # --- F. summary/context — не исчерпывающий каталог ---
+    ps = ROOT / "core" / "rules" / "project-sources.md"
+    ps_text = ps.read_text(encoding="utf-8", errors="replace") if ps.exists() else ""
+    for label, marker in [
+        ("секция о неполноте каталога", "не исчерпывающий каталог"),
+        ("отсутствие в summary ≠ отсутствие объекта", "не является доказательством отсутствия"),
+        ("MCP-поиск до «не найдено»", "для поиска объекта до вывода «не найдено»"),
+        ("generic-формулировка источников", "configured project MCP"),
+        ("MCP-only analysis без src", "не требуется для MCP-only analysis"),
+    ]:
+        if marker in ps_text:
+            rep.ok(f"pilot-release F: project-sources.md содержит «{label}»")
+        else:
+            rep.error(f"pilot-release F: project-sources.md не содержит «{label}» (marker: {marker[:50]})")
+    an = ROOT / "core" / "agents" / "1c-analyst.md"
+    an_text = an.read_text(encoding="utf-8", errors="replace") if an.exists() else ""
+    if "не считать, что объекта нет вообще" in an_text and "не исчерпывающий каталог" in an_text:
+        rep.ok("pilot-release F: 1c-analyst.md не делает вывод «объекта нет» по отсутствию в summary")
+    else:
+        rep.error("pilot-release F: 1c-analyst.md не ссылается на принцип неполного каталога")
+
+
 # ==================== OVERLAY CONTRACT (task_8) ====================
 
 _OVERLAY_TOOL_PATHS = {
@@ -2570,18 +2818,15 @@ def _overlay_assert_tool(rep: Report, t1: Path, tool: str, readf, sha256f, mark:
     if (t1 / "LICENSE").exists():
         issues.append("LICENSE записан overlay (never-write нарушен)")
     # protected root config: содержимое base (tpl), не overlay.
-    # base пишет rootConfig только для kilo/claude/codex; для openworks rootConfig
-    # не задаётся — overlay add открыт (законный tool-config delivery, task #10)
-    base_root_config = {"kilo": "kilo.json", "claude": "CLAUDE.md", "codex": "AGENTS.md"}.get(tool)
+    # base пишет rootConfig для всех 4 адаптеров (kilo.json, CLAUDE.md, AGENTS.md,
+    # openworks.json — default agent 1c-do); overlay override только с -Force
+    base_root_config = {"kilo": "kilo.json", "claude": "CLAUDE.md", "codex": "AGENTS.md",
+                        "openworks": "openworks.json"}.get(tool)
     if base_root_config:
         tpl = ROOT / "adapters" / tool / f"{base_root_config}.tpl"
         if tpl.exists() and (t1 / base_root_config).exists():
             if readf(t1 / base_root_config) != readf(tpl):
                 issues.append(f"protected {base_root_config} заменён overlay без -Force")
-    else:
-        owj = t1 / "openworks.json"
-        if not owj.exists() or mark not in readf(owj):
-            issues.append("tool-config openworks.json не установлен (add, base его не пишет)")
     # kilo tool-config add
     if tool == "kilo":
         kjsonc = t1 / ".kilo" / "kilo.jsonc"
@@ -2952,6 +3197,7 @@ def main() -> int:
         check_capability_model(rep)
         check_baseline_policy(rep)
         check_no_hardcoded_model(rep)
+        check_pilot_release_regression(rep)
     else:
         rep.ok("license/corporate: пропущено (установленный проект — не требуется)")
     check_no_update_db(rep)
