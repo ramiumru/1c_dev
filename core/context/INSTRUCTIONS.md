@@ -174,7 +174,8 @@ profile (`{{CONTEXT_DIR}}/rules/project-sources.md`), разрешены как 
 │   ├── 1c-developer.md                    — разработчик 1С (BSL-код)
 │   ├── 1c-reviewer.md                     — независимый ревьюер (соответствие spec/scope, регрессии; mode: subagent)
 │   ├── 1c-applier.md                      — апликер (применение правок в живую ИБ, mode: all)
-│   └── 1c-tools.md                        — исполнитель утилит (summaries, mode: subagent)
+│   ├── 1c-tools.md                        — исполнитель утилит (summaries, mode: subagent)
+│   └── 1c-git-reviewer.md                — Git code review задач + dev/prod сравнение (mode: all, запуск напрямую, вне SDD)
 ├── <CONTEXT_DIR>/                         — каталог контекста инструмента (.kilo/context | .claude/context | .opencode/context | context)
 │   ├── common/                            — кросс-проектное (вопрос вне проекта)
 │   │   ├── requirements-README.md         — мета-документация по требованиям
@@ -451,7 +452,11 @@ Summaries регенерируются скриптом `scripts/build_summaries
 > изменяющие операции; source не правит; делегируется `1c-do` ТОЛЬКО по явному запросу
 > пользователя применить правки в БД (авто-вызова после SDD нет; смешанный запрос «код +
 > применить в базу» — шаг 6.6); `1c-tools` — узкий исполнитель утилит (запуск
-> `scripts/build_summaries.py` по запросу через `1c-do`, `mode: subagent`).
+> `scripts/build_summaries.py` по запросу через `1c-do`, `mode: subagent`);
+> `1c-git-reviewer` — быстрый Git code review (mode: all, запускается пользователем
+> напрямую, вне SDD-пайплайна): ревью изменений задачи в ветке dev и сравнение dev/prod
+> (PRESENT/MISSING/PARTIAL/DIFFERENT/UNCERTAIN); Git — только read-only через
+> `scripts/git_readonly.py`; не правит исходники, не коммитит, не применяет изменения в ИБ.
 > Per-project контекст (конфигурация, домен, модули, ключевые объекты) — в
 > `{{CONTEXT_DIR}}/projects/<проект>/context.md`; справочные индексы (`{{CONTEXT_DIR}}/projects/<проект>/analyst-scope.md`,
 > `{{CONTEXT_DIR}}/projects/<проект>/objects-index.md`) — не ограничение, а ускоритель поиска.
