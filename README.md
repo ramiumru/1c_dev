@@ -38,6 +38,7 @@
 - **1c-reviewer** — независимый review (соответствие spec/scope, регрессии, права/RLS, контракты); обязателен для `risk: high` и перед apply.
 - **1c-applier** — применение правок в ИБ (db-load-xml → db-update, бэкап dt), только по явному запросу, после preflight `applier_guard.py`; не работает с `production`.
 - **1c-tools** — исполнитель утилит (`build_summaries.py`), без самостоятельности.
+- **1c-git-reviewer** — быстрый Git code review по номеру задачи: ревью изменений задачи в `dev` и сравнение `dev`/`prod` (PRESENT/MISSING/PARTIAL/DIFFERENT/UNCERTAIN). Запускается пользователем напрямую, без SDD/пайплайна и тестовой базы; Git — только через read-only wrapper `scripts/git_readonly.py`.
 
 ### Spec-Driven Development (SDD)
 
@@ -67,6 +68,27 @@ review (`1c-reviewer`, `pilot-control/<TASK-ID>/review.md`) перед прим�
 В intent IMPLEMENTATION при отсутствии writable source flow завершается чистым статусом
 `Analysis completed: YES` / `Implementation: BLOCKED` / `Reason: writable project source is
 not available`, а не общим сбоем.
+
+## Как провести Code Review
+
+Быстрое ревью существующих Git-изменений — агент **1c-git-reviewer** (выбирается в списке
+агентов напрямую, без `1c-do`/SDD/пайплайна и без тестовой базы). Нужно только: локальный
+Git-репозиторий проекта с доступом к remote (SSH/HTTPS — уже настроенная авторизация
+пользователя). Незакоммиченные изменения в рабочем дереве не трогаются и в review не
+попадают; Git-доступ — только read-only через `scripts/git_readonly.py` (fetch обновляет
+лишь remote-tracking refs).
+
+Примеры запросов:
+
+- «Проведи ревью задачи 123125756» — code review изменений задачи в ветке `dev`
+  (по умолчанию); также принимает ссылку на work item.
+- «Сравни задачу 123125756 между dev и prod» — какие изменения задачи попали в `prod`
+  (статусы PRESENT/MISSING/PARTIAL/DIFFERENT/UNCERTAIN).
+- «Проверь, полностью ли перенесена задача 123125756 в prod» — перенос сверяется по
+  содержимому, а не только по SHA: перенос вручную другим коммитом распознаётся.
+
+Если remote недоступен, ревью выполняется по локальному снимку с явной пометкой об
+устаревании. Тестовая база 1С не нужна.
 
 ## Capability model (готовность)
 
@@ -135,10 +157,10 @@ gate, risk из `03_solution_spec.md`); для `risk: high` apply UNKNOWN не �
 ```
 1c-dev/
 ├── core/                    — канонический источник (tool-agnostic)
-│   ├── agents/              — 6 агентов: тела (без frontmatter) — 1c-do/analyst/developer/reviewer/applier/tools
+│   ├── agents/              — 7 агентов: тела (без frontmatter) — 1c-do/analyst/developer/reviewer/applier/tools/git-reviewer
 │   ├── skills/              — 78 скиллов: <name>/{SKILL.md, scripts/}
 │   ├── context/             — INSTRUCTIONS.md, BslChecklists.md, standards/, common/, projects/
-│   ├── scripts/             — bsl-check.py, build_summaries.py, applier_guard.py, validate.py, doctor.py
+│   ├── scripts/             — bsl-check.py, build_summaries.py, applier_guard.py, git_readonly.py, validate.py, doctor.py
 │   └── sdd/                 — README.md (SDD-шаблоны)
 ├── adapters/                — per-tool обвязка
 │   ├── kilo/                — kilo.json.tpl + frontmatter/*.yml

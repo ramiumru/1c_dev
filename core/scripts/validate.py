@@ -74,7 +74,7 @@ ROOT = _find_root(SCRIPT_DIR)
 # Определить режим: исходный репо (есть core/) или установленная раскладка (есть .kilo/agent или scripts/)
 IS_SOURCE_REPO = (ROOT / "core" / "agents").is_dir()
 
-EXPECTED_AGENTS = ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-applier", "1c-tools"]
+EXPECTED_AGENTS = ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-applier", "1c-tools", "1c-git-reviewer"]
 ADAPTERS = ["kilo", "claude", "codex", "openworks"]
 
 REQUIRED_FILES_SOURCE = [
@@ -474,6 +474,20 @@ def check_kilo_permission_order(rep: Report) -> None:
             ("skill", "meta-info", "deny"),
             ("edit", "projects/test/src/file.bsl", "deny"),
         ],
+        "1c-git-reviewer": [
+            ("bash", "python scripts/git_readonly.py --repo . log origin/dev --oneline --grep=123456", "allow"),
+            ("bash", "python scripts/git_readonly.py --repo . fetch origin dev prod", "allow"),
+            ("bash", "python scripts/bsl-check.py file.bsl", "allow"),
+            ("bash", "git push origin dev", "deny"),
+            ("bash", "git fetch origin dev", "deny"),
+            ("bash", "git status", "deny"),
+            ("bash", "python scripts/safe_apply.py --help", "deny"),
+            ("bash", "python scripts/build_summaries.py --project test", "deny"),
+            ("edit", "projects/test/src/file.bsl", "deny"),
+            ("edit", ".kilo/logs/1c-git-reviewer/log.md", "allow"),
+            ("edit", "specs/TASK-1/03_solution_spec.md", "deny"),
+            ("skill", "meta-info", "deny"),
+        ],
     }
 
     for agent, cases in test_cases.items():
@@ -526,6 +540,125 @@ def check_scope_hash_permissions(rep: Report) -> None:
                 rep.ok(f"scope-hash-perm: {tool}/{agent}.yml разрешает scope_hash.py")
             else:
                 rep.error(f"scope-hash-perm: {tool}/{agent}.yml НЕ разрешает scope_hash.py")
+
+
+def check_git_reviewer_agent(rep: Report) -> None:
+    """Проверки агента 1c-git-reviewer (прямой Git code review, вне SDD-pipeline).
+
+    1. Frontmatter существует во всех адаптерах (kilo, openworks, claude);
+    2. mode: all (прямой выбор пользователем) в kilo + openworks; без model: override;
+    3. bash whitelist: ТОЛЬКО git_readonly.py + bsl-check.py; raw git не разрешён;
+    4. Тело агента содержит маркеры режимов и read-only Git политики;
+    5. git_readonly.py существует, --help работает, мутирующий subcommand отвергается;
+    6. Детерминированный набор test_git_reviewer.py → exit 0.
+    """
+    if not IS_SOURCE_REPO:
+        return
+    import re as _re
+
+    agent_md = ROOT / "core" / "agents" / "1c-git-reviewer.md"
+    if not agent_md.exists():
+        rep.error("git-reviewer: core/agents/1c-git-reviewer.md отсутствует")
+        return
+    body = agent_md.read_text(encoding="utf-8", errors="replace")
+    for label, marker in [
+        ("режим Code Review", "# Режим Code Review"),
+        ("режим Dev vs Prod", "# Режим Dev vs Prod"),
+        ("статусы PRESENT/UNCERTAIN", "- **UNCERTAIN**"),
+        ("read-only wrapper", "git_readonly.py"),
+        ("явные ветки fetch", "fetch <remote> dev prod"),
+        ("запрет общего diff веток", "НЕ diff задачи"),
+        ("отсутствие SHA не равно отсутствию переноса", "≠ отсутствие переноса"),
+        ("on-demand чек-листы", "On-demand правила"),
+    ]:
+        if marker in body:
+            rep.ok(f"git-reviewer: 1c-git-reviewer.md содержит «{label}»")
+        else:
+            rep.error(f"git-reviewer: 1c-git-reviewer.md не содержит «{label}» (marker: {marker[:40]})")
+
+    fm_expect = {
+        "kilo": ROOT / "adapters" / "kilo" / "frontmatter" / "1c-git-reviewer.yml",
+        "openworks": ROOT / "adapters" / "openworks" / "frontmatter" / "1c-git-reviewer.yml",
+        "claude": ROOT / "adapters" / "claude" / "frontmatter" / "1c-git-reviewer.yml",
+    }
+    for tool, p in fm_expect.items():
+        if not p.exists():
+            rep.error(f"git-reviewer: frontmatter {tool}/1c-git-reviewer.yml отсутствует")
+            continue
+        text = p.read_text(encoding="utf-8", errors="replace")
+        rep.ok(f"git-reviewer: frontmatter {tool}/1c-git-reviewer.yml существует")
+        if tool in ("kilo", "openworks"):
+            if _re.search(r"(?m)^mode:\s*all\s*$", text):
+                rep.ok(f"git-reviewer: {tool} mode: all (прямой выбор пользователем)")
+            else:
+                rep.error(f"git-reviewer: {tool}/1c-git-reviewer.yml без mode: all")
+            if _re.search(r"(?m)^model:", text):
+                rep.error(f"git-reviewer: {tool}/1c-git-reviewer.yml содержит model: override (public — model-neutral)")
+            else:
+                rep.ok(f"git-reviewer: {tool}/1c-git-reviewer.yml без model: (model-neutral)")
+            if '"python scripts/git_readonly.py *": allow' in text:
+                rep.ok(f"git-reviewer: {tool} bash whitelist содержит git_readonly.py")
+            else:
+                rep.error(f"git-reviewer: {tool}/1c-git-reviewer.yml не разрешает git_readonly.py")
+            # raw git не разрешён: ни один bash-паттерн не начинается с "git
+            raw_git = [m.group(1) for m in _re.finditer(r'"(git[^"]*)":\s*allow', text)]
+            if raw_git:
+                rep.error(f"git-reviewer: {tool} разрешает raw git: {raw_git[:3]}")
+            else:
+                rep.ok(f"git-reviewer: {tool} raw git-команды не разрешены (только wrapper)")
+            if "safe_apply" in text or "db-load" in text:
+                rep.error(f"git-reviewer: {tool}/1c-git-reviewer.yml содержит лишние права (safe_apply/db-load)")
+            else:
+                rep.ok(f"git-reviewer: {tool}/1c-git-reviewer.yml без apply/db-прав")
+
+    # default_agent не изменился — 1c-do остаётся точкой входа (opencode.json.tpl)
+    ocj = ROOT / "adapters" / "openworks" / "opencode.json.tpl"
+    if ocj.exists():
+        data = json.loads(ocj.read_text(encoding="utf-8-sig", errors="replace"))
+        if data.get("default_agent") == "1c-do":
+            rep.ok("git-reviewer: default_agent остаётся 1c-do (новый агент не default)")
+        else:
+            rep.error("git-reviewer: opencode.json.tpl: default_agent ≠ 1c-do")
+
+    # wrapper: существует, help работает, мутирующая команда отвергается
+    wrapper = ROOT / "core" / "scripts" / "git_readonly.py"
+    if not wrapper.exists():
+        rep.error("git-reviewer: core/scripts/git_readonly.py отсутствует")
+        return
+    rep.ok("git-reviewer: core/scripts/git_readonly.py существует")
+    r = subprocess.run([sys.executable, str(wrapper), "--help"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    if r.returncode == 0 and "read-only" in r.stdout:
+        rep.ok("git-reviewer: git_readonly.py --help работает")
+    else:
+        rep.error(f"git-reviewer: git_readonly.py --help не работает (exit={r.returncode})")
+    r = subprocess.run([sys.executable, str(wrapper), "--repo", ".", "push", "origin", "dev"],
+                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    if r.returncode == 2:
+        rep.ok("git-reviewer: git_readonly.py отвергает мутирующий subcommand (push → exit 2)")
+    else:
+        rep.error(f"git-reviewer: git_readonly.py НЕ отверг push (exit={r.returncode})")
+
+    # детерминированные Git-тесты (временные репозитории + локальный mock remote)
+    test_path = ROOT / "core" / "scripts" / "test_git_reviewer.py"
+    if not test_path.exists():
+        rep.error("git-reviewer: test_git_reviewer.py не найден")
+        return
+    r = subprocess.run([sys.executable, str(test_path)],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+    if r.returncode == 0:
+        m = _re.search(r"Итог: PASS=(\d+), FAIL=(\d+)", r.stdout)
+        if m and m.group(2) == "0":
+            rep.ok(f"git-reviewer: test_git_reviewer.py → PASS={m.group(1)}, FAIL=0")
+        elif "SKIP" in r.stdout:
+            rep.warn("git-reviewer: test_git_reviewer.py → SKIP (git не найден в PATH)")
+        else:
+            rep.ok("git-reviewer: test_git_reviewer.py → exit 0")
+    else:
+        rep.error(f"git-reviewer: test_git_reviewer.py → exit {r.returncode}")
+        for line in (r.stdout or "").strip().split("\n")[-5:]:
+            if line.strip():
+                rep.error(f"  git-reviewer: {line.strip()}")
 
 
 def check_bsl_comment_regression(rep: Report) -> None:
@@ -1942,9 +2075,9 @@ def check_mcp_permissions_flat(rep: Report) -> None:
         "1c-developer": {"code_*", "platform_help_*", "v8std_*", "standards_*"},
         "1c-reviewer": {"metadata_*", "code_*", "platform_help_*", "v8std_*", "standards_*"},
     }
-    no_mcp_agents = {"1c-do", "1c-tools", "1c-applier"}
+    no_mcp_agents = {"1c-do", "1c-tools", "1c-applier", "1c-git-reviewer"}
 
-    for agent in ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-tools", "1c-applier"]:
+    for agent in ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-tools", "1c-applier", "1c-git-reviewer"]:
         yml = fm_dir / f"{agent}.yml"
         if not yml.exists():
             continue
@@ -3315,6 +3448,7 @@ def main() -> int:
     check_kilo_tools_field(rep)
     check_kilo_permission_order(rep)
     check_scope_hash_permissions(rep)
+    check_git_reviewer_agent(rep)
     check_bsl_comment_regression(rep)
     check_installer_smoke(rep, args.skip_smoke)
     check_openworks_user_config_protection(rep, args.skip_smoke)

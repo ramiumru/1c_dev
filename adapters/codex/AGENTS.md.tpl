@@ -25,6 +25,7 @@ Codex CLI работает в одноагентном режиме: **все р
 | `1c-reviewer` | `agents/1c-reviewer.md` | Независимый review: spec/scope, регрессии, транзакции, права/RLS, контракты; возвращает текст заключения через Task | Меняет реализацию/spec/базу |
 | `1c-applier` | `agents/1c-applier.md` | Применение правок в живую ИБ (после preflight `applier_guard.py`) | Правка исходников, работа с production |
 | `1c-tools` | `agents/1c-tools.md` | Регенерация summaries | Анализ кода, правка summaries руками |
+| `1c-git-reviewer` | `agents/1c-git-reviewer.md` | Git code review задачи в dev + сравнение dev/prod (через read-only `scripts/git_readonly.py`); запускается напрямую, без SDD | Правка исходников, commit/push, SDD, работа с БД |
 
 ## Алгоритм маршрутизации (1c-do)
 

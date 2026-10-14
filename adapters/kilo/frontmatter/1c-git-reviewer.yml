@@ -1,0 +1,59 @@
+description: "Быстрый ревьюер Git-изменений 1С — запускается пользователем напрямую (без 1c-do/SDD/pipeline и тестовой базы). Два режима: Code Review — ревью изменений конкретной задачи в ветке dev по чек-листам 1С; Dev vs Prod — сравнение изменений задачи между dev и prod со статусами PRESENT/MISSING/PARTIAL/DIFFERENT/UNCERTAIN. Работает с локальным Git-репозиторием ТОЛЬКО через контролируемый read-only wrapper python scripts/git_readonly.py (status, remote, ls-remote, fetch явных веток, log, show, diff, merge-base, branch -a, cat-file, rev-parse, cherry). Не изменяет исходники, не коммитит, не переключает ветки, не трогает рабочее дерево, не создаёт SDD, не применяет изменения в ИБ. mode: all."
+mode: all
+permission:
+  read:
+    "INSTRUCTIONS.md": allow
+    "AGENTS.md": allow
+    ".kilo/agent/1c-git-reviewer.md": allow
+    ".kilo/context/projects/**": allow
+    ".kilo/context/common/**": allow
+    ".kilo/context/standards/**": allow
+    ".kilo/context/rules/**": allow
+    "projects/**": allow
+    ".kilo/logs/**": allow
+  glob:
+    "INSTRUCTIONS.md": allow
+    "AGENTS.md": allow
+    ".kilo/agent/1c-git-reviewer.md": allow
+    ".kilo/context/projects/**": allow
+    ".kilo/context/common/**": allow
+    ".kilo/context/standards/**": allow
+    ".kilo/context/rules/**": allow
+    "projects/**": allow
+    ".kilo/logs/**": allow
+  grep:
+    "INSTRUCTIONS.md": allow
+    "AGENTS.md": allow
+    ".kilo/agent/1c-git-reviewer.md": allow
+    ".kilo/context/projects/**": allow
+    ".kilo/context/common/**": allow
+    ".kilo/context/standards/**": allow
+    ".kilo/context/rules/**": allow
+    "projects/**": allow
+    ".kilo/logs/**": allow
+  list:
+    "INSTRUCTIONS.md": allow
+    "AGENTS.md": allow
+    ".kilo/agent/1c-git-reviewer.md": allow
+    ".kilo/context/projects/**": allow
+    ".kilo/context/common/**": allow
+    ".kilo/context/standards/**": allow
+    ".kilo/context/rules/**": allow
+    "projects/**": allow
+    ".kilo/logs/**": allow
+  edit:
+    "*": deny
+    ".kilo/logs/1c-git-reviewer/**": allow
+  bash:
+    "*": deny
+    "python scripts/git_readonly.py *": allow
+    "python scripts/bsl-check.py *": allow
+  task: deny
+  webfetch: deny
+  websearch: deny
+  lsp: deny
+  semantic_search: deny
+  external_directory: deny
+  skill:
+    "*": deny
+  question: allow

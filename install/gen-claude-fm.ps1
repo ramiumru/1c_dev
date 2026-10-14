@@ -5,7 +5,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 $kiloFmDir = Join-Path $repo "adapters\kilo\frontmatter"
 $claudeFmDir = Join-Path $repo "adapters\claude\frontmatter"
 
-$agents = @("1c-do","1c-analyst","1c-developer","1c-reviewer","1c-applier","1c-tools")
+$agents = @("1c-do","1c-analyst","1c-developer","1c-reviewer","1c-applier","1c-tools","1c-git-reviewer")
 
 foreach ($name in $agents) {
     $src = Join-Path $kiloFmDir "$name.yml"
@@ -26,6 +26,7 @@ foreach ($name in $agents) {
         "1c-reviewer"  { "Read, Edit, Glob, Grep, Bash, Skill" }
         "1c-applier"   { "Read, Glob, Grep, Bash, Skill" }
         "1c-tools"     { "Read, Glob, Grep, Bash" }
+        "1c-git-reviewer" { "Read, Glob, Grep, Bash" }
     }
 
     # Model selection is NOT hardcoded in public repo: Claude Code uses its

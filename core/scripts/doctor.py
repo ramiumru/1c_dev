@@ -74,7 +74,7 @@ def _find_root(start: Path) -> Path:
 
 DEFAULT_ROOT = _find_root(SCRIPT_DIR)
 
-AGENTS = ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-applier", "1c-tools"]
+AGENTS = ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-applier", "1c-tools", "1c-git-reviewer"]
 ADAPTERS = {
     "kilo": {"agents_dir": ".kilo/agent"},
     "claude": {"agents_dir": ".claude/agents"},
@@ -243,10 +243,12 @@ def doctor(root: Path, d: Doc, no_network: bool = False) -> None:
                 else:
                     d.err("codex: AGENTS.md.tpl без 1c-reviewer")
             else:
-                if fm_dir.is_dir() and (fm_dir / "1c-reviewer.yml").exists():
-                    d.ok(f"{tool}: frontmatter/1c-reviewer.yml")
+                fm_missing = [a for a in ("1c-reviewer", "1c-git-reviewer")
+                              if not (fm_dir / f"{a}.yml").exists()]
+                if fm_dir.is_dir() and not fm_missing:
+                    d.ok(f"{tool}: frontmatter/1c-reviewer.yml + 1c-git-reviewer.yml")
                 else:
-                    d.err(f"{tool}: frontmatter/1c-reviewer.yml отсутствует")
+                    d.err(f"{tool}: frontmatter отсутствует: {', '.join(fm_missing)}")
         if (adapters_dir / "opencode").exists():
             d.err("adapters/opencode: устаревший каталог (переименован в openworks)")
         else:
