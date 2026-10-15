@@ -1294,6 +1294,11 @@ def check_installer_smoke(rep: Report, skip_smoke: bool) -> None:
         # 8.11: отсутствие PowerShell = ERROR, а не warn+OK
         rep.error("smoke: PowerShell не найден — smoke-тест пропущен, но успех не объявляется (8.11)")
         return
+    try:
+        import yaml
+    except ImportError:
+        rep.error("smoke: требуется PyYAML: python -m pip install -r requirements-dev.txt")
+        return
     for tool in ADAPTERS:
         with tempfile.TemporaryDirectory(prefix=f"install_smoke_{tool}_") as td:
             r = subprocess.run(
@@ -1306,6 +1311,12 @@ def check_installer_smoke(rep: Report, skip_smoke: bool) -> None:
                 continue
             tdp = Path(td)
             issues = []
+            if tool in ("kilo", "claude", "openworks"):
+                try:
+                    from test_frontmatter import check_installed_agents
+                    check_installed_agents(ROOT, tdp, tool)
+                except (ImportError, AssertionError, ValueError) as exc:
+                    issues.append(f"YAML regression: {exc}")
             if tool == "kilo":
                 reviewer = tdp / ".kilo" / "agent" / "1c-reviewer.md"
                 if not reviewer.exists():
@@ -1461,31 +1472,18 @@ def check_openworks_user_config_protection(rep: Report, skip: bool) -> None:
 
 
 def _parse_frontmatter(content: str) -> dict:
-    """Простой парсер Markdown frontmatter. Возвращает dict если валиден, {} если нет."""
-    # Удалить BOM (install.ps1 пишет файлы с UTF-8 BOM)
-    content = content.lstrip('\ufeff')
-    if not content.startswith("---"):
+    """Parse actual YAML; malformed/empty/non-mapping frontmatter is rejected."""
+    import yaml
+
+    lines = content.lstrip('\ufeff').splitlines()
+    if not lines or lines[0] != "---":
         return {}
-    lines = content.split("\n")
-    # Первая строка: ---
-    # Ищем закрывающий ---
-    fm_lines = []
-    found_close = False
-    for i, line in enumerate(lines[1:], 1):
-        if line.strip() == "---":
-            found_close = True
-            break
-        fm_lines.append(line)
-    if not found_close:
+    try:
+        close = lines.index("---", 1)
+        data = yaml.safe_load("\n".join(lines[1:close]))
+    except (ValueError, yaml.YAMLError):
         return {}
-    if not fm_lines:
-        return {}  # пустой frontmatter (двойной ---)
-    result = {}
-    for line in fm_lines:
-        if ":" in line:
-            k, _, v = line.partition(":")
-            result[k.strip()] = v.strip()
-    return result
+    return data if isinstance(data, dict) else {}
 
 
 def check_rules_directory(rep: Report) -> None:

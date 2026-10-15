@@ -14,8 +14,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
+      - name: Install validation dependencies
+        run: python -m pip install -r requirements-dev.txt
       - name: Python compile check
         run: python -m compileall -q core/scripts core/skills
+      - name: YAML frontmatter regression
+        run: python core/scripts/test_frontmatter.py
       - name: Doctor
         run: python core/scripts/doctor.py
       - name: Validate (with smoke)
@@ -28,6 +32,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
+      - name: Install validation dependencies
+        run: python -m pip install -r requirements-dev.txt
       - name: Python compile check
         run: python -m compileall -q core/scripts core/skills
       - name: Validate (skip smoke — no PowerShell on Linux)

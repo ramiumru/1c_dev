@@ -34,6 +34,8 @@
    машиночитаемым блоком `status`/`risk` (`core/sdd/README.md`).
 7. **Проверка перед коммитом:**
    ```powershell
+   python -m pip install -r requirements-dev.txt # в исходном репозитории
+   python core/scripts/test_frontmatter.py # требует PowerShell; 21 установленный агент
    python scripts/validate.py          # единая локальная проверка
    python scripts/doctor.py            # диагностика окружения
    python -m compileall core/scripts   # синтаксис Python
