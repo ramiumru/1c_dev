@@ -542,6 +542,82 @@ def check_scope_hash_permissions(rep: Report) -> None:
                 rep.error(f"scope-hash-perm: {tool}/{agent}.yml НЕ разрешает scope_hash.py")
 
 
+def check_finding_address_format(rep: Report) -> None:
+    """Проверка: обязательная адресация замечаний (finding address format).
+
+    Канонический формат описан в общем on-demand правиле review-checklist.md
+    (загружается и 1c-reviewer, и 1c-git-reviewer). Требуется, чтобы:
+    1. review-checklist.md содержит раздел «Формат замечаний (адресация)» с
+       обязательными полями (Конфигуратор / Файл / Место / Замечание), правилами
+       версий (новая/старая/родитель), «не выдумывать», «отдельный адрес» для
+       модуля и макета, и явным «не удалось определить»;
+    2. 1c-git-reviewer.md содержит секцию адресации, ссылку на review-checklist.md,
+       git-специфичное правило версии (<SHA>~1), «не удалось определить» и запрет
+       «неполным» замечаниям «только объект + SHA»;
+    3. 1c-reviewer.md Findings требуют точный адрес и ссылаются на тот же формат.
+    """
+    if not IS_SOURCE_REPO:
+        return
+
+    rule = ROOT / "core" / "rules" / "review-checklist.md"
+    if not rule.exists():
+        rep.error("finding-address: core/rules/review-checklist.md не найден")
+        return
+    rtext = rule.read_text(encoding="utf-8", errors="replace")
+    rule_markers = [
+        "Формат замечаний (адресация)",
+        "Конфигуратор:",
+        "Файл:",
+        "Место:",
+        "Замечание:",
+        "1c-git-reviewer",
+        "<SHA>~1",
+        "Не выдумывать",
+        "отдельный адрес",
+        "не удалось определить",
+    ]
+    for m in rule_markers:
+        if m in rtext:
+            rep.ok(f"finding-address: review-checklist.md содержит «{m}»")
+        else:
+            rep.error(f"finding-address: review-checklist.md не содержит «{m}»")
+
+    gr = ROOT / "core" / "agents" / "1c-git-reviewer.md"
+    if not gr.exists():
+        rep.error("finding-address: core/agents/1c-git-reviewer.md не найден")
+        return
+    gtext = gr.read_text(encoding="utf-8", errors="replace")
+    gr_markers = [
+        "Формат замечаний (адресация)",
+        "review-checklist.md",
+        "<SHA>~1",
+        "не удалось определить",
+        "неполным",
+        "отдельный адрес",
+    ]
+    for m in gr_markers:
+        if m in gtext:
+            rep.ok(f"finding-address: 1c-git-reviewer.md содержит «{m}»")
+        else:
+            rep.error(f"finding-address: 1c-git-reviewer.md не содержит «{m}»")
+
+    rv = ROOT / "core" / "agents" / "1c-reviewer.md"
+    if not rv.exists():
+        rep.error("finding-address: core/agents/1c-reviewer.md не найден")
+        return
+    rvtext = rv.read_text(encoding="utf-8", errors="replace")
+    rv_markers = [
+        "review-checklist.md",
+        "не удалось определить",
+        "неполным",
+    ]
+    for m in rv_markers:
+        if m in rvtext:
+            rep.ok(f"finding-address: 1c-reviewer.md содержит «{m}»")
+        else:
+            rep.error(f"finding-address: 1c-reviewer.md не содержит «{m}»")
+
+
 def check_git_reviewer_agent(rep: Report) -> None:
     """Проверки агента 1c-git-reviewer (прямой Git code review, вне SDD-pipeline).
 
@@ -3447,6 +3523,7 @@ def main() -> int:
     check_kilo_permission_order(rep)
     check_scope_hash_permissions(rep)
     check_git_reviewer_agent(rep)
+    check_finding_address_format(rep)
     check_bsl_comment_regression(rep)
     check_installer_smoke(rep, args.skip_smoke)
     check_openworks_user_config_protection(rep, args.skip_smoke)
