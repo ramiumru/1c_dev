@@ -618,6 +618,22 @@ def check_finding_address_format(rep: Report) -> None:
             rep.error(f"finding-address: 1c-reviewer.md не содержит «{m}»")
 
 
+def check_git_review_contract(rep: Report) -> None:
+    """Contract checks + real Git evidence across multiple task commits."""
+    if not IS_SOURCE_REPO:
+        return
+    test_path = ROOT / "core/scripts/test_git_review_contract.py"
+    if not test_path.exists():
+        rep.error("git-review-contract: test_git_review_contract.py отсутствует")
+        return
+    result = subprocess.run([sys.executable, str(test_path)], capture_output=True,
+                            text=True, encoding="utf-8", errors="replace", timeout=60)
+    if result.returncode == 0:
+        rep.ok("git-review-contract: формат/права/MCP + multi-commit evidence: PASS")
+    else:
+        rep.error(f"git-review-contract: exit={result.returncode}: {result.stderr[-2000:]}")
+
+
 def check_git_reviewer_agent(rep: Report) -> None:
     """Проверки агента 1c-git-reviewer (прямой Git code review, вне SDD-pipeline).
 
@@ -3524,6 +3540,7 @@ def main() -> int:
     check_scope_hash_permissions(rep)
     check_git_reviewer_agent(rep)
     check_finding_address_format(rep)
+    check_git_review_contract(rep)
     check_bsl_comment_regression(rep)
     check_installer_smoke(rep, args.skip_smoke)
     check_openworks_user_config_protection(rep, args.skip_smoke)
