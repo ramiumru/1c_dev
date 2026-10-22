@@ -248,6 +248,10 @@ def check_file(filepath):
 
 
 def main():
+    # Stable UTF-8 diagnostics when redirected on non-UTF8 Windows locales.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     # Обработка --help/-h до интерпретации аргумента как пути.
     args = sys.argv[1:]
     if not args or any(a in ("-h", "--help") for a in args):
