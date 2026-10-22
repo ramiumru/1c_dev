@@ -15,7 +15,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-PWSH = shutil.which('powershell') or shutil.which('pwsh')
+PWSH = shutil.which('pwsh') or shutil.which('powershell')
 
 
 def permission_root(target):

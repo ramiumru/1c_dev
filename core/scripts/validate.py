@@ -1383,7 +1383,7 @@ def check_installer_smoke(rep: Report, skip_smoke: bool) -> None:
     if not install_ps1.exists():
         rep.ok("smoke: пропущен (install.ps1 недоступен — установленная раскладка)")
         return
-    pwsh = shutil.which("powershell") or shutil.which("pwsh")
+    pwsh = shutil.which("pwsh") or shutil.which("powershell")
     if not pwsh:
         # 8.11: отсутствие PowerShell = ERROR, а не warn+OK
         rep.error("smoke: PowerShell не найден — smoke-тест пропущен, но успех не объявляется (8.11)")
@@ -1502,7 +1502,7 @@ def check_openworks_user_config_protection(rep: Report, skip: bool) -> None:
     if not IS_SOURCE_REPO or not install_ps1.exists():
         rep.ok("openworks-user-config: пропущен (не source repo / нет install.ps1)")
         return
-    pwsh = shutil.which("powershell") or shutil.which("pwsh")
+    pwsh = shutil.which("pwsh") or shutil.which("powershell")
     if not pwsh:
         rep.error("openworks-user-config: PowerShell не найден — проверка пропущена, успех не объявляется")
         return
@@ -3229,7 +3229,7 @@ def check_overlay_contract(rep: Report, skip: bool) -> None:
     if not IS_SOURCE_REPO or not install_ps1.exists():
         rep.ok("overlay-contract: пропущен (не source repo / нет install.ps1)")
         return
-    pwsh = shutil.which("powershell") or shutil.which("pwsh")
+    pwsh = shutil.which("pwsh") or shutil.which("powershell")
     if not pwsh:
         rep.warn("overlay-contract: PowerShell не найден — проверка пропущена")
         return
