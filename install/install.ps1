@@ -78,6 +78,13 @@ $ctx = $config.contextDir
 $logs = $config.logsDir
 $skills = $config.skillDir
 $agents = $config.agentDir
+$kiloPermissionPrefix = ''
+if ($Tool -eq 'kilo') {
+    . (Join-Path $PSScriptRoot 'permission-paths.ps1')
+    $kiloPermissionRoot = Get-KiloPermissionRoot $Target
+    $kiloPermissionPrefix = Get-KiloPermissionPrefix $Target $kiloPermissionRoot
+    Write-Host "Kilo permission root: $kiloPermissionRoot; project prefix: $kiloPermissionPrefix"
+}
 
 # --- Защищённые файлы: никогда не перезаписывать без явного разрешения ---
 # opencode.json — настоящий root config OpenWork/OpenCode (project-level configuration).
@@ -312,10 +319,11 @@ if ($config.copyAgents) {
         $body = $body -replace '\{\{SKILLS_DIR\}\}', $skills
         $body = $body -replace '\{\{AGENTS_DIR\}\}', $agents
         if (Test-Path $fmPath) {
-            $fm = [System.IO.File]::ReadAllText($fmPath, [System.Text.Encoding]::UTF8)
+            $fm = [System.IO.File]::ReadAllText((Convert-Path $fmPath), [System.Text.Encoding]::UTF8)
             $fm = $fm -replace '(?s)^\s*---\s*\r?\n', ''
             $fm = $fm -replace '(?s)\r?\n\s*---\s*$', ''
             $fm = $fm.TrimEnd("`r", "`n")
+            if ($Tool -eq 'kilo') { $fm = Convert-KiloFilePermissions $fm $kiloPermissionPrefix }
             $combined = "---`r`n$fm`r`n---`r`n`r`n$body"
         } else { $combined = $body }
         $dstPath = Join-Path $Target "$agents/$name.md"
@@ -336,7 +344,7 @@ if ($config.rootConfig -and $config.rootConfig -ne "") {
         if ($tpls) { $tplPath = $tpls[0].FullName }
     }
     if (Test-Path $tplPath) {
-        $tplContent = [System.IO.File]::ReadAllText($tplPath, [System.Text.Encoding]::UTF8)
+        $tplContent = [System.IO.File]::ReadAllText((Convert-Path $tplPath), [System.Text.Encoding]::UTF8)
         $dstPath = Join-Path $Target $config.rootConfig
         Safe-CopyFile $tplPath $dstPath $config.rootConfig
     }
@@ -435,7 +443,7 @@ if (Test-Path $devEnvPath) {
 } else {
     $envExample = "$repo\core\context\.dev.env.example"
     if (Test-Path $envExample) {
-        $envContent = [System.IO.File]::ReadAllText($envExample, [System.Text.Encoding]::UTF8)
+        $envContent = [System.IO.File]::ReadAllText((Convert-Path $envExample), [System.Text.Encoding]::UTF8)
         $configXml = Join-Path $Target "projects\*\src\Configuration.xml"
         $configExtXml = Join-Path $Target "projects\*\src\ConfigurationExtension.xml"
         $detectedVersion = ""

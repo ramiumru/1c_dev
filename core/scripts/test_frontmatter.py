@@ -4,6 +4,7 @@
 Requires requirements-dev.txt and PowerShell. Tests real installer output,
 including all metadata and substituted agent bodies, without contacting 1C.
 """
+import os
 import shutil
 import subprocess
 import tempfile
@@ -34,6 +35,27 @@ def source_metadata(path):
     return yaml.safe_load(text)
 
 
+def expected_kilo_permissions(metadata, target):
+    """Independent expected mapping for installer metadata comparison."""
+    from test_permission_paths import permission_root
+    prefix = os.path.relpath(os.path.abspath(target), permission_root(target)).replace(os.sep, '/')
+    prefix = '' if prefix == '.' else prefix.rstrip('/') + '/'
+    for section in ('read', 'edit'):
+        rules = metadata.get('permission', {}).get(section)
+        if not isinstance(rules, dict):
+            continue
+        scoped = {}
+        for key, value in rules.items():
+            if key == '*':
+                scoped[key] = value
+                continue
+            while key.startswith('**/'):
+                key = key[3:]
+            scoped[prefix + key] = value
+        metadata['permission'][section] = scoped
+    return metadata
+
+
 def check_installed_agents(repo, target, tool):
     """Raise with file context on invalid YAML or installer data loss."""
     agents, context, logs, skills = PATHS[tool]
@@ -46,6 +68,8 @@ def check_installed_agents(repo, target, tool):
         assert isinstance(actual.get('description'), str), f'{path}: description must be a string'
         assert actual['description'].strip(), f'{path}: empty description'
         expected = source_metadata(repo / 'adapters' / tool / 'frontmatter' / (name + '.yml'))
+        if tool == 'kilo':
+            expected = expected_kilo_permissions(expected, target)
         assert actual == expected, f'{path}: metadata changed (model/permissions/tools included)'
         if name == '1c-developer':
             assert 'status: approved' in actual['description'], f'{path}: gate text lost'
