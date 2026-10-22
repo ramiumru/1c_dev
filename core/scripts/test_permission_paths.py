@@ -81,7 +81,7 @@ class PermissionPathTests(unittest.TestCase):
             self.assertNotEqual(action(analyst, 'edit', sibling), 'allow', sibling)
         self.assertEqual(action(analyst, 'edit', relative(target / 'projects/test/src/Module.bsl')), 'deny')
         self.assertEqual(action(analyst, 'edit', relative(target / '.v8-project.json')), 'deny')
-        if os.path.abspath(base) != os.path.abspath(target):
+        if os.path.normcase(os.path.realpath(base)) != os.path.normcase(os.path.realpath(target)):
             self.assertEqual(action(analyst, 'edit', relative(Path(base) / 'specs/TASK-test/03_solution_spec.md')), 'deny')
         self.assertEqual(action(analyst, 'edit', relative(target.parent / (target.name + '-other') / 'specs/TASK-test/03_solution_spec.md')), 'deny')
         developer = self.metadata(target, '1c-developer')
