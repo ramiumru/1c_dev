@@ -101,6 +101,8 @@ REQUIRED_FILES_SOURCE = [
     "core/scripts/doctor.py",
     "core/scripts/_root.py",
     "install/install.ps1",
+    "install/permission-paths.ps1",
+    "core/scripts/test_permission_paths.py",
     "core/context/.dev.env.example",
     ".gitlab-ci.yml",
     ".github/workflows/ci.yml",
@@ -457,7 +459,7 @@ def check_kilo_permission_order(rep: Report) -> None:
             ("bash", "python scripts/bsl-check.py file.bsl", "allow"),
             ("bash", "python scripts/safe_apply.py --help", "default"),
             ("edit", "projects/test/src/file.bsl", "allow"),
-            ("edit", ".v8-project.json", "default"),
+            ("edit", ".v8-project.json", "deny"),
         ],
         "1c-analyst": [
             ("bash", "python scripts/scope_hash.py --spec file.md", "allow"),
@@ -1391,6 +1393,16 @@ def check_installer_smoke(rep: Report, skip_smoke: bool) -> None:
     except ImportError:
         rep.error("smoke: требуется PyYAML: python -m pip install -r requirements-dev.txt")
         return
+    path_test = ROOT / "core/scripts/test_permission_paths.py"
+    if not path_test.exists():
+        rep.error("permission-paths: test_permission_paths.py отсутствует")
+    else:
+        result = subprocess.run([sys.executable, str(path_test)], capture_output=True,
+                                text=True, encoding="utf-8", errors="replace", timeout=300)
+        if result.returncode == 0:
+            rep.ok("permission-paths: non-Git/Git/nested/worktree/update + sibling isolation: PASS")
+        else:
+            rep.error(f"permission-paths: exit={result.returncode}: {result.stderr[-2000:]}")
     for tool in ADAPTERS:
         with tempfile.TemporaryDirectory(prefix=f"install_smoke_{tool}_") as td:
             r = subprocess.run(

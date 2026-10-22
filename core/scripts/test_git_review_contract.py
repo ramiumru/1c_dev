@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ReviewContractTests(unittest.TestCase):
     def test_plain_report_and_complete_addresses(self):
-        text = (ROOT / 'core/agents/1c-git-reviewer.md').read_text()
+        text = (ROOT / 'core/agents/1c-git-reviewer.md').read_text(encoding='utf-8')
         self.assertNotIn('```', text)
         for marker in ('без fenced code blocks', 'Module.bsl', 'полный адрес',
                        'Конфигуратор:', 'Файл:', 'Место:', 'review_sha',
@@ -25,7 +25,7 @@ class ReviewContractTests(unittest.TestCase):
                        'Документ.<Имя>.Форма.<ИмяФормы>.Модуль'):
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)
-        self.assertIn('Применимость', (ROOT / 'core/rules/review-checklist.md').read_text())
+        self.assertIn('Применимость', (ROOT / 'core/rules/review-checklist.md').read_text(encoding='utf-8'))
 
     def test_mcp_denied_and_local_capabilities_preserved(self):
         for tool in ('kilo', 'openworks'):
@@ -43,7 +43,7 @@ class ReviewContractTests(unittest.TestCase):
             self.assertEqual(permission['task'], 'deny')
         claude = (ROOT / 'adapters/claude/frontmatter/1c-git-reviewer.yml').read_text(encoding='utf-8-sig')
         self.assertIn('tools: Read, Glob, Grep, Bash', claude)
-        text = (ROOT / 'core/agents/1c-git-reviewer.md').read_text()
+        text = (ROOT / 'core/agents/1c-git-reviewer.md').read_text(encoding='utf-8')
         for marker in ('**MCP запрещён.**', 'включая discovery/list',
                        'MCP-шаги', 'полный модуль', 'другими коммитами задачи',
                        'merge-base --is-ancestor', 'невозможно проверить'):

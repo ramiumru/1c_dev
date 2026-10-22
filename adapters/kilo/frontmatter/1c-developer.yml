@@ -50,6 +50,7 @@ permission:
     "scripts/**": allow
     ".kilo/logs/1c-developer/**": allow
   edit:
+    "*": deny
     "projects/**": allow
     "specs/**": allow
     ".kilo/context/projects/*/requirements/**": allow

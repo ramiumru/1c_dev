@@ -6,6 +6,7 @@ validate:windows:
   tags:
     - windows
   script:
+    - python -m pip install -r requirements-dev.txt
     - python -m compileall -q core/scripts core/skills
     - python core/scripts/doctor.py
     - python core/scripts/validate.py
@@ -14,5 +15,6 @@ validate:linux:
   stage: validate
   image: python:3-slim
   script:
+    - python -m pip install -r requirements-dev.txt
     - python -m compileall -q core/scripts core/skills
     - python core/scripts/validate.py --skip-smoke
