@@ -38,6 +38,10 @@ def source_metadata(path):
 def expected_kilo_permissions(metadata, target):
     """Independent expected mapping for installer metadata comparison."""
     from test_permission_paths import permission_root
+    # .NET GetFullPath on Windows expands 8.3 ancestors (RUNNER~1).
+    # Compare against that same physical directory, not its short-name spelling.
+    if os.name == 'nt':
+        target = Path(target).resolve()
     prefix = os.path.relpath(os.path.abspath(target), permission_root(target)).replace(os.sep, '/')
     prefix = '' if prefix == '.' else prefix.rstrip('/') + '/'
     for section in ('read', 'edit'):
