@@ -788,8 +788,10 @@ def check_bsl_comment_regression(rep: Report) -> None:
         bad_file = tdpath / "test_bad.bsl"
         bad_file.write_text(test_bsl_bad, encoding="utf-8")
 
+        # Force a non-UTF8 locale: CLI output must remain UTF-8 (Windows CI regression).
+        bsl_env = dict(os.environ, PYTHONIOENCODING="ascii")
         # Положительный: 0 ERROR (исключаем итоговую строку с ERROR=0)
-        r_ok = subprocess.run([sys.executable, str(bsl_check), str(ok_file)],
+        r_ok = subprocess.run([sys.executable, str(bsl_check), str(ok_file)], env=bsl_env,
                               capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
         ok_error_lines = [l for l in r_ok.stdout.splitlines() if l.startswith("ERROR ")]
         if r_ok.returncode == 0 and not ok_error_lines:
@@ -798,7 +800,7 @@ def check_bsl_comment_regression(rep: Report) -> None:
             rep.error(f"bsl-comment: ложное срабатывание на комментарии с Цикл (exit={r_ok.returncode}, errors={ok_error_lines})")
 
         # Негативный: ERROR присутствует (исключаем итоговую строку)
-        r_bad = subprocess.run([sys.executable, str(bsl_check), str(bad_file)],
+        r_bad = subprocess.run([sys.executable, str(bsl_check), str(bad_file)], env=bsl_env,
                                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
         bad_error_lines = [l for l in r_bad.stdout.splitlines() if l.startswith("ERROR ")]
         if r_bad.returncode != 0 and bad_error_lines:
