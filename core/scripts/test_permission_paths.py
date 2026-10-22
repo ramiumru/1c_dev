@@ -21,6 +21,8 @@ PWSH = shutil.which('pwsh') or shutil.which('powershell')
 def permission_root(target):
     """Independent model of Kilo Project.fromDirectory (git-common-dir or /)."""
     target = Path(os.path.abspath(target))
+    if os.name == 'nt':
+        target = target.resolve()
     for candidate in (target, *target.parents):
         if (candidate / '.git').exists():
             if shutil.which('git'):
@@ -65,6 +67,8 @@ class PermissionPathTests(unittest.TestCase):
     def assert_scope(self, target):
         base = permission_root(target)
         def relative(p):
+            if os.name == 'nt':
+                p = Path(p).resolve()
             return os.path.relpath(os.path.abspath(p), base).replace(os.sep, '/')
         analyst = self.metadata(target, '1c-analyst')
         for artifact in ('01_context.md', '03_solution_spec.md', '05_test_scenarios.md'):
