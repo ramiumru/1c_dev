@@ -113,7 +113,7 @@ class FrontmatterTests(unittest.TestCase):
                     self.assertIsInstance(data['description'], str)
 
     def test_real_installs_all_agents(self):
-        pwsh = shutil.which('powershell') or shutil.which('pwsh')
+        pwsh = shutil.which('pwsh') or shutil.which('powershell')
         self.assertIsNotNone(pwsh, 'PowerShell required; installed-file tests must not silently skip')
         for tool in PATHS:
             with self.subTest(tool=tool), tempfile.TemporaryDirectory(prefix='yaml_install_') as td:

@@ -51,3 +51,8 @@ Kilo проверяет файловые инструменты относите
 - https://kilo.ai/docs/customize/agent-permissions
 - https://github.com/Kilo-Org/kilo/blob/main/packages/opencode/src/tool/edit.ts
 - https://github.com/Kilo-Org/kilo/blob/main/packages/opencode/src/project/project.ts
+
+При наличии обеих оболочек тесты выбирают PowerShell 7 (`pwsh`), затем
+Windows PowerShell (`powershell`). Это избегает смешивания PSModulePath двух
+версий на Windows CI runner, при котором в дочернем powershell.exe недоступен
+Get-FileHash. Установщик не меняет системный PSModulePath.
