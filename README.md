@@ -13,7 +13,7 @@
 |---|---|---|---|
 | **Kilo** | `install.ps1 -Tool kilo` | Multi-agent | `.kilo/agent`, `.kilo/skills`, `kilo.json` |
 | **Claude Code** | `install.ps1 -Tool claude` | Multi-agent | `.claude/agents`, `.claude/skills`, `CLAUDE.md` |
-| **OpenWork** | `install.ps1 -Tool openworks` | Multi-agent | `.opencode/agents`, `.opencode/skills`, `opencode.json` (default agent `1c-do`) |
+| **OpenWork** | `install.ps1 -Tool openworks` | Multi-agent | `.opencode/agents`, `.opencode/skills`, `opencode.json` (выбор стартового агента сохраняется) |
 | **Codex CLI** | `install.ps1 -Tool codex` | Single-agent | `AGENTS.md` + скрипты (одноагентный режим) |
 
 ## Архитектура
