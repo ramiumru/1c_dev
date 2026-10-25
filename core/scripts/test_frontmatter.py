@@ -7,6 +7,7 @@ including all metadata and substituted agent bodies, without contacting 1C.
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -127,6 +128,12 @@ class FrontmatterTests(unittest.TestCase):
                     cwd=str(ROOT), capture_output=True, text=True, encoding='utf-8', timeout=180)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 check_installed_agents(ROOT, Path(td), tool)
+                # Verify the read-only workflow and its imports after installation.
+                installed_test = Path(td) / 'scripts' / 'test_development_preflight.py'
+                preflight = subprocess.run([sys.executable, str(installed_test)], cwd=td,
+                                           capture_output=True, text=True, encoding='utf-8', timeout=30)
+                self.assertEqual(preflight.returncode, 0, preflight.stdout + preflight.stderr)
+
 
 
 if __name__ == '__main__':
