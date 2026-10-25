@@ -44,12 +44,15 @@
 status: draft | ready_for_review | approved | rejected
 risk: low | medium | high
 approved_by: null
-approved_at: null  # при approved: ISO 8601 с timezone, напр. 2026-01-01T12:00:00Z
+approved_at: null
 spec_version: 1
 scope_hash: null
 ```
 
 Правила:
+- Машиночитаемые блоки — простые поля `ключ: значение`, без inline-комментариев,
+  вложенности и многострочных значений; пояснения размещать за пределами блока.
+  Это ограничение парсера harness, а не общий запрет YAML-комментариев.
 - документ без блока статуса считается неподтверждённым;
 - `draft` не допускается в разработку; `ready_for_review` ожидает проверки;
   `rejected` блокирует работу; `approved` разрешает следующий этап с учётом риска;
@@ -172,7 +175,7 @@ per-project контекста. Источники (основа + расшир�
 status: draft
 risk: low
 approved_by: null
-approved_at: null  # при approved: ISO 8601 с timezone, напр. 2026-01-01T12:00:00Z
+approved_at: null
 spec_version: 1
 scope_hash: null
 ```

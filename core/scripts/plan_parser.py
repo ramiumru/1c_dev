@@ -73,7 +73,9 @@ def parse_plan_from_report(report_text: str, config_src: str = "",
         m = list_item_re.match(line)
         if m:
             raw_paths.append(m.group(1))
-        # Строки без маркера списка в разделе игнорируем (описательный текст внутри раздела)
+        elif re.match(r"^[-*]\s+", line):
+            errors.append(f"план: некорректный элемент списка, нужен полный путь projects/...: {line}")
+        # Описательный текст без маркера списка не входит в план.
 
     # 3. Проверить непустой список
     if not raw_paths:

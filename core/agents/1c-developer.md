@@ -76,6 +76,7 @@ Task-брифе от `1c-do` (поле «Проект»); проект-спец�
 | Триггер | Файл |
 |---|---|
 | Правка BSL-кода (имена, комментарии, запросы, БСП) | `{{CONTEXT_DIR}}/rules/bsl-standards.md` |
+| Строки, сообщения, заголовки, локализация | `{{CONTEXT_DIR}}/rules/bsl-strings.md` |
 | SDD-реализация (работа по spec) | `{{CONTEXT_DIR}}/rules/sdd-implementation.md` |
 | Выбор скилла для правки метаданных | `{{CONTEXT_DIR}}/rules/skill-reference.md` |
 | Сверка стандартов после правки | `{{CONTEXT_DIR}}/rules/developer-verification.md` |
@@ -353,7 +354,9 @@ Full-read (полные секции §9, §10) — только для нетр
    `edit` XML (атомарные операции, автовалидация, не ломают структуру). В SDD — комментарии
    `// ++ #<TASK-ID>` / `// -- #<TASK-ID>`. Допущения/риски → «Допущения / Что проверить».
 9. **SDD: change report (если есть task-папка).** Заполнить `06_change_report.md`, начиная со
-   «Статуса реализации».
+   «Статуса реализации». После заполнения и перед передачей на review выполнить
+   `scripts/development_preflight.py` по `sdd-implementation.md`; FAIL устранить либо
+   вернуть ответственному за spec.
   10. **Проверка.** После правки XML-метаданных — запустить `*-validate` (`meta-validate`/
      `form-validate`/`mxl-validate`/`skd-validate`/`role-validate`/`subsystem-validate`/
      `xdto-validate`/`interface-validate`/`cf-validate`/`cfe-validate`) по пути объекта.

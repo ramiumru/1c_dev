@@ -95,6 +95,8 @@ REQUIRED_FILES_SOURCE = [
     "core/scripts/scope_hash.py",
     "core/scripts/plan_parser.py",
     "core/scripts/test_plan_parser.py",
+    "core/scripts/test_development_preflight.py",
+    "core/scripts/development_preflight.py",
     "core/scripts/bsl-check.py",
     "core/scripts/build_summaries.py",
     "core/scripts/validate.py",
@@ -110,6 +112,7 @@ REQUIRED_FILES_SOURCE = [
 
 EXPECTED_RULES = [
     "bsl-standards.md",
+    "bsl-strings.md",
     "sdd-implementation.md",
     "skill-reference.md",
     "developer-verification.md",
@@ -132,6 +135,8 @@ REQUIRED_FILES_INSTALLED = [
     "scripts/scope_hash.py",
     "scripts/plan_parser.py",
     "scripts/test_plan_parser.py",
+    "scripts/test_development_preflight.py",
+    "scripts/development_preflight.py",
     "scripts/bsl-check.py",
     "scripts/build_summaries.py",
     "scripts/validate.py",
@@ -807,6 +812,16 @@ def check_bsl_comment_regression(rep: Report) -> None:
             rep.ok("bsl-comment: несбалансированный цикл детектируется (ERROR)")
         else:
             rep.error(f"bsl-comment: несбалансированный цикл НЕ детектируется (exit={r_bad.returncode})")
+
+
+def check_development_preflight(rep: Report) -> None:
+    script_dir = ROOT / "core" / "scripts" if IS_SOURCE_REPO else ROOT / "scripts"
+    r = subprocess.run([sys.executable, str(script_dir / "test_development_preflight.py")],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    if r.returncode == 0:
+        rep.ok("development-preflight: regression passed")
+    else:
+        rep.error(f"development-preflight: {r.stdout[-2000:]} {r.stderr[-2000:]}")
 
 
 def check_plan_parser(rep: Report) -> None:
@@ -3575,6 +3590,7 @@ def main() -> int:
     check_no_old_review_path(rep)
     check_mock_apply(rep)
     check_plan_parser(rep)
+    check_development_preflight(rep)
     check_kilo_tools_field(rep)
     check_kilo_permission_order(rep)
     check_scope_hash_permissions(rep)
