@@ -705,14 +705,14 @@ def check_git_reviewer_agent(rep: Report) -> None:
             else:
                 rep.ok(f"git-reviewer: {tool}/1c-git-reviewer.yml без apply/db-прав")
 
-    # default_agent не изменился — 1c-do остаётся точкой входа (opencode.json.tpl)
+    # OpenWork must leave the startup agent to the user/OpenCode defaults.
     ocj = ROOT / "adapters" / "openworks" / "opencode.json.tpl"
     if ocj.exists():
         data = json.loads(ocj.read_text(encoding="utf-8-sig", errors="replace"))
-        if data.get("default_agent") == "1c-do":
-            rep.ok("git-reviewer: default_agent остаётся 1c-do (новый агент не default)")
+        if "default_agent" not in data:
+            rep.ok("git-reviewer: OpenWork не навязывает default_agent")
         else:
-            rep.error("git-reviewer: opencode.json.tpl: default_agent ≠ 1c-do")
+            rep.error("git-reviewer: OpenWork шаблон навязывает default_agent")
 
     # wrapper: существует, help работает, мутирующая команда отвергается
     wrapper = ROOT / "core" / "scripts" / "git_readonly.py"
@@ -1457,8 +1457,8 @@ def check_installer_smoke(rep: Report, skip_smoke: bool) -> None:
                     except Exception as e:
                         issues.append(f"opencode.json не парсится: {e}")
                         ocj_data = {}
-                    if ocj_data.get("default_agent") != "1c-do":
-                        issues.append("opencode.json без default_agent = 1c-do")
+                    if "default_agent" in ocj_data:
+                        issues.append("opencode.json навязывает default_agent")
                     instr = ocj_data.get("instructions") or []
                     if not instr or not all(str(i).startswith(".opencode/context/") for i in instr):
                         issues.append("opencode.json instructions не указывают на .opencode/context/")
@@ -1494,7 +1494,7 @@ def check_openworks_user_config_protection(rep: Report, skip: bool) -> None:
     1. install без -Force поверх существующего пользовательского opencode.json —
        конфиг не затирается, backup не создаётся;
     2. install -Force — создаётся backup пользовательского конфига, затем
-       устанавливается harness config (default_agent = 1c-do);
+       устанавливается harness config без default_agent;
     3. update после пользовательской модификации (user-modified) — изменения сохранены.
     """
     if skip:
@@ -1509,7 +1509,7 @@ def check_openworks_user_config_protection(rep: Report, skip: bool) -> None:
         rep.error("openworks-user-config: PowerShell не найден — проверка пропущена, успех не объявляется")
         return
     USER_MARKER = "openworks-user-config-protected-marker"
-    user_cfg = {"default_agent": "my-agent", "custom": USER_MARKER}
+    user_cfg = {"default_agent": "build", "custom": USER_MARKER}
     with tempfile.TemporaryDirectory(prefix="ow_usercfg_") as td:
         tdp = Path(td)
         ocj = tdp / "opencode.json"
@@ -1528,7 +1528,7 @@ def check_openworks_user_config_protection(rep: Report, skip: bool) -> None:
             kept = json.loads(ocj.read_text(encoding="utf-8-sig", errors="replace"))
         except Exception:
             kept = {}
-        if r.returncode == 0 and kept.get("custom") == USER_MARKER and kept.get("default_agent") == "my-agent":
+        if r.returncode == 0 and kept.get("custom") == USER_MARKER and kept.get("default_agent") == "build":
             rep.ok("openworks-user-config: install без -Force сохраняет пользовательский opencode.json")
         else:
             rep.error(f"openworks-user-config: install без -Force затёр/сломал конфиг (exit={r.returncode})")
@@ -1543,7 +1543,8 @@ def check_openworks_user_config_protection(rep: Report, skip: bool) -> None:
         harness_ok = False
         try:
             new_cfg = json.loads(ocj.read_text(encoding="utf-8-sig", errors="replace"))
-            harness_ok = new_cfg.get("default_agent") == "1c-do"
+            expected_cfg = json.loads((ROOT / "adapters/openworks/opencode.json.tpl").read_text(encoding="utf-8-sig"))
+            harness_ok = new_cfg == expected_cfg and "default_agent" not in new_cfg
         except Exception:
             harness_ok = False
         backup_ok = False
@@ -1565,16 +1566,41 @@ def check_openworks_user_config_protection(rep: Report, skip: bool) -> None:
         except Exception:
             cur = {}
         cur["user_tweak"] = "keep-me"
+        cur["default_agent"] = "plan"
         ocj.write_text(json.dumps(cur, indent=2), encoding="utf-8")
         r3 = _run("-Mode", "update")
         try:
             after = json.loads(ocj.read_text(encoding="utf-8-sig", errors="replace"))
         except Exception:
             after = {}
-        if r3.returncode == 0 and after.get("user_tweak") == "keep-me":
+        if r3.returncode == 0 and after == cur:
             rep.ok("openworks-user-config: update сохраняет user-modified opencode.json")
         else:
             rep.error(f"openworks-user-config: update затёр user-modified конфиг (exit={r3.returncode})")
+
+
+    # A pre-existing JSONC config is a user-owned file too. New opencode.json
+    # must not override its startup-agent choice, regardless of merge order.
+    for choice in ("build", "plan", "my-agent"):
+        with tempfile.TemporaryDirectory(prefix="ow_jsonc_choice_") as td:
+            target = Path(td)
+            jsonc = target / "opencode.jsonc"
+            saved = ('// User startup agent\n{ "default_agent": ' + json.dumps(choice) + ', }\n').encode("utf-8")
+            jsonc.write_bytes(saved)
+            for mode in ("install", "update"):
+                result = subprocess.run(
+                    [pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(install_ps1),
+                     "-Tool", "openworks", "-Target", str(target), "-Mode", mode],
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180)
+                generated = target / "opencode.json"
+                try:
+                    config = json.loads(generated.read_text(encoding="utf-8-sig"))
+                except (OSError, ValueError):
+                    config = {"default_agent": "INVALID"}
+                if result.returncode == 0 and jsonc.read_bytes() == saved and "default_agent" not in config:
+                    rep.ok(f"openworks-user-config: {mode} сохраняет JSONC default_agent={choice}")
+                else:
+                    rep.error(f"openworks-user-config: {mode} изменил JSONC выбор {choice} (exit={result.returncode})")
 
 
 def _parse_frontmatter(content: str) -> dict:
@@ -2908,7 +2934,7 @@ def check_pilot_release_regression(rep: Report) -> None:
     D. no-source/no-DB readiness — статические маркеры doctor (behavioral — в
        check_capability_model);
     E. OpenWork default agent: install.ps1 rootConfig=opencode.json (настоящий OpenCode
-       project config), tpl opencode.json.tpl содержит default_agent 1c-do
+       project config), tpl opencode.json.tpl не навязывает default_agent
        (smoke/идемпотентность — в check_installer_smoke; protected/Force/update —
        в check_openworks_user_config_protection);
     F. summary/context — не исчерпывающий каталог (см. project-sources.md + analyst).
@@ -3083,10 +3109,10 @@ def check_pilot_release_regression(rep: Report) -> None:
     if oc_tpl.exists():
         try:
             ow = json.loads(oc_tpl.read_text(encoding="utf-8-sig", errors="replace"))
-            if ow.get("default_agent") == "1c-do":
-                rep.ok("pilot-release E: opencode.json.tpl задаёт default_agent = 1c-do")
+            if "default_agent" not in ow:
+                rep.ok("pilot-release E: OpenWork сохраняет выбор default_agent пользователя")
             else:
-                rep.error("pilot-release E: opencode.json.tpl без default_agent = 1c-do")
+                rep.error("pilot-release E: OpenWork шаблон навязывает default_agent")
         except Exception as e:
             rep.error(f"pilot-release E: opencode.json.tpl не парсится: {e}")
     # kilo.json.tpl тоже остаётся с default agent (не сломан)
@@ -3163,7 +3189,7 @@ def _overlay_assert_tool(rep: Report, t1: Path, tool: str, readf, sha256f, mark:
         issues.append("LICENSE записан overlay (never-write нарушен)")
     # protected root config: содержимое base (tpl), не overlay.
     # base пишет rootConfig для всех 4 адаптеров (kilo.json, CLAUDE.md, AGENTS.md,
-    # opencode.json — OpenWork/OpenCode project config, default agent 1c-do);
+    # opencode.json — OpenWork/OpenCode project config, startup agent chosen by user);
     # overlay override только с -Force
     base_root_config = {"kilo": "kilo.json", "claude": "CLAUDE.md", "codex": "AGENTS.md",
                         "openworks": "opencode.json"}.get(tool)

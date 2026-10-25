@@ -9,7 +9,9 @@ SDD, индексы, логирование. **Проект-специфичны
 Скиллы 1С (`{{SKILLS_DIR}}/**`) используются: `1c-analyst` — 9 info-скиллов (read-only анализ структуры), `1c-developer` — ~40 edit/compile/validate/info-скиллов (правка XML-метаданных). Declared project MCP (`metadata`, `code`, `platform_help`, `standards`/`v8std`) разрешены согласно `{{CONTEXT_DIR}}/rules/project-sources.md` — primary discovery/reference при наличии; локальные исходники — source of truth для `edit`. Произвольные/необъявленные MCP и интернет запрещены.
 Источник истины — локальные исходники (см. раздел «Источник истины»); MCP — первичный discovery/reference при наличии declared project MCP (см. раздел «Project sources»).
 
-Агент по умолчанию — `1c-do` (точка входа / маршрутизатор). Проект запроса определяет
+Для работы через агентскую схему выберите `1c-do` (точка входа / маршрутизатор).
+В OpenWork установщик не задаёт `default_agent` и сохраняет пользовательский выбор.
+Проект запроса определяет
 `1c-do` (шаг 1.5 алгоритма): по явному указанию пользователя, по grep per-project индексов
 `{{CONTEXT_DIR}}/projects/<проект>/objects-index.md`, либо автоматически при единственном проекте (перечисление
 через `glob {{CONTEXT_DIR}}/projects/*/context.md`).
