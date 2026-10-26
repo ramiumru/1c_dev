@@ -264,11 +264,26 @@ def doctor(root: Path, d: Doc, no_network: bool = False) -> None:
         d.ok(f"core/skills: {n} скиллов с SKILL.md")
     else:
         # целевая установка
-        for tool, meta in {"kilo": ".kilo/skills", "claude": ".claude/skills", "openworks": ".opencode/skills", "codex": "skills"}.items():
+        for tool, meta in {"kilo": ".kilo/skills", "claude": ".claude/skills", "openworks": ".opencode/skills", "codex": ".agents/skills"}.items():
             sp = root / meta
             if sp.is_dir():
                 n = len([p for p in sp.iterdir() if (p / "SKILL.md").exists()])
                 d.ok(f"{meta}: {n} скиллов")
+
+    if (root / ".codex/agents").is_dir():
+        from codex_layout import check_layout
+        try:
+            issues = check_layout(root)
+        except ImportError as exc:
+            d.warn(str(exc))
+        else:
+            if issues:
+                for issue in issues:
+                    d.err(issue)
+            else:
+                d.ok("Codex: 7 native TOML agents and .agents/skills ready")
+    elif (root / "agents/1c-do.md").is_file() and (root / "AGENTS.md").is_file():
+        d.warn("Codex legacy layout: update with the current -Tool codex installer for native skills/subagents")
 
     # --- Скрипты ---
     d.section("Скрипты")
