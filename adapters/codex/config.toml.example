@@ -1,13 +1,16 @@
-# Пример конфигурации Codex CLI для 1C Dev
-# Разместите как config.toml в корне проекта (или ~/.config/codex/config.toml для глобального).
-# Документация: https://github.com/openai/codex (актуальная версия).
+# Не устанавливается автоматически. При необходимости перенесите выбранные параметры
+# в .codex/config.toml проекта или в ~/.codex/config.toml пользователя.
+# CLI и расширение VS Code используют общие слои конфигурации.
+# Модель выбирается пользователем; действующие настройки установщик не меняет.
+# model = "<доступная-в-вашем-аккаунте-модель>"
 
-[model]
-# Модель для роутера 1c-do — provider/model-neutral: укажите доступную в вашем
-# окружении (public repo не фиксирует конкретного провайдера/модели).
-name = "<your-model-id>"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
 
-[instructions]
-# Инструкции читаются из AGENTS.md (корень проекта) автоматически.
-# Дополнительные пути — при необходимости.
-# paths = ["core/context/INSTRUCTIONS.md", "core/context/BslChecklists.md"]
+# Современные клиенты обнаруживают .codex/agents/*.toml автоматически.
+# Не включайте инструменты вопреки настройкам своей сессии.
+# [agents]
+# enabled = true
+
+# AGENTS.md читается автоматически; отдельная [instructions] не требуется.
+# https://learn.chatgpt.com/docs/config-file/config-basic

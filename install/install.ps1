@@ -71,7 +71,7 @@ $config = @{
     kilo = @{ skillDir=".kilo/skills"; agentDir=".kilo/agent"; contextDir=".kilo/context"; logsDir=".kilo/logs"; rootConfig="kilo.json"; instructionsInRoot=$true; copySkills=$true; copyAgents=$true }
     claude = @{ skillDir=".claude/skills"; agentDir=".claude/agents"; contextDir=".claude/context"; logsDir=".claude/logs"; rootConfig="CLAUDE.md"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
     openworks = @{ skillDir=".opencode/skills"; agentDir=".opencode/agents"; contextDir=".opencode/context"; logsDir=".opencode/logs"; rootConfig="opencode.json"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
-    codex = @{ skillDir="skills"; agentDir="agents"; contextDir="context"; logsDir="logs"; rootConfig="AGENTS.md"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
+    codex = @{ skillDir=".agents/skills"; agentDir="agents"; contextDir="context"; logsDir="logs"; rootConfig="AGENTS.md"; instructionsInRoot=$false; copySkills=$true; copyAgents=$true }
 }[$Tool]
 
 $ctx = $config.contextDir
@@ -281,8 +281,13 @@ function Safe-CopyFile($srcPath, $dstPath, $relPath) {
     Copy-Item $srcPath $dstPath -Force
 }
 
+if ($Tool -eq 'codex') { . (Join-Path $PSScriptRoot 'codex-adapter.ps1') }
+
 # --- 1. Скиллы ---
-if ($config.copySkills) {
+if ($Tool -eq 'codex') {
+    Write-Host "[1/8] Codex native skills -> $skills"
+    Install-CodexSkills
+} elseif ($config.copySkills) {
     Write-Host "[1/8] Скиллы -> $skills"
     $skillSrc = "$repo\core\skills"
     Get-ChildItem $skillSrc -Directory | ForEach-Object {
@@ -306,7 +311,10 @@ if ($config.copySkills) {
 } else { Write-Host "[1/8] Скиллы: пропуск" }
 
 # --- 2. Агенты ---
-if ($config.copyAgents) {
+if ($Tool -eq 'codex') {
+    Write-Host "[2/8] Codex roles -> agents + .codex/agents"
+    Install-CodexAgents
+} elseif ($config.copyAgents) {
     Write-Host "[2/8] Агенты -> $agents"
     $agentSrc = "$repo\core\agents"
     $fmSrc = "$repo\adapters\$Tool\frontmatter"
@@ -543,7 +551,7 @@ function Add-ManifestEntryFromSource($srcDir, $targetRelBase, $sourcePrefix) {
 }
 
 # Агенты (*.md в core/agents)
-Add-ManifestEntryFromSource "$repo\core\agents" $agents "core/agents"
+if ($Tool -ne 'codex') { Add-ManifestEntryFromSource "$repo\core\agents" $agents "core/agents" }
 # On-demand правила (*.md в core/rules)
 Add-ManifestEntryFromSource "$repo\core\rules" "$ctx/rules" "core/rules"
 # Контекст (*.md top-level в core/context)
@@ -552,7 +560,7 @@ Add-ManifestEntryFromSource "$repo\core\context" $ctx "core/context"
 Add-ManifestEntryFromSource "$repo\core\scripts" "scripts" "core/scripts"
 # Skills (по одному каталогу на скилл — из core/skills)
 $skillsSrc = "$repo\core\skills"
-if (Test-Path -LiteralPath $skillsSrc) {
+if ($Tool -ne 'codex' -and (Test-Path -LiteralPath $skillsSrc)) {
     Get-ChildItem -LiteralPath $skillsSrc -Directory | ForEach-Object {
         $skillDir = $_.FullName
         $skillName = $_.Name
@@ -567,6 +575,10 @@ if (Test-Path -LiteralPath $skillsSrc) {
             }
         }
     }
+}
+
+if ($Tool -eq 'codex') {
+    $files += @($codexGeneratedFiles.Values)
 }
 
 # specs/README.md

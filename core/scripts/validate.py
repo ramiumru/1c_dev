@@ -104,6 +104,13 @@ REQUIRED_FILES_SOURCE = [
     "core/scripts/_root.py",
     "install/install.ps1",
     "install/permission-paths.ps1",
+    "install/codex-adapter.ps1",
+    "adapters/codex/roles.json",
+    "adapters/codex/runtime.md",
+    "adapters/codex/config.toml.example",
+    "docs/codex-setup.md",
+    "core/scripts/codex_layout.py",
+    "core/scripts/test_codex_adapter.py",
     "core/scripts/test_permission_paths.py",
     "core/context/.dev.env.example",
     ".gitlab-ci.yml",
@@ -113,6 +120,7 @@ REQUIRED_FILES_SOURCE = [
 EXPECTED_RULES = [
     "bsl-standards.md",
     "bsl-strings.md",
+    "bsl-design-and-queries.md",
     "sdd-implementation.md",
     "skill-reference.md",
     "developer-verification.md",
@@ -142,6 +150,7 @@ REQUIRED_FILES_INSTALLED = [
     "scripts/validate.py",
     "scripts/doctor.py",
     "scripts/_root.py",
+    "scripts/codex_layout.py",
     "scripts/test_mock_apply.py",
 ]
 
@@ -184,7 +193,7 @@ def check_python_syntax(rep: Report) -> None:
     if (ROOT / "core" / "skills").is_dir():
         skills_dirs.append(ROOT / "core" / "skills")
     for tool, sdir in [("kilo", ".kilo/skills"), ("claude", ".claude/skills"),
-                        ("openworks", ".opencode/skills"), ("codex", "skills")]:
+                        ("openworks", ".opencode/skills"), ("codex", ".agents/skills")]:
         sp = ROOT / sdir
         if sp.is_dir():
             skills_dirs.append(sp)
@@ -822,6 +831,32 @@ def check_development_preflight(rep: Report) -> None:
         rep.ok("development-preflight: regression passed")
     else:
         rep.error(f"development-preflight: {r.stdout[-2000:]} {r.stderr[-2000:]}")
+
+
+def check_codex_adapter(rep: Report, skip_smoke: bool) -> None:
+    if IS_SOURCE_REPO:
+        cmd = [sys.executable, str(ROOT / "core/scripts/test_codex_adapter.py")]
+        if skip_smoke:
+            cmd.append("--source-only")
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                                errors="replace", timeout=300)
+        if result.returncode == 0:
+            rep.ok("codex-adapter: source contracts" if skip_smoke else
+                   "codex-adapter: native skills/agents, migration, repeated update and user-file protection")
+        else:
+            rep.error(f"codex-adapter: {result.stdout[-1000:]} {result.stderr[-3000:]}")
+    elif (ROOT / ".codex/agents").is_dir():
+        from codex_layout import check_layout
+        try:
+            errors = check_layout(ROOT)
+        except ImportError as exc:
+            rep.error(str(exc))
+            return
+        if errors:
+            for error in errors:
+                rep.error(error)
+        else:
+            rep.ok("Codex: seven native agent TOML files and .agents/skills present")
 
 
 def check_plan_parser(rep: Report) -> None:
@@ -1495,8 +1530,11 @@ def check_installer_smoke(rep: Report, skip_smoke: bool) -> None:
                 elif not (tdp / "opencode.json").exists():
                     issues.append("повторная установка потеряла opencode.json")
             elif tool == "codex":
-                if not (tdp / "agents" / "1c-reviewer.md").exists():
-                    issues.append("нет agents/1c-reviewer.md")
+                from codex_layout import check_layout
+                try:
+                    issues.extend(check_layout(tdp))
+                except ImportError as exc:
+                    issues.append(str(exc))
             if issues:
                 rep.error(f"smoke {tool}: " + "; ".join(issues))
             else:
@@ -3170,7 +3208,7 @@ _OVERLAY_TOOL_PATHS = {
     "kilo":      {"ctx": ".kilo/context",     "logs": ".kilo/logs",     "skills": ".kilo/skills",     "agents": ".kilo/agent"},
     "claude":    {"ctx": ".claude/context",   "logs": ".claude/logs",   "skills": ".claude/skills",   "agents": ".claude/agents"},
     "openworks": {"ctx": ".opencode/context", "logs": ".opencode/logs", "skills": ".opencode/skills", "agents": ".opencode/agents"},
-    "codex":     {"ctx": "context",           "logs": "logs",           "skills": "skills",           "agents": "agents"},
+    "codex":     {"ctx": "context",           "logs": "logs",           "skills": ".agents/skills",   "agents": "agents"},
 }
 
 
@@ -3591,6 +3629,7 @@ def main() -> int:
     check_mock_apply(rep)
     check_plan_parser(rep)
     check_development_preflight(rep)
+    check_codex_adapter(rep, args.skip_smoke)
     check_kilo_tools_field(rep)
     check_kilo_permission_order(rep)
     check_scope_hash_permissions(rep)

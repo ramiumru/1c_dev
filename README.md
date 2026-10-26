@@ -14,7 +14,7 @@
 | **Kilo** | `install.ps1 -Tool kilo` | Multi-agent | `.kilo/agent`, `.kilo/skills`, `kilo.json` |
 | **Claude Code** | `install.ps1 -Tool claude` | Multi-agent | `.claude/agents`, `.claude/skills`, `CLAUDE.md` |
 | **OpenWork** | `install.ps1 -Tool openworks` | Multi-agent | `.opencode/agents`, `.opencode/skills`, `opencode.json` (выбор стартового агента сохраняется) |
-| **Codex CLI** | `install.ps1 -Tool codex` | Single-agent | `AGENTS.md` + скрипты (одноагентный режим) |
+| **Codex (VS Code / CLI)** | `install.ps1 -Tool codex` | Native subagents + skills | `AGENTS.md`, `.codex/agents/*.toml`, `.agents/skills/` |
 
 ## Архитектура
 
@@ -229,6 +229,9 @@ generic-пример — [`examples/overlay/`](examples/overlay/README.md).
    `.opencode/context/projects` для claude/codex/openworks)
 6. Проверка окружения: `python scripts/doctor.py`.
 7. Локальная валидация: `python scripts/validate.py`.
+
+Для Codex в VS Code/CLI без корпоративного слоя —
+[отдельная инструкция](docs/codex-setup.md).
 
 ## Требования окружения
 

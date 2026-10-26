@@ -32,7 +32,7 @@ git clone {GITHUB_URL} "$env:TEMP\1c-dev-harness"
 - Kilo
 - Claude Code
 - OpenWork
-- Codex CLI
+- Codex (расширение VS Code или CLI; адаптер `codex`)
 
 Если в проекте уже есть `.kilo/`, `.claude/`, `.opencode/` или `AGENTS.md` (codex) —
 предложи соответствующий инструмент как рекомендованный, но подтверди у пользователя.
@@ -62,6 +62,13 @@ Overlay применяется после базовой установки (ove
 копию; manifest — `.install-manifest-overlay.json`). Структура —
 `docs/corporate-overlay-recommendations.md`. Без явного запроса пользователя
 overlay НЕ подключать.
+
+Для Codex: skills находятся в `.agents/skills/`, native subagents — в
+`.codex/agents/*.toml`, основные инструкции — в `AGENTS.md`.
+Существующие `.codex/config.toml`, глобальный профиль и модель не меняются.
+Откройте корень целевого проекта в VS Code и начните новую сессию Codex.
+Необходима актуальная версия расширения с поддержкой custom subagents;
+[настройка и ограничения](https://github.com/ramiumru/1c_dev/blob/main/docs/codex-setup.md).
 
 ### Шаг 4: Проверить установку
 
