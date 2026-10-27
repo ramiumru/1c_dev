@@ -90,8 +90,17 @@ def check(root: Path, task: str, config_src: str) -> tuple[list[str], list[str]]
             continue  # nested forms/commands are not independent top-level objects
         props = next((n for n in obj if n.tag.rsplit('}', 1)[-1] == 'Properties'), None)
         obj_name = next((n.text for n in props if n.tag.rsplit('}', 1)[-1] == 'Name'), None) if props is not None else None
-        if obj_name and relative.as_posix() != f'{collection}/{obj_name}.xml':
-            errors.append(f'XML layout: {name}; ожидается {collection}/{obj_name}.xml')
+        expected = f'{collection}/{obj_name}.xml'
+        if kind == 'Subsystem' and len(relative.parts) > 2:
+            # A nested subsystem lives in Subsystems/Parent/Subsystems/Child.xml,
+            # recursively. Keep validating the leaf name and every ancestor pair.
+            ancestors = relative.parts[:-2]
+            if (len(ancestors) % 2 == 0
+                    and all(ancestors[i] == 'Subsystems' for i in range(0, len(ancestors), 2))
+                    and relative.parts[-2] == 'Subsystems'):
+                expected = '/'.join((*ancestors, 'Subsystems', f'{obj_name}.xml'))
+        if obj_name and relative.as_posix() != expected:
+            errors.append(f'XML layout: {name}; ожидается {expected}')
     notes.append(f'Проверено файлов плана: {len(files)}; БД и review не запускались')
     return errors, notes
 

@@ -362,7 +362,7 @@ def parse_objects_index(index_path: Path) -> list[IndexedObject]:
         if not title_match:
             continue
 
-        title = title_match.group(1).strip()
+        title = normalize_object_title(title_match.group(1))
 
         if title.lower().startswith("индекс объектов"):
             continue
@@ -756,6 +756,17 @@ def build_llm_summary(
     return summary.strip() + f"\n\n---\n\nHash контекста: `{ctx.file_hash}`\n"
 
 
+def normalize_object_title(title: str) -> str:
+    """Normalize type aliases only; preserve the metadata object's actual name."""
+    kind, separator, name = title.strip().partition(".")
+    if not separator:
+        return title.strip()
+    kind = EN_TO_RU_TYPE.get(kind, kind)
+    if kind == "Отчёт":
+        kind = "Отчет"
+    return kind + separator + name
+
+
 def find_object_dir_for_title(title: str, project: str = "") -> Optional[Path]:
     """Для канонического заголовка 'РусТип.Имя' возвращает каталог объекта
     (projects/<source>/src/<TypeFolder>/<Имя>/) если он существует, иначе None.
@@ -763,7 +774,7 @@ def find_object_dir_for_title(title: str, project: str = "") -> Optional[Path]:
     включая расширения). Иначе — все источники из маппинга."""
     if "." not in title:
         return None
-    ru_type, name = title.split(".", 1)
+    ru_type, name = normalize_object_title(title).split(".", 1)
     folder = RU_TYPE_TO_FOLDER.get(ru_type)
     if not folder:
         return None
@@ -816,6 +827,8 @@ def scan_projects_for_objects(
     project_dirs = [src_root / s for s in source_names if (src_root / s).is_dir()]
 
     if requested_titles is not None:
+        index_titles = {normalize_object_title(t) for t in index_titles}
+        requested_titles = {normalize_object_title(t) for t in requested_titles}
         new_objects: list = []
         for title in sorted(requested_titles):
             if title in index_titles:
@@ -1094,9 +1107,13 @@ def main() -> int:
         existing = load_indexed_objects()
         index_titles = {o.title for o in existing}
         if args.objects:
-            requested = {t.strip() for t in args.objects.split(",") if t.strip()}
+            requested = {normalize_object_title(t) for t in args.objects.split(",") if t.strip()}
             new_objects = scan_projects_for_objects(index_titles, requested, project=project)
             new_only = list(new_objects)
+            missing = requested - index_titles - {t for t, _ in new_only}
+            if missing:
+                print(f"ERROR requested-objects-not-found: {', '.join(sorted(missing))}")
+                return 1  # no partial index writes when the explicit request is incomplete
             if new_only:
                 print(f"Найдено новых объектов: {len(new_only)}")
                 for title, _ in new_only:
@@ -1152,12 +1169,16 @@ def main() -> int:
             objects = [o for o in objects if o.project == project]
 
         if args.objects:
-            wanted = {t.strip() for t in args.objects.split(",") if t.strip()}
+            wanted = {normalize_object_title(t) for t in args.objects.split(",") if t.strip()}
+            missing = wanted - {obj.title for obj in objects}
+            if missing:
+                print(f"ERROR requested-objects-not-found: {', '.join(sorted(missing))}")
+                return 1
             objects = [obj for obj in objects if obj.title in wanted]
         elif args.object:
             objects = [
                 obj for obj in objects
-                if args.object.lower() in obj.title.lower()
+                if normalize_object_title(args.object).lower() in obj.title.lower()
             ]
 
         if not objects:

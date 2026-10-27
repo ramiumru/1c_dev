@@ -95,6 +95,7 @@ REQUIRED_FILES_SOURCE = [
     "core/scripts/scope_hash.py",
     "core/scripts/plan_parser.py",
     "core/scripts/test_plan_parser.py",
+    "core/scripts/test_confirmed_regressions.py",
     "core/scripts/test_development_preflight.py",
     "core/scripts/development_preflight.py",
     "core/scripts/bsl-check.py",
@@ -143,6 +144,7 @@ REQUIRED_FILES_INSTALLED = [
     "scripts/scope_hash.py",
     "scripts/plan_parser.py",
     "scripts/test_plan_parser.py",
+    "scripts/test_confirmed_regressions.py",
     "scripts/test_development_preflight.py",
     "scripts/development_preflight.py",
     "scripts/bsl-check.py",
@@ -857,6 +859,16 @@ def check_codex_adapter(rep: Report, skip_smoke: bool) -> None:
                 rep.error(error)
         else:
             rep.ok("Codex: seven native agent TOML files and .agents/skills present")
+
+
+def check_confirmed_regressions(rep: Report) -> None:
+    scripts = ROOT / "core/scripts" if IS_SOURCE_REPO else ROOT / "scripts"
+    result = subprocess.run([sys.executable, str(scripts / "test_confirmed_regressions.py")],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
+    if result.returncode == 0:
+        rep.ok("confirmed-regressions: native skills, async BSL, report aliases and strict explicit object lists")
+    else:
+        rep.error(f"confirmed-regressions: {result.stdout[-1000:]} {result.stderr[-3000:]}")
 
 
 def check_plan_parser(rep: Report) -> None:
@@ -3629,6 +3641,7 @@ def main() -> int:
     check_mock_apply(rep)
     check_plan_parser(rep)
     check_development_preflight(rep)
+    check_confirmed_regressions(rep)
     check_codex_adapter(rep, args.skip_smoke)
     check_kilo_tools_field(rep)
     check_kilo_permission_order(rep)
