@@ -91,6 +91,32 @@ spec_version: 1
         self.save()
         self.assertEqual(self.errors(), [])
 
+    def test_nested_subsystem_descriptors(self):
+        for relative in ('Subsystems/Child.xml',
+                         'Subsystems/Parent/Subsystems/Child.xml',
+                         'Subsystems/Parent/Subsystems/Middle/Subsystems/Child.xml'):
+            with self.subTest(path=relative):
+                name = self.src + '/' + relative
+                self.put(name, self.xml.replace('CommonCommand', 'Subsystem').replace('Create', 'Child'))
+                self.report = self.report.replace(self.name, name)
+                # Reset the plan explicitly for each depth.
+                prefix = self.report.split('## Изменённые файлы')[0]
+                self.report = prefix + '## Изменённые файлы\n- `' + name + '` — Подсистема.Child\n'
+                self.save()
+                self.assertEqual(self.errors(), [])
+
+    def test_bad_subsystem_leaf_and_container_are_still_rejected(self):
+        for relative in ('Subsystems/Parent/Child.xml',
+                         'Subsystems/Parent/Subsystems/Wrong.xml',
+                         'Subsystems/Parent/Subsystems/Child/Child.xml'):
+            with self.subTest(path=relative):
+                name = self.src + '/' + relative
+                self.put(name, self.xml.replace('CommonCommand', 'Subsystem').replace('Create', 'Child'))
+                prefix = self.report.split('## Изменённые файлы')[0]
+                self.report = prefix + '## Изменённые файлы\n- `' + name + '` — Подсистема.Child\n'
+                self.save()
+                self.assertTrue(any('XML layout' in e for e in self.errors()))
+
     def test_bad_xml(self):
         self.put(self.name, '<MetaDataObject>')
         self.assertTrue(any('XML:' in e for e in self.errors()))

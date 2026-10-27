@@ -46,9 +46,9 @@ import glob
 BOM = b'\xef\xbb\xbf'
 
 # Регэкспы (case-insensitive для BSL ключевых слов)
-RE_PROC_START = re.compile(r'^\s*(Процедура|Procedure)\s+', re.IGNORECASE)
+RE_PROC_START = re.compile(r'^\s*(?:(?:Асинх|Async)\s+)?(Процедура|Procedure)\s+', re.IGNORECASE)
 RE_PROC_END = re.compile(r'^\s*(КонецПроцедуры|EndProcedure)\s*;?\s*$', re.IGNORECASE)
-RE_FUNC_START = re.compile(r'^\s*(Функция|Function)\s+', re.IGNORECASE)
+RE_FUNC_START = re.compile(r'^\s*(?:(?:Асинх|Async)\s+)?(Функция|Function)\s+', re.IGNORECASE)
 RE_FUNC_END = re.compile(r'^\s*(КонецФункции|EndFunction)\s*;?\s*$', re.IGNORECASE)
 RE_IF_START = re.compile(r'^\s*(Если|If)\s+', re.IGNORECASE)
 RE_IF_END = re.compile(r'^\s*(КонецЕсли|EndIf)\s*;?\s*$', re.IGNORECASE)
