@@ -262,6 +262,12 @@ def main() -> int:
     db = load_db_config(db_id, project_root_path)
     if not db:
         return 2
+    if not isinstance(db.get("repository", {}), dict):
+        print("ERROR: repository profile must be an object", file=sys.stderr)
+        return 2
+    if "enabled" in db.get("repository", {}) and type(db["repository"]["enabled"]) is not bool:
+        print("ERROR: repository.enabled must be boolean", file=sys.stderr)
+        return 2
     config_src = str(db.get("configSrc", "")).strip()
     if not config_src:
         print(f"ERROR: configSrc не задан для базы '{db_id}'", file=sys.stderr)
@@ -294,6 +300,14 @@ def main() -> int:
     if guard_exit != 0:
         return 1
 
+    if db.get("repository", {}).get("enabled"):
+        from safe_repository import before_apply
+        try:
+            before_apply(project_root_path, db_id, task, plan_files, config_src, args.dry_run)
+        except (ValueError, OSError) as exc:
+            print(f"ERROR repository preflight: {exc}", file=sys.stderr)
+            return 1
+
     if args.dry_run:
         print("=== safe_apply: --dry-run — guard пройден, skill не запускается ===")
         return 0
@@ -317,6 +331,15 @@ def main() -> int:
         print("=== safe_apply: update завершился с ошибкой ===")
         print("Восстановление — ручная процедура (внешний backup).")
         return 1
+
+    if db.get("repository", {}).get("enabled"):
+        from repository_support import record_apply
+        try:
+            record_apply(project_root_path, task, db_id, plan_files, config_src)
+        except (OSError, ValueError) as exc:
+            print(f"ERROR: БД уже обновлена, но запись evidence не удалась: {exc}. "
+                  "Не повторять apply автоматически; помещение требует диагностики.", file=sys.stderr)
+            return 1
 
     print(f"\n=== safe_apply: apply выполнен успешно (load-xml + update) ===")
     return 0

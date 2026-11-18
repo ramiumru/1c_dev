@@ -1,0 +1,3 @@
+name: 1c-repository
+description: "Хранилище конфигурации 1С: чтение статуса/истории/diff, захват, помещение с комментарием и отмена своих захватов через safe_repository.py. Только основная конфигурация, базы из .v8-project.json; без apply, force, bind/unbind, получения версии и изменения исходников."
+tools: Read, Glob, Grep, Bash, Skill

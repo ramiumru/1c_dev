@@ -9,6 +9,11 @@ SDD, индексы, логирование. **Проект-специфичны
 Скиллы 1С (`{{SKILLS_DIR}}/**`) используются: `1c-analyst` — 9 info-скиллов (read-only анализ структуры), `1c-developer` — ~40 edit/compile/validate/info-скиллов (правка XML-метаданных). Declared project MCP (`metadata`, `code`, `platform_help`, `standards`/`v8std`) разрешены согласно `{{CONTEXT_DIR}}/rules/project-sources.md` — primary discovery/reference при наличии; локальные исходники — source of truth для `edit`. Произвольные/необъявленные MCP и интернет запрещены.
 Источник истины — локальные исходники (см. раздел «Источник истины»); MCP — первичный discovery/reference при наличии declared project MCP (см. раздел «Project sources»).
 
+Операции с хранилищем основной конфигурации выполняет `1c-repository` через
+`scripts/safe_repository.py`. Это opt-in для выбранной записи .v8-project.json:
+подготовка захватов до apply, публикация — только по явному намерению, политика
+комментария — публичная либо частная. Правило: `{{CONTEXT_DIR}}/rules/repository-workflow.md`.
+
 Для работы через агентскую схему выберите `1c-do` (точка входа / маршрутизатор).
 В OpenWork установщик не задаёт `default_agent` и сохраняет пользовательский выбор.
 Проект запроса определяет

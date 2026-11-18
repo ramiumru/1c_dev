@@ -1,0 +1,8 @@
+{
+  "template": "#{task_ref}: {summary}",
+  "required_fields": [
+    "task_ref",
+    "summary"
+  ],
+  "validation_regex": "#[0-9]+: .+"
+}

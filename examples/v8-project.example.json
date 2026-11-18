@@ -12,8 +12,21 @@
       "username": "local-user",
       "password_mode": "none",
       "backup_mode": "external",
-      "aliases": ["demo", "демо"],
-      "configSrc": "projects/example/src"
+      "aliases": [
+        "demo",
+        "демо"
+      ],
+      "configSrc": "projects/example/src",
+      "repository": {
+        "enabled": false,
+        "environment": "dev",
+        "path": "tcp://repository-server/dev",
+        "username_env": "ONEC_REPOSITORY_USER",
+        "password_mode": "env",
+        "password_env": "ONEC_REPOSITORY_PASSWORD",
+        "allow_write": false,
+        "binding_confirmed": false
+      }
     },
     {
       "id": "test-sandbox",
@@ -27,7 +40,10 @@
       "password_mode": "env",
       "password_env": "V8_TEST_PASSWORD",
       "backup_mode": "external",
-      "aliases": ["test", "тест"],
+      "aliases": [
+        "test",
+        "тест"
+      ],
       "configSrc": "projects/example/src"
     }
   ],

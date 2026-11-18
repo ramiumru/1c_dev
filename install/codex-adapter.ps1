@@ -63,7 +63,7 @@ function Install-CodexAgents {
         $toml = "name = " + (ConvertTo-Json -InputObject $name -Compress) + "`n"
         $toml += "description = " + (ConvertTo-Json -InputObject ([string]$role.Value) -Compress) + "`n"
         $toml += "developer_instructions = " + (ConvertTo-Json -InputObject $instructions -Compress) + "`n"
-        if ($name -eq '1c-git-reviewer') {
+        if ($name -in @('1c-git-reviewer', '1c-repository')) {
             $toml += "`n[features]`napps = false`nplugins = false`nmemories = false`n"
         }
         Write-CodexManagedFile ".codex/agents/$name.toml" ($codexUtf8.GetBytes($toml)) "core/agents/$name.md"

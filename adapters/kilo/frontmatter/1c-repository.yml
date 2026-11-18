@@ -1,0 +1,66 @@
+description: "Хранилище конфигурации 1С: чтение статуса/истории/diff, захват, помещение с комментарием и отмена своих захватов через safe_repository.py. Только основная конфигурация, базы из .v8-project.json; без apply, force, bind/unbind, получения версии и изменения исходников."
+mode: all
+permission:
+  "*": deny
+  read:
+    "*": deny
+    "INSTRUCTIONS.md": allow
+    "AGENTS.md": allow
+    ".v8-project.json": allow
+    ".kilo/agent/1c-repository.md": allow
+    ".kilo/context/rules/repository-workflow.md": allow
+    ".kilo/context/projects/**": allow
+    "projects/**": allow
+    "specs/**": allow
+    "pilot-control/**": allow
+    "scripts/**": allow
+    ".kilo/skills/1c-repository-manage/**": allow
+  glob:
+    "*": deny
+    "INSTRUCTIONS.md": allow
+    "AGENTS.md": allow
+    ".v8-project.json": allow
+    ".kilo/agent/1c-repository.md": allow
+    ".kilo/context/rules/repository-workflow.md": allow
+    ".kilo/context/projects/**": allow
+    "projects/**": allow
+    "specs/**": allow
+    "pilot-control/**": allow
+    "scripts/**": allow
+    ".kilo/skills/1c-repository-manage/**": allow
+  grep:
+    "*": deny
+    "INSTRUCTIONS.md": allow
+    "AGENTS.md": allow
+    ".v8-project.json": allow
+    ".kilo/agent/1c-repository.md": allow
+    ".kilo/context/rules/repository-workflow.md": allow
+    ".kilo/context/projects/**": allow
+    "projects/**": allow
+    "specs/**": allow
+    "pilot-control/**": allow
+    "scripts/**": allow
+    ".kilo/skills/1c-repository-manage/**": allow
+  list:
+    "*": deny
+    "INSTRUCTIONS.md": allow
+    "AGENTS.md": allow
+    ".v8-project.json": allow
+    ".kilo/agent/1c-repository.md": allow
+    ".kilo/context/rules/repository-workflow.md": allow
+    ".kilo/context/projects/**": allow
+    "projects/**": allow
+    "specs/**": allow
+    "pilot-control/**": allow
+    "scripts/**": allow
+    ".kilo/skills/1c-repository-manage/**": allow
+  edit:
+    "*": deny
+  bash:
+    "*": deny
+    "python scripts/safe_repository.py *": allow
+  task: deny
+  external_directory: deny
+  skill:
+    "*": deny
+    "1c-repository-manage": allow

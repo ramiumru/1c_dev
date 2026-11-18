@@ -103,3 +103,11 @@
 4. Оригинальная часть harness — под лицензией MIT (Copyright (c) 2025-2026 Kirill Pulyavin,
    см. `LICENSE`). При добавлении нового оригинального материала он автоматически попадает
    под ту же лицензию MIT. Не добавляйте сторонние материалы без указания upstream и лицензии.
+
+### Хранилище конфигурации 1С
+
+`core/skills/1c-repository-manage/scripts/repo-ops.ps1` адаптирован из
+comol/ai_rules_1c, SHA 44cea4dbd3a03acbe1329dcf9ce98c88a0b38c50. README автора
+разрешает использование; скрипт отмечает MIT-заимствования из db-repo проекта
+Nikolay-Shirokov/cc-1c-skills. Сохранены attribution и сведения в skill/NOTICE.md.
+Guard, профиль, политики, роли и интеграция Harness — оригинальная часть 1c_dev.

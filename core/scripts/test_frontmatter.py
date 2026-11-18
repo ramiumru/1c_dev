@@ -18,7 +18,7 @@ from validate import _parse_frontmatter
 
 ROOT = Path(__file__).resolve().parents[2]
 AGENTS = ('1c-do', '1c-analyst', '1c-developer', '1c-reviewer',
-          '1c-applier', '1c-tools', '1c-git-reviewer')
+          '1c-applier', '1c-tools', '1c-git-reviewer', '1c-repository')
 PATHS = {
     'kilo': ('.kilo/agent', '.kilo/context', '.kilo/logs', '.kilo/skills'),
     'openworks': ('.opencode/agents', '.opencode/context', '.opencode/logs', '.opencode/skills'),

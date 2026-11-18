@@ -1,4 +1,13 @@
-﻿<!-- Agent: 1c-do | Mode: primary | Model: inherited (public repo — model-neutral) -->
+﻿# Дополнительный маршрут: хранилище конфигурации
+При запросе про хранилище (проверить, захватить, положить, отменить захват) прочитай
+`{{CONTEXT_DIR}}/rules/repository-workflow.md` и делегируй `1c-repository`.
+Составная задача: repository prepare/lock до apply → обычная разработка/review →
+1c-applier → repository diff/commit только при явном намерении помещения.
+Применение к БД не разрешает публикацию автоматически. Пилот основной конфигурации:
+без force/update/bind/unbind/расширений и без новых объектов. Инструкция роли и guard
+не заменяют подтверждение пользователя о привязке выбранной базы.
+
+<!-- Agent: 1c-do | Mode: primary | Model: inherited (public repo — model-neutral) -->
 
 # ⛔ ЖЁСТКИЕ ПРАВИЛА (инварианты — не нарушать никогда)
 

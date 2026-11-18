@@ -38,6 +38,7 @@
 - **1c-reviewer** — независимый review (соответствие spec/scope, регрессии, права/RLS, контракты); обязателен для `risk: high` и перед apply.
 - **1c-applier** — применение правок в ИБ (db-load-xml → db-update, бэкап dt), только по явному запросу, после preflight `applier_guard.py`; не работает с `production`.
 - **1c-tools** — исполнитель утилит (`build_summaries.py`), без самостоятельности.
+- **1c-repository** — пилот основной конфигурации: status/history/diff, захват существующих объектов, помещение с public/private политикой комментария и отмена захватов задачи. [Настройка и границы](docs/repository-pilot.md).
 - **1c-git-reviewer** — быстрый Git code review по номеру задачи: ревью изменений задачи в `dev` и сравнение `dev`/`prod` (PRESENT/MISSING/PARTIAL/DIFFERENT/UNCERTAIN). Запускается пользователем напрямую, без SDD/пайплайна и тестовой базы; Git — только через read-only wrapper `scripts/git_readonly.py`.
 
 ### Spec-Driven Development (SDD)
@@ -157,7 +158,7 @@ gate, risk из `03_solution_spec.md`); для `risk: high` apply UNKNOWN не �
 ```
 1c-dev/
 ├── core/                    — канонический источник (tool-agnostic)
-│   ├── agents/              — 7 агентов: тела (без frontmatter) — 1c-do/analyst/developer/reviewer/applier/tools/git-reviewer
+│   ├── agents/              — 8 агентов: тела (без frontmatter) — 1c-do/analyst/developer/reviewer/applier/tools/git-reviewer
 │   ├── skills/              — 78 скиллов: <name>/{SKILL.md, scripts/}
 │   ├── context/             — INSTRUCTIONS.md, BslChecklists.md, standards/, common/, projects/
 │   ├── scripts/             — bsl-check.py, build_summaries.py, applier_guard.py, git_readonly.py, validate.py, doctor.py

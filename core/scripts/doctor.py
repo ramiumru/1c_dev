@@ -74,7 +74,7 @@ def _find_root(start: Path) -> Path:
 
 DEFAULT_ROOT = _find_root(SCRIPT_DIR)
 
-AGENTS = ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-applier", "1c-tools", "1c-git-reviewer"]
+AGENTS = ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-applier", "1c-tools", "1c-git-reviewer", "1c-repository"]
 ADAPTERS = {
     "kilo": {"agents_dir": ".kilo/agent"},
     "claude": {"agents_dir": ".claude/agents"},
@@ -281,7 +281,7 @@ def doctor(root: Path, d: Doc, no_network: bool = False) -> None:
                 for issue in issues:
                     d.err(issue)
             else:
-                d.ok("Codex: 7 native TOML agents and .agents/skills ready")
+                d.ok("Codex: 8 native TOML agents and .agents/skills ready")
     elif (root / "agents/1c-do.md").is_file() and (root / "AGENTS.md").is_file():
         d.warn("Codex legacy layout: update with the current -Tool codex installer for native skills/subagents")
 
