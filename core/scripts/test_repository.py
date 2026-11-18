@@ -220,7 +220,7 @@ class PowerShellRepositoryTests(unittest.TestCase):
             cs = self.root / 'Fake.cs'
             cs.write_text(CSHARP_FAKE, encoding='utf-8-sig')
             compile_ps = self.root / 'compile.ps1'
-            compile_ps.write_text('param($Source,$Output)\n$ErrorActionPreference="Stop"\nAdd-Type -TypeDefinition ([IO.File]::ReadAllText($Source)) -OutputAssembly $Output -OutputType ConsoleApplication\n', encoding='utf-8-sig')
+            compile_ps.write_text('param($Source,$Output)\n$ErrorActionPreference="Stop"\nAdd-Type -TypeDefinition ([IO.File]::ReadAllText($Source)) -ReferencedAssemblies System.dll,System.Xml.dll -OutputAssembly $Output -OutputType ConsoleApplication\n', encoding='utf-8-sig')
             compile_env = dict(os.environ)
             compile_env.pop('PSModulePath', None)
             result = subprocess.run([compiler, '-NoProfile', '-File', str(compile_ps), str(cs), str(self.fake)], env=compile_env, capture_output=True, text=True, encoding='utf-8', timeout=60)
