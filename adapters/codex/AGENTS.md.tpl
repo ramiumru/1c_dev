@@ -6,7 +6,7 @@
 
 ## Роли и делегирование
 
-Основная сессия координирует работу по `agents/1c-do.md`. Семь определений subagents
+Основная сессия координирует работу по `agents/1c-do.md`. Определения subagents
 установлены в `.codex/agents/*.toml`; это отдельные роли, а не переключатель модели.
 Для полной SDD-задачи делегируй этапы соответствующим доступным subagents Codex:
 анализ → спецификация → согласование пользователем → разработка → отдельный review.
@@ -20,6 +20,7 @@
 | 1c-reviewer | `agents/1c-reviewer.md` | Независимый review, без изменения исходников и БД |
 | 1c-applier | `agents/1c-applier.md` | Применение к БД только по явному запросу и после guard |
 | 1c-tools | `agents/1c-tools.md` | Регенерация индексов и summaries |
+| 1c-repository | `agents/1c-repository.md` | Захваты и помещение в хранилище через safe_repository; без apply |
 | 1c-git-reviewer | `agents/1c-git-reviewer.md` | Read-only Git review без MCP и без SDD-процесса |
 
 Task в общих инструкциях означает реальное делегирование инструментами subagents

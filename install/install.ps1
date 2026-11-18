@@ -528,6 +528,8 @@ New-Item -ItemType Directory -Force -Path $examplesDst | Out-Null
 Safe-CopyFile "$repo\examples\v8-project.example.json" (Join-Path $examplesDst "v8-project.example.json") "examples/v8-project.example.json"
 Safe-CopyFile "$repo\examples\project-context.example.md" (Join-Path $examplesDst "project-context.example.md") "examples/project-context.example.md"
 
+Safe-CopyFile "$repo\examples\repository-comment-policy.example.json" (Join-Path $examplesDst "repository-comment-policy.example.json") "examples/repository-comment-policy.example.json"
+
 # --- Манифест .ai-rules.json ---
 Write-Host "[7/8] Генерация манифеста .ai-rules.json"
 $manifestPath = Join-Path $Target ".ai-rules.json"
@@ -597,6 +599,10 @@ $projCtxExamplePath = Join-Path $Target "examples/project-context.example.md"
 if (Test-Path $projCtxExamplePath) {
     $hash = (Get-FileHash -LiteralPath $projCtxExamplePath -Algorithm SHA256).Hash
     $files += [PSCustomObject]@{ path="examples/project-context.example.md"; source="examples/project-context.example.md"; installedHash=$hash; userModified=$false }
+}
+$repositoryExample = Join-Path $Target "examples/repository-comment-policy.example.json"
+if (Test-Path -LiteralPath $repositoryExample) {
+    $files += [PSCustomObject]@{ path="examples/repository-comment-policy.example.json"; source="examples/repository-comment-policy.example.json"; installedHash=(Get-FileHash -LiteralPath "$repo\examples\repository-comment-policy.example.json" -Algorithm SHA256).Hash; userModified=$false }
 }
 # Корневой конфиг: hash берётся из ШАБЛОНА (source), а не из установленного файла.
 # Существующий пользовательский root config (protected-skip) в манифесте получает

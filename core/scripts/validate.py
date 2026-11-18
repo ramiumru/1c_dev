@@ -74,7 +74,7 @@ ROOT = _find_root(SCRIPT_DIR)
 # Определить режим: исходный репо (есть core/) или установленная раскладка (есть .kilo/agent или scripts/)
 IS_SOURCE_REPO = (ROOT / "core" / "agents").is_dir()
 
-EXPECTED_AGENTS = ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-applier", "1c-tools", "1c-git-reviewer"]
+EXPECTED_AGENTS = ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-applier", "1c-tools", "1c-git-reviewer", "1c-repository"]
 ADAPTERS = ["kilo", "claude", "codex", "openworks"]
 
 REQUIRED_FILES_SOURCE = [
@@ -91,6 +91,9 @@ REQUIRED_FILES_SOURCE = [
     "core/sdd/README.md",
     "core/scripts/applier_guard.py",
     "core/scripts/safe_apply.py",
+    "core/scripts/safe_repository.py",
+    "core/scripts/repository_support.py",
+    "core/scripts/test_repository.py",
     "core/scripts/safe_backup.py",
     "core/scripts/scope_hash.py",
     "core/scripts/plan_parser.py",
@@ -121,6 +124,7 @@ REQUIRED_FILES_SOURCE = [
 EXPECTED_RULES = [
     "bsl-standards.md",
     "bsl-strings.md",
+    "repository-workflow.md",
     "bsl-design-and-queries.md",
     "sdd-implementation.md",
     "skill-reference.md",
@@ -140,6 +144,9 @@ REQUIRED_FILES_INSTALLED = [
     "specs/README.md",
     "scripts/applier_guard.py",
     "scripts/safe_apply.py",
+    "scripts/safe_repository.py",
+    "scripts/repository_support.py",
+    "scripts/test_repository.py",
     "scripts/safe_backup.py",
     "scripts/scope_hash.py",
     "scripts/plan_parser.py",
@@ -858,7 +865,7 @@ def check_codex_adapter(rep: Report, skip_smoke: bool) -> None:
             for error in errors:
                 rep.error(error)
         else:
-            rep.ok("Codex: seven native agent TOML files and .agents/skills present")
+            rep.ok("Codex: eight native agent TOML files and .agents/skills present")
 
 
 def check_confirmed_regressions(rep: Report) -> None:
@@ -869,6 +876,16 @@ def check_confirmed_regressions(rep: Report) -> None:
         rep.ok("confirmed-regressions: native skills, async BSL, report aliases and strict explicit object lists")
     else:
         rep.error(f"confirmed-regressions: {result.stdout[-1000:]} {result.stderr[-3000:]}")
+
+
+def check_repository_regressions(rep: Report) -> None:
+    scripts = ROOT / "core/scripts" if IS_SOURCE_REPO else ROOT / "scripts"
+    result = subprocess.run([sys.executable, str(scripts / "test_repository.py")],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
+    if result.returncode == 0:
+        rep.ok("repository: profile/env/comment/receipt/publication regressions passed")
+    else:
+        rep.error(f"repository: {result.stdout[-1000:]} {result.stderr[-3000:]}")
 
 
 def check_plan_parser(rep: Report) -> None:
@@ -2270,7 +2287,7 @@ def check_mcp_permissions_flat(rep: Report) -> None:
         "1c-developer": {"code_*", "platform_help_*", "v8std_*", "standards_*"},
         "1c-reviewer": {"metadata_*", "code_*", "platform_help_*", "v8std_*", "standards_*"},
     }
-    no_mcp_agents = {"1c-do", "1c-tools", "1c-applier", "1c-git-reviewer"}
+    no_mcp_agents = {"1c-do", "1c-tools", "1c-applier", "1c-git-reviewer", "1c-repository"}
 
     for agent in ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-tools", "1c-applier", "1c-git-reviewer"]:
         yml = fm_dir / f"{agent}.yml"
@@ -3642,6 +3659,7 @@ def main() -> int:
     check_plan_parser(rep)
     check_development_preflight(rep)
     check_confirmed_regressions(rep)
+    check_repository_regressions(rep)
     check_codex_adapter(rep, args.skip_smoke)
     check_kilo_tools_field(rep)
     check_kilo_permission_order(rep)

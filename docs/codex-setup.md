@@ -42,7 +42,7 @@ python scripts\validate.py
 | Путь | Назначение |
 |---|---|
 | `AGENTS.md` | Автоматически читаемая точка входа и правила работы |
-| `.codex/agents/1c-*.toml` | Семь нативных custom agents |
+| `.codex/agents/1c-*.toml` | Восемь нативных custom agents |
 | `agents/1c-*.md` | Полные канонические инструкции ролей для прямого чтения |
 | `.agents/skills/<name>/SKILL.md` | Нативное обнаружение skills; рядом scripts/resources |
 | `context/`, `scripts/`, `specs/README.md` | Контекст, проверки и шаблоны SDD |

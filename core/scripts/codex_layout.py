@@ -3,7 +3,7 @@
 from pathlib import Path
 
 AGENT_NAMES = ('1c-do', '1c-analyst', '1c-developer', '1c-reviewer',
-               '1c-applier', '1c-tools', '1c-git-reviewer')
+               '1c-applier', '1c-tools', '1c-git-reviewer', '1c-repository')
 
 
 def load_toml(path):

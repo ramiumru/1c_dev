@@ -2,6 +2,7 @@
 mode: primary
 permission:
   read:
+    ".v8-project.json": allow
     "INSTRUCTIONS.md": allow
     "**/INSTRUCTIONS.md": allow
     ".opencode/agents/*.md": allow

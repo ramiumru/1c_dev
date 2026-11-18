@@ -75,3 +75,11 @@ MIT License
 Copyright (c) 2025-2026 Kirill Pulyavin
 ...
 ```
+
+## 1c-repository-manage / comol adaptation
+
+Source: https://github.com/comol/ai_rules_1c/tree/44cea4dbd3a03acbe1329dcf9ce98c88a0b38c50/content/skills/1c-repository-manage
+README permits reuse («Никакой лицензии, берите и используйте как хотите»).
+The platform script credits MIT db-repo from Nikolay-Shirokov/cc-1c-skills;
+the corresponding MIT license and attribution above continue to apply to that material.
+See core/skills/1c-repository-manage/NOTICE.md for the adaptation boundary.
