@@ -5,6 +5,7 @@ Requires requirements-dev.txt and PowerShell. Tests real installer output,
 including all metadata and substituted agent bodies, without contacting 1C.
 """
 import os
+import json
 import shutil
 import subprocess
 import sys
@@ -128,6 +129,14 @@ class FrontmatterTests(unittest.TestCase):
                     cwd=str(ROOT), capture_output=True, text=True, encoding='utf-8', timeout=180)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 check_installed_agents(ROOT, Path(td), tool)
+                # Exercise delivered resolver/module without touching any real repository.
+                gate = subprocess.run([sys.executable, str(Path(td) / 'scripts/git_readonly.py'),
+                                       'resolve', '--workspace', td,
+                                       '--task-url', 'https://git.example.invalid/team/extension/-/issues/731'],
+                                      capture_output=True, text=True, encoding='utf-8', timeout=30)
+                self.assertEqual(gate.returncode, 1, gate.stdout + gate.stderr)
+                self.assertEqual(json.loads(gate.stdout)['status'], 'not_found_in_scope')
+                self.assertTrue((Path(td) / 'examples/git-repositories.example.json').is_file())
                 # Verify the read-only workflow and its imports after installation.
                 installed_test = Path(td) / 'scripts' / 'test_development_preflight.py'
                 preflight = subprocess.run([sys.executable, str(installed_test)], cwd=td,

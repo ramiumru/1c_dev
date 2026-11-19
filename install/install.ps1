@@ -529,6 +529,7 @@ Safe-CopyFile "$repo\examples\v8-project.example.json" (Join-Path $examplesDst "
 Safe-CopyFile "$repo\examples\project-context.example.md" (Join-Path $examplesDst "project-context.example.md") "examples/project-context.example.md"
 
 Safe-CopyFile "$repo\examples\repository-comment-policy.example.json" (Join-Path $examplesDst "repository-comment-policy.example.json") "examples/repository-comment-policy.example.json"
+Safe-CopyFile "$repo\examples\git-repositories.example.json" (Join-Path $examplesDst "git-repositories.example.json") "examples/git-repositories.example.json"
 
 # --- Манифест .ai-rules.json ---
 Write-Host "[7/8] Генерация манифеста .ai-rules.json"
@@ -603,6 +604,10 @@ if (Test-Path $projCtxExamplePath) {
 $repositoryExample = Join-Path $Target "examples/repository-comment-policy.example.json"
 if (Test-Path -LiteralPath $repositoryExample) {
     $files += [PSCustomObject]@{ path="examples/repository-comment-policy.example.json"; source="examples/repository-comment-policy.example.json"; installedHash=(Get-FileHash -LiteralPath "$repo\examples\repository-comment-policy.example.json" -Algorithm SHA256).Hash; userModified=$false }
+}
+$gitRegistryExample = Join-Path $Target "examples/git-repositories.example.json"
+if (Test-Path -LiteralPath $gitRegistryExample) {
+    $files += [PSCustomObject]@{ path="examples/git-repositories.example.json"; source="examples/git-repositories.example.json"; installedHash=(Get-FileHash -LiteralPath "$repo\examples\git-repositories.example.json" -Algorithm SHA256).Hash; userModified=$false }
 }
 # Корневой конфиг: hash берётся из ШАБЛОНА (source), а не из установленного файла.
 # Существующий пользовательский root config (protected-skip) в манифесте получает

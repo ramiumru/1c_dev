@@ -55,3 +55,6 @@ sandbox.bsl
 .idea/
 .DS_Store
 Thumbs.db
+
+# Optional local Git review registry; corporate overlay keeps its own version.
+/git-repositories.json
