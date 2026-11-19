@@ -182,7 +182,8 @@ profile (`{{CONTEXT_DIR}}/rules/project-sources.md`), разрешены как 
 │   ├── 1c-reviewer.md                     — независимый ревьюер (соответствие spec/scope, регрессии; mode: subagent)
 │   ├── 1c-applier.md                      — апликер (применение правок в живую ИБ, mode: all)
 │   ├── 1c-tools.md                        — исполнитель утилит (summaries, mode: subagent)
-│   └── 1c-git-reviewer.md                — Git code review задач + dev/prod сравнение (mode: all, запуск напрямую, вне SDD)
+│   ├── 1c-git-reviewer.md                — Git code review задач + dev/prod сравнение (mode: all, запуск напрямую, вне SDD)
+│   └── 1c-repository.md                   — операции хранилища основной конфигурации (mode: all)
 ├── <CONTEXT_DIR>/                         — каталог контекста инструмента (.kilo/context | .claude/context | .opencode/context | context)
 │   ├── common/                            — кросс-проектное (вопрос вне проекта)
 │   │   ├── requirements-README.md         — мета-документация по требованиям
@@ -464,6 +465,9 @@ Summaries регенерируются скриптом `scripts/build_summaries
 > напрямую, вне SDD-пайплайна): ревью изменений задачи в ветке dev и сравнение dev/prod
 > (PRESENT/MISSING/PARTIAL/DIFFERENT/UNCERTAIN); Git — только read-only через
 > `scripts/git_readonly.py`; не правит исходники, не коммитит, не применяет изменения в ИБ.
+> `1c-repository` — отдельный исполнитель хранилища основной конфигурации: status/diff,
+> подготовка захватов до apply и помещение только по намерению пользователя; без MCP,
+> изменения исходников, force и повторной мутации после неопределённого ответа.
 > Per-project контекст (конфигурация, домен, модули, ключевые объекты) — в
 > `{{CONTEXT_DIR}}/projects/<проект>/context.md`; справочные индексы (`{{CONTEXT_DIR}}/projects/<проект>/analyst-scope.md`,
 > `{{CONTEXT_DIR}}/projects/<проект>/objects-index.md`) — не ограничение, а ускоритель поиска.

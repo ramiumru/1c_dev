@@ -106,6 +106,64 @@ class RepositoryTests(unittest.TestCase):
         for value in ('*', 'Конфигурация', 'Document.X.Attribute.Y', 'Document.X;Stop', '../X'):
             with self.subTest(value=value), self.assertRaises(ValueError): support.object_names(value)
 
+    def structured_policy(self):
+        db = self.profile()
+        db['repository']['comment_policy_file'] = 'policy.json'
+        policy = {'template': '{task_ref} {title}\n\n{description}',
+                  'required_fields': ['task_ref', 'title', 'description'],
+                  'validation_regex': r'(?P<task_ref>[0-9]+) (?P<title>[^\s\r\n][^\r\n]*)\n\n(?P<description>[^\r\n]+)',
+                  'field_constraints': {'title': {'min_length': 3, 'max_length': 8, 'single_line': True},
+                                        'description': {'min_length': 6, 'max_length': 12, 'single_line': True}},
+                  'distinct_fields': [['title', 'description']]}
+        (self.root / 'policy.json').write_text(json.dumps(policy), encoding='utf-8')
+        return db, policy
+
+    def test_structured_comment_generated_and_supplied_are_both_validated(self):
+        db, _ = self.structured_policy()
+        self.assertEqual(support.comment(self.root, db, self.task, '', self.objects,
+                         task_ref='42', title='Change', description='Explain why'), '42 Change\n\nExplain why')
+        self.assertEqual(support.comment(self.root, db, self.task, '', self.objects,
+                         explicit='42 Change\r\n\r\nExplain why'), '42 Change\n\nExplain why')
+        for text in ('42  Change\n\nExplain why', '42 Change\nExplain why', '42 Change\n\n\nExplain why',
+                     '42 XX\n\nExplain why', '42 LongTitle\n\nExplain why',
+                     '42 Change\n\nShort', '42 Change\n\nDescription too long', '42 Change\n\nChange'):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                support.comment(self.root, db, self.task, '', self.objects, explicit=text)
+
+    def test_structured_comment_limits_are_inclusive(self):
+        db, _ = self.structured_policy()
+        for title, description in [('ABC', '123456'), ('ABCDEFGH', '123456789012')]:
+            self.assertTrue(support.comment(self.root, db, self.task, '', self.objects,
+                            task_ref='42', title=title, description=description))
+
+    def test_structured_comment_cannot_validate_different_inputs_or_equal_text(self):
+        db, _ = self.structured_policy()
+        for kwargs in ({'title': 'CHANGE', 'description': 'change', 'task_ref': '42'},
+                       {'explicit': '42 Change\n\nExplain why', 'task_ref': '99'},
+                       {'title': 'Change\u2028x', 'description': 'Explain why', 'task_ref': '42'}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                support.comment(self.root, db, self.task, '', self.objects, **kwargs)
+
+    def test_malformed_structured_policy_is_refused(self):
+        db, policy = self.structured_policy()
+        for extra in ({'field_constraints': []}, {'field_constraints': {'title': {'min_length': True}}},
+                      {'field_constraints': {'title': {'min_length': 9, 'max_length': 8}}},
+                      {'distinct_fields': 'title'}, {'distinct_fields': [['unknown', 'title']]},
+                      {'validation_regex': r'[0-9]+ [^\n]+\n\n[^\n]+'}):
+            (self.root / 'policy.json').write_text(json.dumps(dict(policy, **extra)), encoding='utf-8')
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                support.comment(self.root, db, self.task, '', self.objects,
+                                task_ref='42', title='Change', description='Explain why')
+
+    def test_invalid_structured_comment_stops_before_platform(self):
+        db, _ = self.structured_policy()
+        self.db['repository'] = db['repository']; self.save()
+        with patch('safe_repository.subprocess.run') as run:
+            with self.assertRaises(ValueError):
+                runner.execute(self.root, 'test', 'commit', self.objects, self.task, intent='publish',
+                               task_ref='42', title='XX', description='Explain why')
+            run.assert_not_called()
+
     def test_public_and_corporate_comments_no_fallback(self):
         db = self.profile()
         self.assertEqual(support.comment(self.root, db, self.task, 'уточнён текст', self.objects), 'TASK-TEST: уточнён текст')

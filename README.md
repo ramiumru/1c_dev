@@ -129,7 +129,7 @@ gate, risk из `03_solution_spec.md`); для `risk: high` apply UNKNOWN не �
 (`--baseline stale`). Автоматическая полная загрузка конфигурации без явного действия
 пользователя запрещена; Partial task apply — существующий механизм для совместимого baseline.
 
-## Скиллы (78)
+## Скиллы (79)
 
 | Группа | Скиллы |
 |---|---|
@@ -158,8 +158,8 @@ gate, risk из `03_solution_spec.md`); для `risk: high` apply UNKNOWN не �
 ```
 1c-dev/
 ├── core/                    — канонический источник (tool-agnostic)
-│   ├── agents/              — 8 агентов: тела (без frontmatter) — 1c-do/analyst/developer/reviewer/applier/tools/git-reviewer
-│   ├── skills/              — 78 скиллов: <name>/{SKILL.md, scripts/}
+│   ├── agents/              — 8 агентов: тела (без frontmatter) — 1c-do/analyst/developer/reviewer/applier/tools/git-reviewer/repository
+│   ├── skills/              — 79 скиллов: <name>/{SKILL.md, scripts/}
 │   ├── context/             — INSTRUCTIONS.md, BslChecklists.md, standards/, common/, projects/
 │   ├── scripts/             — bsl-check.py, build_summaries.py, applier_guard.py, git_readonly.py, validate.py, doctor.py
 │   └── sdd/                 — README.md (SDD-шаблоны)

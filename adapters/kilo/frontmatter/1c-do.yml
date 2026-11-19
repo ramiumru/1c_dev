@@ -3,6 +3,7 @@ mode: primary
 permission:
   read:
     ".v8-project.json": allow
+    ".kilo/context/rules/repository-workflow.md": allow
     "INSTRUCTIONS.md": allow
     "**/INSTRUCTIONS.md": allow
     ".kilo/agent/*.md": allow

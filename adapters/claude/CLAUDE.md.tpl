@@ -9,7 +9,7 @@
 
 Читайте эти файлы для понимания архитектуры перед началом работы.
 
-## Агенты (6)
+## Агенты (8)
 
 Мультиагентная схема: Claude Code автоматически вызывает сабагентов по их `description`.
 
@@ -21,10 +21,12 @@
 | `1c-reviewer` | Независимый review (соответствие spec/scope, регрессии, права/RLS, контракты) | subagent |
 | `1c-applier` | Применение готовых правок в живую ИБ (по явному запросу, после preflight) | subagent |
 | `1c-tools` | Регенерация summaries через `scripts/build_summaries.py` | subagent |
+| `1c-git-reviewer` | Read-only Git review задачи, вне SDD | subagent |
+| `1c-repository` | Подготовка захватов и помещение в хранилище по явному запросу | subagent |
 
 Определения агентов — в `.claude/agents/*.md` (frontmatter + тело).
 
-## Скиллы (78)
+## Скиллы (79)
 
 Скиллы — в `.claude/skills/<name>/SKILL.md`. Загружаются через `skill` tool.
 Каждый скилл содержит инструкции и скрипты (`scripts/*.ps1|py`) для выполнения операций

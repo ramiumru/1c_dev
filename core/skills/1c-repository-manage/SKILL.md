@@ -50,3 +50,10 @@ logs/repository-inspect/. Они сохраняются и при отказе/�
 Оригинал и происхождение: comol/ai_rules_1c 44cea4dbd3a03acbe1329dcf9ce98c88a0b38c50,
 1c-repository-manage/repo-ops v1.1; адаптирован для профилей/guards 1C Dev.
 Платформенная основа заимствована upstream из MIT Nikolay-Shirokov/cc-1c-skills.
+
+Для частной политики прочитай файл comment_policy_file из выбранного профиля (не меняй
+его). Поля title/description передаются через --title/--description; summary остаётся
+кратким описанием для нейтрального public-комментария. Ограничения field_constraints,
+distinct_fields и validation_regex задаёт private-слой. Следуй его writing_instructions
+при составлении текста; не выдумывай номер задачи. Готовый --comment тоже проверяется
+по фактическому тексту, а не по отдельно переданным правильным полям.

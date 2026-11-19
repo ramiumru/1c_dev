@@ -2289,7 +2289,7 @@ def check_mcp_permissions_flat(rep: Report) -> None:
     }
     no_mcp_agents = {"1c-do", "1c-tools", "1c-applier", "1c-git-reviewer", "1c-repository"}
 
-    for agent in ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-tools", "1c-applier", "1c-git-reviewer"]:
+    for agent in EXPECTED_AGENTS:
         yml = fm_dir / f"{agent}.yml"
         if not yml.exists():
             continue
@@ -2405,7 +2405,7 @@ def check_task6_regression(rep: Report) -> None:
             rep.error("task6-regression: 1c-do missing question tool permission")
 
     # --- Permissions: no deprecated mcp: nested key ---
-    for agent in ["1c-do", "1c-analyst", "1c-developer", "1c-reviewer", "1c-tools", "1c-applier"]:
+    for agent in EXPECTED_AGENTS:
         yml = ROOT / "adapters" / "kilo" / "frontmatter" / f"{agent}.yml"
         if not yml.exists():
             continue
