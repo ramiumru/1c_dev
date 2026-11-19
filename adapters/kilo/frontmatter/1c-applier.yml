@@ -49,9 +49,13 @@ permission:
   bash:
     "*": ask
     "python scripts/safe_apply.py *": allow
+    "py -3 scripts/safe_apply.py *": allow
     "python scripts/safe_backup.py *": allow
+    "py -3 scripts/safe_backup.py *": allow
     "python scripts/applier_guard.py *": allow
+    "py -3 scripts/applier_guard.py *": allow
     "python scripts/bsl-check.py *": allow
+    "py -3 scripts/bsl-check.py *": allow
     "powershell.exe -NoProfile -File .kilo/skills/db-list/scripts/*": allow
     "powershell.exe -NoProfile -File .kilo/skills/db-dump-dt/scripts/*": allow
     "powershell.exe -NoProfile -File .kilo/skills/db-dump-cf/scripts/*": allow

@@ -45,6 +45,7 @@ permission:
     ".opencode/logs/1c-analyst/**": allow
   bash:
     "python scripts/scope_hash.py --spec *": allow
+    "py -3 scripts/scope_hash.py --spec *": allow
     "powershell.exe -NoProfile -File .opencode/skills/meta-info/scripts/meta-info.ps1 *": allow
     "powershell.exe -NoProfile -File .opencode/skills/form-info/scripts/form-info.ps1 *": allow
     "powershell.exe -NoProfile -File .opencode/skills/mxl-info/scripts/mxl-info.ps1 *": allow

@@ -82,6 +82,18 @@ class RepositoryTests(unittest.TestCase):
         self.assertFalse(self.profile('status')['repository']['binding_confirmed'])
         with self.assertRaises(ValueError): self.profile()
 
+    def test_repository_disabled_does_not_add_platform_steps_to_apply(self):
+        for config in (None, {'enabled': False}):
+            if config is None:
+                self.db.pop('repository', None)
+            else:
+                self.db['repository'] = config
+            self.save()
+            with patch('safe_repository.profile') as profile, patch('safe_repository.execute') as execute:
+                runner.before_apply(self.root, 'test', self.task, [], 'projects/pet/src', False)
+                profile.assert_not_called()
+                execute.assert_not_called()
+
     def test_fresh_diff_is_required_after_the_latest_prepare(self):
         self.receipt()
         with self.assertRaises(ValueError): support.find_diff_receipt(self.root, self.task, self.profile(), self.objects)

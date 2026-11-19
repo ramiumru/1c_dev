@@ -54,7 +54,7 @@ def commit_file(repo: Path, rel: str, content: str, message: str) -> str:
 
 
 def make_fixture() -> tuple[Path, Path, Path]:
-    """Локальный «корпоративный» remote (bare) + clone с ветками dev/prod.
+    r"""Локальный «корпоративный» remote (bare) + clone с ветками dev/prod.
 
     История:
       base -- #100001 init (dev, prod)

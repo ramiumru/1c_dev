@@ -45,6 +45,7 @@ permission:
     ".kilo/logs/1c-analyst/**": allow
   bash:
     "python scripts/scope_hash.py --spec *": allow
+    "py -3 scripts/scope_hash.py --spec *": allow
     "powershell.exe -NoProfile -File .kilo/skills/meta-info/scripts/meta-info.ps1 *": allow
     "powershell.exe -NoProfile -File .kilo/skills/form-info/scripts/form-info.ps1 *": allow
     "powershell.exe -NoProfile -File .kilo/skills/mxl-info/scripts/mxl-info.ps1 *": allow

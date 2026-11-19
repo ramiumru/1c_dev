@@ -94,6 +94,8 @@ REQUIRED_FILES_SOURCE = [
     "core/scripts/safe_repository.py",
     "core/scripts/repository_support.py",
     "core/scripts/test_repository.py",
+    "core/scripts/test_python_runtime.py",
+    "core/scripts/check-python.ps1",
     "core/scripts/safe_backup.py",
     "core/scripts/scope_hash.py",
     "core/scripts/plan_parser.py",
@@ -147,6 +149,8 @@ REQUIRED_FILES_INSTALLED = [
     "scripts/safe_repository.py",
     "scripts/repository_support.py",
     "scripts/test_repository.py",
+    "scripts/test_python_runtime.py",
+    "scripts/check-python.ps1",
     "scripts/safe_backup.py",
     "scripts/scope_hash.py",
     "scripts/plan_parser.py",
@@ -886,6 +890,16 @@ def check_repository_regressions(rep: Report) -> None:
         rep.ok("repository: profile/env/comment/receipt/publication regressions passed")
     else:
         rep.error(f"repository: {result.stdout[-1000:]} {result.stderr[-3000:]}")
+
+
+def check_python_runtime_regressions(rep: Report) -> None:
+    scripts = ROOT / "core/scripts" if IS_SOURCE_REPO else ROOT / "scripts"
+    result = subprocess.run([sys.executable, str(scripts / "test_python_runtime.py")],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
+    if result.returncode == 0:
+        rep.ok("python-runtime: diagnostics and warning-free Git fixtures passed")
+    else:
+        rep.error(f"python-runtime: {result.stdout[-1000:]} {result.stderr[-3000:]}")
 
 
 def check_plan_parser(rep: Report) -> None:
@@ -3660,6 +3674,7 @@ def main() -> int:
     check_development_preflight(rep)
     check_confirmed_regressions(rep)
     check_repository_regressions(rep)
+    check_python_runtime_regressions(rep)
     check_codex_adapter(rep, args.skip_smoke)
     check_kilo_tools_field(rep)
     check_kilo_permission_order(rep)

@@ -60,23 +60,41 @@ permission:
   bash:
     "*": deny
     "python scripts/build_summaries.py --project *": allow
+    "py -3 scripts/build_summaries.py --project *": allow
     "python scripts/build_summaries.py --project * --objects *": allow
+    "py -3 scripts/build_summaries.py --project * --objects *": allow
     "python scripts/build_summaries.py --project * --force": allow
+    "py -3 scripts/build_summaries.py --project * --force": allow
     "python scripts/build_summaries.py --project * --force --objects *": allow
+    "py -3 scripts/build_summaries.py --project * --force --objects *": allow
     "python scripts/build_summaries.py --project * --scan": allow
+    "py -3 scripts/build_summaries.py --project * --scan": allow
     "python scripts/build_summaries.py --project * --scan --objects *": allow
+    "py -3 scripts/build_summaries.py --project * --scan --objects *": allow
     "python scripts/build_summaries.py --project * --subsystem *": allow
+    "py -3 scripts/build_summaries.py --project * --subsystem *": allow
     "python scripts/build_summaries.py --project * --subsystem * --force": allow
+    "py -3 scripts/build_summaries.py --project * --subsystem * --force": allow
     "python scripts/build_summaries.py --project * --force --subsystem *": allow
+    "py -3 scripts/build_summaries.py --project * --force --subsystem *": allow
     "python scripts/build_summaries.py": allow
+    "py -3 scripts/build_summaries.py": allow
     "python scripts/build_summaries.py --objects *": allow
+    "py -3 scripts/build_summaries.py --objects *": allow
     "python scripts/build_summaries.py --force": allow
+    "py -3 scripts/build_summaries.py --force": allow
     "python scripts/build_summaries.py --force --objects *": allow
+    "py -3 scripts/build_summaries.py --force --objects *": allow
     "python scripts/build_summaries.py --scan": allow
+    "py -3 scripts/build_summaries.py --scan": allow
     "python scripts/build_summaries.py --scan --objects *": allow
+    "py -3 scripts/build_summaries.py --scan --objects *": allow
     "python scripts/build_summaries.py --subsystem *": allow
+    "py -3 scripts/build_summaries.py --subsystem *": allow
     "python scripts/build_summaries.py --subsystem * --force": allow
+    "py -3 scripts/build_summaries.py --subsystem * --force": allow
     "python scripts/build_summaries.py --force --subsystem *": allow
+    "py -3 scripts/build_summaries.py --force --subsystem *": allow
   task: allow
   webfetch: deny
   websearch: deny

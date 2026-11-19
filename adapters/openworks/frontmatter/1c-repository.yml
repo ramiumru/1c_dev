@@ -59,6 +59,7 @@ permission:
   bash:
     "*": deny
     "python scripts/safe_repository.py *": allow
+    "py -3 scripts/safe_repository.py *": allow
   task: deny
   external_directory: deny
   skill:

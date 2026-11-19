@@ -48,7 +48,9 @@ permission:
   bash:
     "*": deny
     "python scripts/git_readonly.py *": allow
+    "py -3 scripts/git_readonly.py *": allow
     "python scripts/bsl-check.py *": allow
+    "py -3 scripts/bsl-check.py *": allow
   task: deny
   webfetch: deny
   websearch: deny
