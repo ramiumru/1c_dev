@@ -87,6 +87,7 @@ REQUIRED_FILES_SOURCE = [
     "AGENT-INSTALL.md",
     "examples/v8-project.example.json",
     "examples/project-context.example.md",
+    "examples/git-repositories.example.json",
     "examples/overlay/README.md",
     "core/sdd/README.md",
     "core/scripts/applier_guard.py",
@@ -95,6 +96,8 @@ REQUIRED_FILES_SOURCE = [
     "core/scripts/repository_support.py",
     "core/scripts/test_repository.py",
     "core/scripts/test_python_runtime.py",
+    "core/scripts/git_repository.py",
+    "core/scripts/test_git_repository.py",
     "core/scripts/check-python.ps1",
     "core/scripts/safe_backup.py",
     "core/scripts/scope_hash.py",
@@ -142,7 +145,7 @@ EXPECTED_RULES = [
 ]
 
 REQUIRED_FILES_INSTALLED = [
-    "examples/v8-project.example.json",
+    "examples/git-repositories.example.json",    "examples/v8-project.example.json",
     "specs/README.md",
     "scripts/applier_guard.py",
     "scripts/safe_apply.py",
@@ -150,6 +153,8 @@ REQUIRED_FILES_INSTALLED = [
     "scripts/repository_support.py",
     "scripts/test_repository.py",
     "scripts/test_python_runtime.py",
+    "scripts/git_repository.py",
+    "scripts/test_git_repository.py",
     "scripts/check-python.ps1",
     "scripts/safe_backup.py",
     "scripts/scope_hash.py",
@@ -890,6 +895,16 @@ def check_repository_regressions(rep: Report) -> None:
         rep.ok("repository: profile/env/comment/receipt/publication regressions passed")
     else:
         rep.error(f"repository: {result.stdout[-1000:]} {result.stderr[-3000:]}")
+
+
+def check_git_repository_regressions(rep: Report) -> None:
+    scripts = ROOT / "core/scripts" if IS_SOURCE_REPO else ROOT / "scripts"
+    result = subprocess.run([sys.executable, str(scripts / "test_git_repository.py")],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
+    if result.returncode == 0:
+        rep.ok("git-repository: early identity gate, missing clone and bounded discovery regressions passed")
+    else:
+        rep.error(f"git-repository: {result.stdout[-1000:]} {result.stderr[-3000:]}")
 
 
 def check_python_runtime_regressions(rep: Report) -> None:
@@ -3682,6 +3697,7 @@ def main() -> int:
     check_git_reviewer_agent(rep)
     check_finding_address_format(rep)
     check_git_review_contract(rep)
+    check_git_repository_regressions(rep)
     check_bsl_comment_regression(rep)
     check_installer_smoke(rep, args.skip_smoke)
     check_openworks_user_config_protection(rep, args.skip_smoke)

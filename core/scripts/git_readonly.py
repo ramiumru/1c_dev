@@ -285,6 +285,8 @@ Wrapper-флаги (--repo, --timeout) распознаются только Д�
 идёт после subcommand, передаётся git после строгой валидации.
 
 Разрешённые subcommand'ы:
+  resolve --workspace <проект> [--registry <JSON>] [--task-url <URL>] [--repository <id>] [--path <клон>]
+      — локальная проверка нужного клона до истории/сети; JSON, без clone/fetch.
   status [--short|--porcelain|--long|-sb|-b]          — состояние рабочего дерева
   remote [-v]                                          — список remote
   ls-remote [--heads] [remote] [ref-шаблон]           — актуальные remote refs (без fetch)
@@ -308,7 +310,7 @@ Fetch без явных веток и флаги fetch (--all, --prune, --depth,
 Выход: 0 — успешно; 2 — отвергнуто whitelist'ом; 3 — окружение/таймаут; иначе код git.
 """
 
-ALLOWED_SUBS = ("status", "remote", "ls-remote", "fetch", "log", "show", "diff",
+ALLOWED_SUBS = ("resolve", "status", "remote", "ls-remote", "fetch", "log", "show", "diff",
                 "merge-base", "branch", "cat-file", "rev-parse", "cherry")
 
 
@@ -362,6 +364,12 @@ def main() -> int:
         _reject(f"subcommand не разрешён (read-only): {sub}")
     if sub not in ALLOWED_SUBS:
         _reject(f"неизвестный subcommand: {sub}")
+
+    if sub == "resolve":
+        if i:
+            _reject("resolve: параметры --workspace/--registry/--task-url/--repository/--path указываются после resolve")
+        from git_repository import main as resolve_main
+        return resolve_main(sub_args)
 
     if sub == "fetch":
         git_args = build_fetch_args(sub_args)

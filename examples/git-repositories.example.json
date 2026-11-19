@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "repositories": [
+    {
+      "id": "main",
+      "remote": "https://git.example.invalid/team/main.git",
+      "path": "projects/main"
+    },
+    {
+      "id": "extension",
+      "remote": "https://git.example.invalid/team/extension.git",
+      "path": "projects/extension"
+    }
+  ]
+}
