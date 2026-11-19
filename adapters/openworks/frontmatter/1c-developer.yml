@@ -73,7 +73,9 @@ permission:
     "powershell.exe -NoProfile -File .opencode/skills/epf-validate/scripts/*": allow
     "powershell.exe -NoProfile -File .opencode/skills/erf-init/scripts/*": allow
     "python scripts/bsl-check.py *": allow
+    "py -3 scripts/bsl-check.py *": allow
     "python scripts/development_preflight.py *": allow
+    "py -3 scripts/development_preflight.py *": allow
   task: deny
   webfetch: deny
   websearch: deny

@@ -39,6 +39,7 @@ class ReviewContractTests(unittest.TestCase):
                            if isinstance(action, str) and fnmatch.fnmatchcase(name, pattern)]
                 self.assertEqual(actions[-1], 'deny', (tool, name))
             self.assertEqual(permission['bash']['python scripts/git_readonly.py *'], 'allow')
+            self.assertEqual(permission['bash']['py -3 scripts/git_readonly.py *'], 'allow')
             self.assertEqual(permission['read']['projects/**'], 'allow')
             self.assertEqual(permission['task'], 'deny')
         claude = (ROOT / 'adapters/claude/frontmatter/1c-git-reviewer.yml').read_text(encoding='utf-8-sig')
@@ -48,6 +49,25 @@ class ReviewContractTests(unittest.TestCase):
                        'MCP-шаги', 'полный модуль', 'другими коммитами задачи',
                        'merge-base --is-ancestor', 'невозможно проверить'):
             self.assertIn(marker, text)
+
+    def test_launcher_changes_no_script_capabilities(self):
+        for tool in ('kilo', 'openworks'):
+            for path in (ROOT / 'adapters' / tool / 'frontmatter').glob('*.yml'):
+                permission = yaml.safe_load(path.read_text(encoding='utf-8-sig'))['permission']
+                rules = permission.get('bash', {})
+                if not isinstance(rules, dict):
+                    continue
+                python = {key[len('python '):]: value for key, value in rules.items() if key.startswith('python ')}
+                launcher = {key[len('py -3 '):]: value for key, value in rules.items() if key.startswith('py -3 ')}
+                self.assertEqual(launcher, python, str(path))
+                for command in ('py -3 -c print(1)', 'py -3 -m pip install anything',
+                                'py -3 other.py', 'git push', 'where python'):
+                    matches = [v for k, v in rules.items() if fnmatch.fnmatchcase(command, k)]
+                    old_matches = [v for k, v in rules.items()
+                                   if not k.startswith('py -3 ') and fnmatch.fnmatchcase(command, k)]
+                    fallback = permission.get('*', 'ask')
+                    self.assertEqual(matches[-1] if matches else fallback,
+                                     old_matches[-1] if old_matches else fallback, (path, command))
 
     def test_call_and_definition_in_separate_commits(self):
         with tempfile.TemporaryDirectory(prefix='review_evidence_') as td:

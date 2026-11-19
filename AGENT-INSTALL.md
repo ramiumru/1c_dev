@@ -128,3 +128,6 @@ User-modified файлы (hash расходится) сохраняются. Д�
 - НЕ запускать `applier_guard.py` / `safe_apply.py` (это для `1c-applier`, не для установки).
 - НЕ коммитить `.v8-project.json`, `.dev.env`, `.ai-rules.json` (содержат параметры проекта).
 - НЕ изменять файлы harness-репозитория (только чтение для установки в целевой проект).
+
+Windows: при недоступной команде Python сначала [диагностика окружения](docs/windows-python.md).
+Не считать Store alias или permission deny доказательством отсутствия установленного Python.
