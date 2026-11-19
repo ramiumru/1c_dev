@@ -3,6 +3,7 @@ mode: primary
 permission:
   read:
     ".v8-project.json": allow
+    ".opencode/context/rules/repository-workflow.md": allow
     "INSTRUCTIONS.md": allow
     "**/INSTRUCTIONS.md": allow
     ".opencode/agents/*.md": allow

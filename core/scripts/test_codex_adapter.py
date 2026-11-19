@@ -65,7 +65,7 @@ class SourceTests(unittest.TestCase):
         data = load_toml(ROOT / 'adapters/codex/config.toml.example')
         self.assertEqual(data, {'approval_policy': 'on-request', 'sandbox_mode': 'workspace-write'})
 
-    def test_all_seven_roles_declared(self):
+    def test_all_roles_declared(self):
         roles = json.loads((ROOT / 'adapters/codex/roles.json').read_text(encoding='utf-8'))
         self.assertEqual(set(roles), set(AGENT_NAMES))
         self.assertTrue(all(isinstance(v, str) and v for v in roles.values()))

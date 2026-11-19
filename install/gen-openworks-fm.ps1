@@ -5,7 +5,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 $kiloFmDir = Join-Path $repo "adapters\kilo\frontmatter"
 $owFmDir = Join-Path $repo "adapters\openworks\frontmatter"
 
-$agents = @("1c-do","1c-analyst","1c-developer","1c-reviewer","1c-applier","1c-tools","1c-git-reviewer")
+$agents = @(Get-ChildItem -LiteralPath $kiloFmDir -Filter "*.yml" | Sort-Object Name | ForEach-Object { $_.BaseName })
 
 foreach ($name in $agents) {
     $src = Join-Path $kiloFmDir "$name.yml"

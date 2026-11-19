@@ -243,10 +243,10 @@ def doctor(root: Path, d: Doc, no_network: bool = False) -> None:
                 else:
                     d.err("codex: AGENTS.md.tpl без 1c-reviewer")
             else:
-                fm_missing = [a for a in ("1c-reviewer", "1c-git-reviewer")
+                fm_missing = [a for a in AGENTS
                               if not (fm_dir / f"{a}.yml").exists()]
                 if fm_dir.is_dir() and not fm_missing:
-                    d.ok(f"{tool}: frontmatter/1c-reviewer.yml + 1c-git-reviewer.yml")
+                    d.ok(f"{tool}: frontmatter: все {len(AGENTS)} агентов")
                 else:
                     d.err(f"{tool}: frontmatter отсутствует: {', '.join(fm_missing)}")
         if (adapters_dir / "opencode").exists():

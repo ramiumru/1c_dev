@@ -108,9 +108,33 @@ def object_names(value):
     return result
 
 
-def comment(root, db, task, summary, objects, explicit='', task_ref=''):
+def validate_comment_fields(policy, data):
+    """Optional private constraints; no company-specific limits in public code."""
+    constraints = policy.get('field_constraints', {})
+    distinct = policy.get('distinct_fields', [])
+    if not isinstance(constraints, dict) or not isinstance(distinct, list):
+        raise ValueError('repository: invalid comment field constraints')
+    for field, limits in constraints.items():
+        if field not in data or not isinstance(limits, dict) or not set(limits) <= {'min_length', 'max_length', 'single_line'}:
+            raise ValueError('repository: invalid constrained comment field')
+        value = data[field]
+        low, high = limits.get('min_length', 0), limits.get('max_length', 16000)
+        single = limits.get('single_line', False)
+        if type(low) is not int or type(high) is not int or not 0 <= low <= high <= 16000 or type(single) is not bool:
+            raise ValueError('repository: invalid comment field limits')
+        if not isinstance(value, str) or not low <= len(value) <= high or (single and any(c in value for c in '\r\n\u0085\u2028\u2029')):
+            raise ValueError(f'repository: comment field violates policy: {field}')
+    for pair in distinct:
+        if not isinstance(pair, list) or len(pair) != 2 or any(not isinstance(k, str) or k not in data for k in pair):
+            raise ValueError('repository: invalid distinct comment fields')
+        if ' '.join(data[pair[0]].split()).casefold() == ' '.join(data[pair[1]].split()).casefold():
+            raise ValueError('repository: comment fields must differ')
+
+
+def comment(root, db, task, summary, objects, explicit='', task_ref='', title='', description=''):
     summary = summary.strip()
-    data = {'task_id': task, 'summary': summary, 'objects': ', '.join(objects), 'task_ref': task_ref}
+    data = {'task_id': task, 'summary': summary, 'objects': ', '.join(objects), 'task_ref': task_ref,
+            'title': title.strip(), 'description': description.strip().replace('\r\n', '\n')}
     policy_path = db['repository'].get('comment_policy_file')
     required = db['repository'].get('comment_policy_required', False)
     if type(required) is not bool or (required and not policy_path):
@@ -128,7 +152,10 @@ def comment(root, db, task, summary, objects, explicit='', task_ref=''):
         if not isinstance(template, str) or not template.strip():
             raise ValueError('repository: configured comment policy has no template')
         fields = {field for _, field, _, _ in string.Formatter().parse(template) if field}
-        if not fields <= data.keys() or any(not data.get(k) for k in fields | set(policy.get('required_fields', []))):
+        required_fields = policy.get('required_fields', [])
+        if not isinstance(required_fields, list) or any(not isinstance(k, str) or k not in data for k in required_fields):
+            raise ValueError('repository: invalid required comment fields')
+        if not fields <= data.keys() or (not explicit and any(not data.get(k) for k in fields | set(required_fields))):
             raise ValueError('repository: required comment fields are missing or unsupported')
         text = (explicit.strip() if explicit else template.format(**data)).strip().replace('\r\n', '\n')
         pattern = policy.get('validation_regex')
@@ -143,6 +170,26 @@ def comment(root, db, task, summary, objects, explicit='', task_ref=''):
                 raise ValueError('repository: invalid comment regex') from exc
             if matches is None:
                 raise ValueError('repository: comment does not match corporate policy')
+            # Validate the actual rendered/supplied text, never just the CLI inputs.
+            captured = matches.groupdict()
+            if not set(captured) <= data.keys():
+                raise ValueError('repository: unsupported comment capture field')
+            for key, value in captured.items():
+                if value is None or (data.get(key) and data[key] != value):
+                    raise ValueError('repository: comment fields differ from supplied values')
+            data.update(captured)
+        if policy.get('field_constraints') or policy.get('distinct_fields'):
+            checked = set(policy.get('field_constraints', {})) if isinstance(policy.get('field_constraints', {}), dict) else set()
+            pairs = policy.get('distinct_fields', [])
+            if isinstance(pairs, list):
+                for pair in pairs:
+                    if isinstance(pair, list):
+                        checked.update(k for k in pair if isinstance(k, str))
+            if not pattern or not checked <= matches.groupdict().keys():
+                raise ValueError('repository: constrained fields require named regex captures')
+        if any(not data.get(k) for k in required_fields):
+            raise ValueError('repository: required comment fields are missing')
+        validate_comment_fields(policy, data)
     else:
         text = explicit.strip() if explicit else (f'{task}: {summary}' if task else f'Изменения: {summary}')
         if not explicit and not summary:

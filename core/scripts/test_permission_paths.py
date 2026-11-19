@@ -94,7 +94,16 @@ class PermissionPathTests(unittest.TestCase):
         self.assertEqual(action(do, 'edit', relative(target.parent / 'neighbour/specs/TASK-test/00_request.md')), 'deny')
         git_reviewer = self.metadata(target, '1c-git-reviewer')
         self.assertEqual(action(git_reviewer, 'read', relative(target / 'projects/test/src/Module.bsl')), 'allow')
-        for agent in ('1c-do', '1c-analyst', '1c-reviewer', '1c-git-reviewer', '1c-developer', '1c-applier', '1c-tools'):
+        repository = self.metadata(target, '1c-repository')
+        self.assertEqual(action(repository, 'read', relative(target / '.v8-project.json')), 'allow')
+        self.assertEqual(action(repository, 'read', relative(target / 'pilot-control/TASK-test/repository/run/receipt.json')), 'allow')
+        self.assertEqual(action(repository, 'read', relative(target / '.kilo/context/projects/_corporate/repository-comment.json')), 'allow')
+        self.assertEqual(action(do, 'read', relative(target / '.kilo/context/rules/repository-workflow.md')), 'allow')
+        for filename in ('.v8-project.json', 'projects/test/src/Module.bsl', 'pilot-control/TASK-test/repository/run/receipt.json'):
+            self.assertEqual(action(repository, 'edit', relative(target / filename)), 'deny')
+            self.assertEqual(action(repository, 'read', relative(target.parent / 'neighbour' / filename)), 'deny')
+        self.assertEqual(repository['permission']['bash'], {'*': 'deny', 'python scripts/safe_repository.py *': 'allow'})
+        for agent in ('1c-do', '1c-analyst', '1c-reviewer', '1c-git-reviewer', '1c-developer', '1c-applier', '1c-tools', '1c-repository'):
             for permission in ('read', 'edit'):
                 rules = self.metadata(target, agent)['permission'].get(permission, {})
                 if isinstance(rules, dict):

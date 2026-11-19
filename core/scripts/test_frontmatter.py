@@ -134,6 +134,37 @@ class FrontmatterTests(unittest.TestCase):
                                            capture_output=True, text=True, encoding='utf-8', timeout=30)
                 self.assertEqual(preflight.returncode, 0, preflight.stdout + preflight.stderr)
 
+    def test_generators_preserve_all_roles_and_valid_fragments(self):
+        pwsh = shutil.which('pwsh') or shutil.which('powershell')
+        self.assertIsNotNone(pwsh, 'PowerShell required')
+        with tempfile.TemporaryDirectory(prefix='agent_generators_') as td:
+            repo = Path(td)
+            shutil.copytree(ROOT / 'adapters/kilo', repo / 'adapters/kilo')
+            (repo / 'adapters/claude/frontmatter').mkdir(parents=True)
+            (repo / 'adapters/openworks/frontmatter').mkdir(parents=True)
+            (repo / 'install').mkdir()
+            for script, tool in [('gen-claude-fm.ps1', 'claude'), ('gen-openworks-fm.ps1', 'openworks')]:
+                shutil.copyfile(ROOT / 'install' / script, repo / 'install' / script)
+                result = subprocess.run([pwsh, '-NoProfile', '-File', str(repo / 'install' / script)],
+                                        capture_output=True, text=True, encoding='utf-8', timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                folder = repo / 'adapters' / tool / 'frontmatter'
+                self.assertEqual({p.stem for p in folder.glob('*.yml')}, set(AGENTS))
+                for name in AGENTS:
+                    fragment = (folder / (name + '.yml')).read_text(encoding='utf-8-sig')
+                    self.assertFalse(fragment.lstrip().startswith('---'), (tool, name))
+                    meta = yaml.safe_load(fragment)
+                    description = source_metadata(repo / 'adapters/kilo/frontmatter' / (name + '.yml'))['description']
+                    if tool == 'openworks':
+                        description = description.replace('.kilo/agent/', '.opencode/agents/').replace('.kilo/', '.opencode/')
+                    self.assertEqual(meta['description'], description)
+                    if tool == 'claude':
+                        self.assertEqual(meta['name'], name)
+                        self.assertTrue(meta['tools'])
+                    elif name == '1c-repository':
+                        self.assertEqual(meta['permission']['edit'], {'*': 'deny'})
+                        self.assertIn('.opencode/agents/1c-repository.md', meta['permission']['read'])
+
 
 
 if __name__ == '__main__':

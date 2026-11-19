@@ -17,7 +17,7 @@ from repository_support import (READ_OPS, WRITE_OPS, INTENTS, profile, object_na
 from safe_apply import ROOT, find_skills_dir
 
 
-def execute(root, db_id, operation, objects, task, summary='', explicit_comment='', intent='', dry_run=False, existing_change=False, task_ref=''):
+def execute(root, db_id, operation, objects, task, summary='', explicit_comment='', intent='', dry_run=False, existing_change=False, task_ref='', title='', description=''):
     root = Path(root).resolve()
     db = profile(root, db_id, operation)
     objects = object_names(objects)
@@ -25,7 +25,7 @@ def execute(root, db_id, operation, objects, task, summary='', explicit_comment=
         if not objects or intent != INTENTS[operation]:
             raise ValueError('repository: explicit objects and matching prepare/publish/release intent required')
         receipt_root(root, task)
-    text = comment(root, db, task, summary, objects, explicit_comment, task_ref) if operation == 'commit' else ''
+    text = comment(root, db, task, summary, objects, explicit_comment, task_ref, title, description) if operation == 'commit' else ''
     evidence = ''
     keep_locked = False
     if operation == 'commit':
@@ -145,6 +145,8 @@ def main():
     parser.add_argument('--objects', default='')
     parser.add_argument('--task', default='')
     parser.add_argument('--summary', default='')
+    parser.add_argument('--title', default='', help='Title for a configured private comment template')
+    parser.add_argument('--description', default='', help='Description for a configured private comment template')
     parser.add_argument('--task-ref', default='', help='Business task reference for a private comment policy; not the receipt TASK-ID')
     parser.add_argument('--comment', default='')
     parser.add_argument('--intent', choices=['prepare', 'publish', 'release'], default='')
@@ -153,7 +155,7 @@ def main():
     args = parser.parse_args()
     try:
         return execute(args.project_root, args.db, args.operation, args.objects, args.task,
-                       args.summary, args.comment, args.intent, args.dry_run, args.existing_change, args.task_ref)
+                       args.summary, args.comment, args.intent, args.dry_run, args.existing_change, args.task_ref, args.title, args.description)
     except (ValueError, OSError) as exc:
         print(f'ERROR {exc}', file=sys.stderr)
         return 2

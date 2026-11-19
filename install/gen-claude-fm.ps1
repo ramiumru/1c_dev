@@ -5,7 +5,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 $kiloFmDir = Join-Path $repo "adapters\kilo\frontmatter"
 $claudeFmDir = Join-Path $repo "adapters\claude\frontmatter"
 
-$agents = @("1c-do","1c-analyst","1c-developer","1c-reviewer","1c-applier","1c-tools","1c-git-reviewer")
+$agents = @(Get-ChildItem -LiteralPath $kiloFmDir -Filter "*.yml" | Sort-Object Name | ForEach-Object { $_.BaseName })
 
 foreach ($name in $agents) {
     $src = Join-Path $kiloFmDir "$name.yml"
@@ -27,19 +27,19 @@ foreach ($name in $agents) {
         "1c-applier"   { "Read, Glob, Grep, Bash, Skill" }
         "1c-tools"     { "Read, Glob, Grep, Bash" }
         "1c-git-reviewer" { "Read, Glob, Grep, Bash" }
+        "1c-repository" { "Read, Glob, Grep, Bash, Skill" }
+        default { throw "Tools mapping missing for agent: $name" }
     }
 
     # Model selection is NOT hardcoded in public repo: Claude Code uses its
     # default/user-configured model when `model:` is omitted (inherited).
     $claudeFm = @"
----
 name: $name
 description: $desc
 tools: $tools
----
 "@
 
-    [System.IO.File]::WriteAllText("$claudeFmDir\$name.yml", $claudeFm + "`r`n", [System.Text.UTF8Encoding]::new($true))
+    [System.IO.File]::WriteAllText((Join-Path $claudeFmDir "$name.yml"), $claudeFm + "`r`n", [System.Text.UTF8Encoding]::new($true))
     Write-Host "OK: $name"
 }
 Write-Host "Done: Claude frontmatter generated"
