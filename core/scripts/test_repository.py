@@ -82,6 +82,20 @@ class RepositoryTests(unittest.TestCase):
         self.assertFalse(self.profile('status')['repository']['binding_confirmed'])
         with self.assertRaises(ValueError): self.profile()
 
+    def test_repository_transports_and_bad_uris_share_runtime_validation(self):
+        for address in ('tcp://example.invalid/dev', 'http://example.invalid/repo/main.1ccr/dev',
+                        'https://example.invalid:8443/repo/dev', str(self.root / 'repository folder')):
+            self.db['repository']['path'] = address
+            self.save()
+            self.assertEqual(self.profile('status')['repository']['path'], address)
+        for address in ('http://user:secret@example.invalid/dev', 'https://user@example.invalid/dev',
+                        'tcp://user:secret@example.invalid/dev', 'http:///dev',
+                        'https://example.invalid:bad/dev', 'ftp://example.invalid/dev'):
+            self.db['repository']['path'] = address
+            self.save()
+            with self.subTest(address=address), self.assertRaises(ValueError):
+                self.profile('status')
+
     def test_repository_disabled_does_not_add_platform_steps_to_apply(self):
         for config in (None, {'enabled': False}):
             if config is None:
@@ -350,6 +364,20 @@ class PowerShellRepositoryTests(unittest.TestCase):
         self.assertTrue(latest['keep_locked_requested'])
         self.assertIn('-keepLocked', capture.read_text(encoding='utf-8-sig'))
         with self.assertRaises(ValueError): runner.execute(self.root, 'test', 'unlock', self.objects, self.task, intent='release')
+
+    def test_real_ps_web_addresses_reach_platform_unchanged(self):
+        capture = self.root / 'fake-args.txt'
+        for address in ('http://example.invalid/repo/main.1ccr/dev',
+                        'https://example.invalid:8443/repo/main.1ccr/dev%20team',
+                        'HTTP://example.invalid/repo/main.1ccr/dev/',
+                        'https://example.invalid/repo/main.1ccr/dev/'):
+            cfg = support.read_json(self.root / '.v8-project.json')
+            cfg['databases'][0]['repository']['path'] = address
+            (self.root / '.v8-project.json').write_text(json.dumps(cfg), encoding='utf-8')
+            with patch.dict(os.environ, {'REPO_FAKE_MODE': 'ok', 'REPO_FAKE_ARGS': str(capture)}):
+                self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task), 0)
+            args = capture.read_text(encoding='utf-8-sig').splitlines()
+            self.assertEqual(args[args.index('/ConfigurationRepositoryF') + 1], address)
 
     def test_real_ps_silent_commit_is_not_claimed_as_success(self):
         self.receipt()

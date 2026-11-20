@@ -7,6 +7,7 @@ import os
 import re
 import string
 from pathlib import Path
+from urllib.parse import urlsplit
 
 READ_OPS = {'status', 'history', 'diff'}
 WRITE_OPS = {'lock', 'commit', 'unlock'}
@@ -15,6 +16,28 @@ INTENTS = {'lock': 'prepare', 'commit': 'publish', 'unlock': 'release'}
 
 def read_json(path):
     return json.loads(Path(path).read_text(encoding='utf-8-sig'))
+
+
+def validate_repository_address(address):
+    """Validate supported transports without rewriting the platform's address."""
+    if not isinstance(address, str) or not address.strip():
+        raise ValueError('repository: address is required')
+    if any(c == '"' or ord(c) < 32 for c in address):
+        raise ValueError('repository: invalid address (quote/control character)')
+    if '://' in address:
+        try:
+            uri = urlsplit(address)
+            port = uri.port  # Access validates malformed/out-of-range ports.
+        except ValueError:
+            raise ValueError('repository: invalid repository URI') from None
+        if uri.scheme.lower() not in {'tcp', 'http', 'https'} or not uri.hostname:
+            raise ValueError('repository: URI requires tcp/http/https and a host')
+        if uri.username is not None or uri.password is not None:
+            raise ValueError('repository: credentials must not be embedded in repository URI')
+        if any(c.isspace() for c in address) or '\\' in address or port == 0:
+            raise ValueError('repository: invalid repository URI')
+    elif not Path(address).is_absolute():
+        raise ValueError('repository: address must be tcp://, http://, https:// or an absolute path')
 
 
 def profile(root, db_id, operation):
@@ -35,13 +58,7 @@ def profile(root, db_id, operation):
     env = db.get('environment', config.get('environment') if db.get('type') == 'file' else None)
     if not isinstance(env, str) or env not in {'local', 'test', 'staging', 'production'}:
         raise ValueError('repository: explicit database environment is required')
-    if not repo.get('path') or not isinstance(repo['path'], str):
-        raise ValueError('repository: path is required')
-    if repo['path'].lower().startswith('tcp://'):
-        from urllib.parse import urlsplit
-        uri = urlsplit(repo['path'])
-        if uri.username is not None or uri.password is not None:
-            raise ValueError('repository: credentials must not be embedded in repository URI')
+    validate_repository_address(repo.get('path'))
     if operation in WRITE_OPS:
         if env == 'production' or (not isinstance(repo.get('environment'), str) or repo.get('environment') not in {'dev', 'test', 'staging'}):
             raise ValueError('repository: mutations require non-production database AND repository')

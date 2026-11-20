@@ -243,7 +243,7 @@ function ConvertTo-CleanPath {
     if ($v.Length -ge 2 -and $v[0] -eq $v[-1] -and ($v[0] -eq '"' -or $v[0] -eq "'")) {
         $v = $v.Substring(1, $v.Length - 2).Trim()
     }
-    if ($v.Length -gt 3 -and ($v[-1] -eq '\' -or $v[-1] -eq '/')) { $v = $v.Substring(0, $v.Length - 1) }
+    if ($v -notmatch '^(tcp|https?)://' -and $v.Length -gt 3 -and ($v[-1] -eq '\' -or $v[-1] -eq '/')) { $v = $v.Substring(0, $v.Length - 1) }
     if ($v.Contains('"')) {
         Write-Host "Error: $ParamName contains a quote character: $Value" -ForegroundColor Red
         exit 1
@@ -714,7 +714,7 @@ if (-not $RepositoryPassword) { $RepositoryPassword = Get-DevEnvValue 'REPOSITOR
 
 if (-not $RepositoryPath) {
     Write-Host "Error: the configuration is not bound to a repository in this project (.dev.env REPOSITORY_PATH is empty and -RepositoryPath was not passed)." -ForegroundColor Red
-    Write-Host "If the project does use a configuration repository, set REPOSITORY_PATH in .dev.env (local path or tcp://server/alias)." -ForegroundColor Red
+    Write-Host "If the project does use a configuration repository, set REPOSITORY_PATH in .dev.env (absolute path, tcp://server/alias, or http(s)://server/publication/repository)." -ForegroundColor Red
     exit 1
 }
 

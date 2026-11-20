@@ -103,6 +103,41 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(candidate['databases'][0]['repository']['binding_confirmed'])
         self.assertFalse(candidate['databases'][0]['repository']['allow_write'])
 
+    def test_existing_profile_binding_and_write_activation_are_actually_saved(self):
+        token = setup.plan(self.root, 'test', self.updates)[3]['approval_token']
+        setup.save(self.root, 'test', self.updates, token)
+        updates = {'binding_confirmed': True, 'allow_write': True}
+        planned = setup.plan(self.root, 'test', updates)[3]
+        self.assertEqual(planned['changes'], {'repository.binding_confirmed': True,
+                                            'repository.allow_write': True})
+        self.assertEqual(setup.save(self.root, 'test', updates, planned['approval_token'])['status'], 'saved')
+        actual = setup.read_json(self.path)['databases'][0]
+        self.assertTrue(actual['repository']['binding_confirmed'])
+        self.assertTrue(actual['repository']['allow_write'])
+        self.assertFalse(actual['allow_apply'])
+
+    def test_web_addresses_plan_save_and_check_preserve_exact_value(self):
+        for address in ('http://example.invalid/repo/main.1ccr/dev',
+                        'https://example.invalid:8443/repo/main.1ccr/dev',
+                        'HTTP://example.invalid/repo/dev%20team'):
+            with self.subTest(address=address):
+                updates = dict(self.updates, path=address)
+                planned = setup.plan(self.root, 'test', updates)[3]
+                self.assertEqual(planned['target']['repository']['path'], address)
+                setup.save(self.root, 'test', updates, planned['approval_token'])
+                self.assertEqual(setup.read_json(self.path)['databases'][0]['repository']['path'], address)
+                self.assertEqual(setup.check(self.root, 'test')['status'], 'configured')
+
+    def test_invalid_web_addresses_cannot_plan_or_save(self):
+        before = self.path.read_bytes()
+        for address in ('http://user:secret@example.invalid/dev', 'https://user@example.invalid/dev',
+                        'http:///dev', 'https://', 'http://example.invalid:bad/dev',
+                        'https://example.invalid:99999/dev', 'ftp://example.invalid/dev',
+                        'http://bad host/dev', 'http://example.invalid/\npath'):
+            with self.subTest(address=address), self.assertRaises(ValueError):
+                setup.plan(self.root, 'test', dict(self.updates, path=address))
+        self.assertEqual(before, self.path.read_bytes())
+
     def test_lock_contention_does_not_overwrite_or_remove_other_lock(self):
         lock = self.root / '.v8-project.json.setup.lock'
         lock.write_text('another setup')

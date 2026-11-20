@@ -14,7 +14,7 @@ import string
 import tempfile
 import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
+from repository_support import validate_repository_address
 
 RESERVED_ENV = {'PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP',
                 'PSMODULEPATH', 'PYTHONPATH', 'PYTHONHOME', 'CODEX_HOME', 'PATHEXT', 'COMSPEC'}
@@ -93,14 +93,7 @@ def validate(root, config, db):
     if not isinstance(platform, str) or not Path(platform).is_absolute() or not Path(platform).is_file():
         raise ValueError('v8path must point to an existing absolute platform file')
     address = repo.get('path')
-    if not isinstance(address, str) or not address.strip():
-        raise ValueError('repository address required')
-    if address.lower().startswith('tcp://'):
-        uri = urlsplit(address)
-        if not uri.hostname or uri.username is not None or uri.password is not None:
-            raise ValueError('invalid repository URI or embedded credentials')
-    elif not Path(address).is_absolute():
-        raise ValueError('repository address must be tcp:// or an absolute path')
+    validate_repository_address(address)
     if repo.get('environment') not in {'dev', 'test', 'staging'}:
         raise ValueError('repository environment must be dev/test/staging')
     for owner in (db, repo):
@@ -158,7 +151,7 @@ def plan(root, db_id, updates):
     root, path, raw, config, index = load(root, db_id)
     candidate = copy.deepcopy(config)
     db = candidate['databases'][index]
-    old_repo = db.get('repository', {})
+    old_repo = copy.deepcopy(db.get('repository', {}))
     if not isinstance(old_repo, dict):
         raise ValueError('invalid repository section; repair explicitly outside setup')
     repo = db.setdefault('repository', {})
