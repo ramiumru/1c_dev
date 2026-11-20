@@ -102,7 +102,12 @@ class PermissionPathTests(unittest.TestCase):
         for filename in ('.v8-project.json', 'projects/test/src/Module.bsl', 'pilot-control/TASK-test/repository/run/receipt.json'):
             self.assertEqual(action(repository, 'edit', relative(target / filename)), 'deny')
             self.assertEqual(action(repository, 'read', relative(target.parent / 'neighbour' / filename)), 'deny')
-        self.assertEqual(repository['permission']['bash'], {'*': 'deny', 'python scripts/safe_repository.py *': 'allow', 'py -3 scripts/safe_repository.py *': 'allow'})
+        self.assertEqual(repository['permission']['bash'], {
+            '*': 'deny', 'python scripts/safe_repository.py *': 'allow',
+            'py -3 scripts/safe_repository.py *': 'allow',
+            'python scripts/repository_setup.py *': 'allow',
+            'py -3 scripts/repository_setup.py *': 'allow'})
+        self.assertEqual(action(repository, 'edit', relative(target / '.v8-project.json')), 'deny')
         for agent in ('1c-do', '1c-analyst', '1c-reviewer', '1c-git-reviewer', '1c-developer', '1c-applier', '1c-tools', '1c-repository'):
             for permission in ('read', 'edit'):
                 rules = self.metadata(target, agent)['permission'].get(permission, {})

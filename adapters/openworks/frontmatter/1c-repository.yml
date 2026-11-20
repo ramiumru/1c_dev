@@ -58,6 +58,8 @@ permission:
     "*": deny
   bash:
     "*": deny
+    "python scripts/repository_setup.py *": allow
+    "py -3 scripts/repository_setup.py *": allow
     "python scripts/safe_repository.py *": allow
     "py -3 scripts/safe_repository.py *": allow
   task: deny

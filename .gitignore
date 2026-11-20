@@ -58,3 +58,8 @@ Thumbs.db
 
 # Optional local Git review registry; corporate overlay keeps its own version.
 /git-repositories.json
+
+# Local profile setup transaction files
+/.v8-project.json.*.backup
+/.v8-project.json.*.tmp
+/.v8-project.json.setup.lock
