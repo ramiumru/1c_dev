@@ -28,3 +28,8 @@ Markdown с адресацией по review-checklist.md. Для 1c-applier н�
 Для 1c-repository не использовать MCP, apps и plugins. Операции хранилища — только
 через scripts/safe_repository.py; без изменения исходников и без повторного lock/commit/
 unlock после потери ответа до диагностики. Apply и помещение — разные результаты.
+
+Repository profile setup is a separate local service route: 1c-do asks the user,
+1c-repository runs scripts/repository_setup.py check/plan/save. Only save after approval
+of the exact plan. Never directly edit profiles or request credential values in chat.
+The credential PowerShell helper is run by the user outside the agent.
