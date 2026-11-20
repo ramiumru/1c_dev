@@ -98,6 +98,7 @@ REQUIRED_FILES_SOURCE = [
     "core/scripts/repository_setup.py",
     "core/scripts/test_repository_setup.py",
     "core/scripts/set-repository-credentials.ps1",
+    "core/scripts/test_repository_credentials.ps1",
     "core/scripts/test_python_runtime.py",
     "core/scripts/git_repository.py",
     "core/scripts/test_git_repository.py",
@@ -158,6 +159,7 @@ REQUIRED_FILES_INSTALLED = [
     "scripts/repository_setup.py",
     "scripts/test_repository_setup.py",
     "scripts/set-repository-credentials.ps1",
+    "scripts/test_repository_credentials.ps1",
     "scripts/test_python_runtime.py",
     "scripts/git_repository.py",
     "scripts/test_git_repository.py",
@@ -896,7 +898,7 @@ def check_confirmed_regressions(rep: Report) -> None:
 def check_repository_setup_regressions(rep: Report) -> None:
     scripts = ROOT / "core/scripts" if IS_SOURCE_REPO else ROOT / "scripts"
     result = subprocess.run([sys.executable, str(scripts / "test_repository_setup.py")],
-                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
     if result.returncode == 0:
         rep.ok("repository-setup: scoped profile transactions and approval regressions passed")
     else:

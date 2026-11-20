@@ -12,6 +12,8 @@ from urllib.parse import urlsplit
 READ_OPS = {'status', 'history', 'diff'}
 WRITE_OPS = {'lock', 'commit', 'unlock'}
 INTENTS = {'lock': 'prepare', 'commit': 'publish', 'unlock': 'release'}
+RESERVED_CREDENTIAL_ENV = {'PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP',
+                           'PSMODULEPATH', 'PYTHONPATH', 'PYTHONHOME', 'CODEX_HOME', 'PATHEXT', 'COMSPEC'}
 
 
 def read_json(path):
@@ -38,6 +40,42 @@ def validate_repository_address(address):
             raise ValueError('repository: invalid repository URI')
     elif not Path(address).is_absolute():
         raise ValueError('repository: address must be tcp://, http://, https:// or an absolute path')
+
+
+def windows_user_environment(name):
+    """Read one literal User env value, never enumerate/export the user's environment."""
+    if os.name != 'nt':
+        raise ValueError('repository: Windows User credentials require Windows')
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, 'Environment') as key:
+            value, kind = winreg.QueryValueEx(key, name)
+            if kind not in (winreg.REG_SZ, winreg.REG_EXPAND_SZ) or not isinstance(value, str):
+                raise ValueError('repository: unsupported User environment value')
+            return value  # Do not expand percent signs in passwords.
+    except FileNotFoundError:
+        return ''
+
+
+def refresh_repository_credentials(repo):
+    source = repo.get('credential_source', 'process-env')
+    if source not in ('process-env', 'windows-user-env'):
+        raise ValueError('repository: unsupported credential_source')
+    if source == 'windows-user-env':
+        names = [repo.get(k) for k in ('username_env', 'password_env')]
+        if any(not isinstance(n, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', n) for n in names):
+            raise ValueError('repository: valid credential env names required')
+        if len(set(n.casefold() for n in names)) != 2:
+            raise ValueError('repository: credential env names must differ')
+        if any(n.upper() in RESERVED_CREDENTIAL_ENV for n in names):
+            raise ValueError('repository: system variables cannot store credentials')
+        values = [windows_user_environment(n) for n in names]
+        for name, value in zip(names, values):
+            # User selection is authoritative; never silently reuse stale Process values.
+            if value:
+                os.environ[name] = value
+            else:
+                os.environ.pop(name, None)
 
 
 def profile(root, db_id, operation):
@@ -68,6 +106,7 @@ def profile(root, db_id, operation):
             raise ValueError('repository: binding is unverified; confirm the selected IB/repository in Designer first')
     if any(db.get(k) for k in ('user', 'password')) or any(repo.get(k) for k in ('user', 'password', 'username')):
         raise ValueError('repository: plaintext credentials are unsupported; use env variable names')
+    refresh_repository_credentials(repo)
     for owner, default in ((db, 'none'), (repo, 'env')):
         mode = owner.get('password_mode', default)
         if mode not in ('none', 'env'):
