@@ -139,7 +139,7 @@ class FrontmatterTests(unittest.TestCase):
                 self.assertTrue((Path(td) / 'examples/git-repositories.example.json').is_file())
                 # Run the delivered setup module/CLI against disposable profiles.
                 setup_test = subprocess.run([sys.executable, str(Path(td) / 'scripts/test_repository_setup.py')],
-                                            cwd=td, capture_output=True, text=True, encoding='utf-8', timeout=30)
+                                            cwd=td, capture_output=True, text=True, encoding='utf-8', timeout=90)
                 self.assertEqual(setup_test.returncode, 0, setup_test.stdout + setup_test.stderr)
                 self.assertTrue((Path(td) / 'scripts/set-repository-credentials.ps1').is_file())
                 # Verify the read-only workflow and its imports after installation.

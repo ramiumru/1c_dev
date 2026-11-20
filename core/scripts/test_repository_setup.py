@@ -210,6 +210,71 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(run('save', ['--approve', plan['approval_token']])['status'], 'saved')
         self.assertEqual(run('plan')['changes'], {})
 
+    def configure_gui(self):
+        updates = dict(self.updates, credential_source='windows-user-env')
+        token = setup.plan(self.root, 'test', updates)[3]['approval_token']
+        setup.save(self.root, 'test', updates, token)
+
+    def open_mock_gui(self):
+        with mock.patch.object(setup, 'WINDOWS', True), mock.patch.object(setup.shutil, 'which', return_value='powershell.exe'), \
+                mock.patch.object(setup.subprocess, 'Popen') as launch:
+            report = setup.credentials(self.root, 'test')
+        return report, launch
+
+    def test_gui_launch_has_no_secret_arguments_and_returns_only_request_status(self):
+        self.configure_gui()
+        report, launch = self.open_mock_gui()
+        self.assertEqual(report['status'], 'dialog_requested')
+        args = launch.call_args[0][0]
+        self.assertIn('-STA', args)
+        self.assertIn('TEST_REPO_PASSWORD', args)
+        self.assertNotIn('private-password', json.dumps(report) + str(args))
+        self.assertEqual(launch.call_args[1]['stdout'], subprocess.DEVNULL)
+        self.assertEqual(setup.credentials_status(self.root, 'test', report['request_id'])['status'], 'pending')
+
+    def test_gui_cancel_and_profile_drift_do_not_claim_success(self):
+        self.configure_gui()
+        report, _ = self.open_mock_gui()
+        result = self.root / 'logs/repository-setup' / (report['request_id'] + '.result.json')
+        result.write_text('{"status":"cancelled"}')
+        before = self.path.read_bytes()
+        self.assertEqual(setup.credentials_status(self.root, 'test', report['request_id'])['status'], 'cancelled')
+        self.assertEqual(before, self.path.read_bytes())
+        self.path.write_bytes(before + b' ')
+        with self.assertRaises(ValueError):
+            setup.credentials_status(self.root, 'test', report['request_id'])
+
+    def test_gui_saved_status_refreshes_presence_without_restart(self):
+        self.configure_gui()
+        report, _ = self.open_mock_gui()
+        result = self.root / 'logs/repository-setup' / (report['request_id'] + '.result.json')
+        result.write_text('{"status":"saved"}')
+        with mock.patch('repository_support.windows_user_environment', side_effect=['private-login', 'private-password']), \
+                mock.patch.dict(os.environ, {}, clear=False):
+            status = setup.credentials_status(self.root, 'test', report['request_id'])
+        self.assertTrue(status['credentials_available'])
+        self.assertFalse(status['restart_required'])
+        self.assertNotIn('private-', json.dumps(status))
+        self.assertFalse(status['connection_checked'])
+
+    def test_gui_requires_approved_user_source_and_request_id_is_scoped(self):
+        token = setup.plan(self.root, 'test', self.updates)[3]['approval_token']
+        setup.save(self.root, 'test', self.updates, token)
+        with mock.patch.object(setup, 'WINDOWS', True), self.assertRaises(ValueError):
+            setup.credentials(self.root, 'test')
+        with self.assertRaises(ValueError):
+            setup.credentials_status(self.root, 'test', '../request')
+
+    @unittest.skipUnless(os.name == 'nt', 'native WinForms requires Windows')
+    def test_native_windows_form_layout_and_masked_password(self):
+        import shutil
+        shell = shutil.which('powershell.exe')
+        self.assertIsNotNone(shell)
+        script = Path(setup.__file__).with_name('test_repository_credentials.ps1')
+        result = subprocess.run([shell, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File', str(script)],
+                                capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
 
 if __name__ == '__main__':
     unittest.main()

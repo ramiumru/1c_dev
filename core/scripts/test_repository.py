@@ -96,6 +96,27 @@ class RepositoryTests(unittest.TestCase):
             with self.subTest(address=address), self.assertRaises(ValueError):
                 self.profile('status')
 
+    def test_user_environment_refresh_is_explicit_fresh_and_has_no_stale_fallback(self):
+        with patch.dict(os.environ, {'TEST_REPO_LOGIN': 'stale', 'TEST_REPO_PASSWORD': 'stale-secret'}):
+            with patch.object(support, 'windows_user_environment', side_effect=['new-login', 'new%PASSWORD%']) as read:
+                support.refresh_repository_credentials(dict(self.db['repository'], credential_source='windows-user-env'))
+                self.assertEqual(os.environ['TEST_REPO_PASSWORD'], 'new%PASSWORD%')
+                self.assertEqual(os.environ['TEST_REPO_LOGIN'], 'new-login')
+                self.assertEqual(read.call_count, 2)
+            with patch.object(support, 'windows_user_environment', return_value=''):
+                support.refresh_repository_credentials(dict(self.db['repository'], credential_source='windows-user-env'))
+                self.assertNotIn('TEST_REPO_PASSWORD', os.environ)
+            with patch.object(support, 'windows_user_environment') as read:
+                support.refresh_repository_credentials(self.db['repository'])
+                read.assert_not_called()
+
+    def test_user_environment_cannot_replace_system_variables(self):
+        with patch.object(support, 'windows_user_environment') as read:
+            with self.assertRaises(ValueError):
+                support.refresh_repository_credentials({'credential_source': 'windows-user-env',
+                                                        'username_env': 'PATH', 'password_env': 'PASSWORD'})
+            read.assert_not_called()
+
     def test_repository_disabled_does_not_add_platform_steps_to_apply(self):
         for config in (None, {'enabled': False}):
             if config is None:

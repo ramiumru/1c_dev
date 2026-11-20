@@ -61,7 +61,7 @@ distinct_fields и validation_regex задаёт private-слой. Следуй 
 # Настройка профиля через мастер
 
 По брифу 1c-do или явному запросу пользователя разрешён только
-`python scripts/repository_setup.py check|plan|save --db <id> ...`
+`python scripts/repository_setup.py check|plan|save|credentials|credentials-status --db <id> ...`
 (либо подтверждённый `py -3`). Запускать из корня установленного workspace.
 Это локальная настройка, не операция 1С и не подтверждение привязки.
 
@@ -78,9 +78,15 @@ distinct_fields и validation_regex задаёт private-слой. Следуй 
 5. Не менять allow_apply, environment/подключение самой базы, другие базы, глобальные
    настройки, права агентов или политику; не отключать обязательную корпоративную политику.
    Известный корпоративный comment_policy_file передать в мастер — он включит required.
-6. Секреты пользователь вводит вне агента через scripts/set-repository-credentials.ps1
-   в обычном PowerShell. Этот скрипт агент НЕ запускает. После сохранения User env
-   требуется полный перезапуск VS Code/клиента. Не считать новую сессию чата перезапуском.
+6. Секреты пользователь вводит в отдельном Windows-окне. В согласуемый план включить
+   --credential-source windows-user-env, после save вызвать repository_setup.py credentials
+   --db <id>. Только этот action запускает GUI; raw PowerShell-команды не разрешаются.
+   Вернуть request_id; затем credentials-status --db <id> --request-id <id>. Не выдавать
+   dialog_requested/pending за сохранение. Отмена/ошибка не разрешают дальнейшие операции.
+   Не просить пользователя открывать PowerShell или вводить команды. Если окно недоступно,
+   вернуть точную проблему интерфейса, без обхода и без запроса пароля в чат.
+   Для windows-user-env обёртка обновляет только выбранные env из User при каждом
+   запуске: перезапуск VS Code не требуется. process-env сохраняет прежнее поведение.
 7. saved означает только сохранение профиля. Затем check и read-only status/diff через
    safe_repository; никаких lock/apply/commit в рамках настройки. Готовность к записи
    проверяется отдельно. Если до настройки уже были реализация/review, сверить их

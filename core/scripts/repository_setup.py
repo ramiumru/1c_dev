@@ -10,14 +10,17 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import string
+import subprocess
 import tempfile
+import time
 import uuid
 from pathlib import Path
-from repository_support import validate_repository_address
+from repository_support import validate_repository_address, refresh_repository_credentials, RESERVED_CREDENTIAL_ENV
 
-RESERVED_ENV = {'PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP',
-                'PSMODULEPATH', 'PYTHONPATH', 'PYTHONHOME', 'CODEX_HOME', 'PATHEXT', 'COMSPEC'}
+RESERVED_ENV = RESERVED_CREDENTIAL_ENV
+WINDOWS = os.name == 'nt'
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
@@ -112,6 +115,8 @@ def validate(root, config, db):
         raise ValueError('database credential mode is incomplete; setup does not change database credentials')
     if not repo.get('username_env') or repo.get('password_mode', 'env') != 'env' or not repo.get('password_env'):
         raise ValueError('repository username_env/password_env and env password mode required')
+    if repo.get('credential_source', 'process-env') not in ('process-env', 'windows-user-env'):
+        raise ValueError('unsupported repository credential_source')
     for value in (platform, address, db.get('path', ''), db.get('server', ''), db.get('ref', '')):
         if not isinstance(value, str) or any(c == '"' or ord(c) < 32 for c in value):
             raise ValueError('invalid connection field')
@@ -133,6 +138,11 @@ def check(root, db_id):
         errors = [str(exc)]
     repo = db.get('repository', {})
     repo = repo if isinstance(repo, dict) else {}
+    if not errors:
+        try:
+            refresh_repository_credentials(repo)
+        except (ValueError, OSError) as exc:
+            errors.append(str(exc))
     credentials = {key: bool(os.environ.get(repo.get(key, '')))
                    for key in ('username_env', 'password_env') if isinstance(repo.get(key, ''), str)}
     missing = ['repository.' + key for key in ('path', 'environment', 'username_env', 'password_env')
@@ -144,6 +154,7 @@ def check(root, db_id):
             'enabled': repo.get('enabled') is True, 'allow_write': repo.get('allow_write') is True,
             'binding_confirmed': repo.get('binding_confirmed') is True,
             'credentials_available': all(credentials.values()) and len(credentials) == 2,
+            'credential_source': repo.get('credential_source', 'process-env'),
             'connection_checked': False, 'apply_permission_changed': False}
 
 
@@ -161,7 +172,7 @@ def plan(root, db_id, updates):
         if key == 'v8path':
             db[key] = value
         elif key in {'path', 'environment', 'username_env', 'password_env', 'enabled',
-                     'allow_write', 'binding_confirmed', 'comment_policy_file'}:
+                     'allow_write', 'binding_confirmed', 'comment_policy_file', 'credential_source'}:
             repo[key] = value
         else:
             raise ValueError('unsupported setup field')
@@ -190,7 +201,7 @@ def plan(root, db_id, updates):
               'v8path': db.get('v8path') or config.get('v8path'),
               'repository': {k: repo[k] for k in ('path', 'environment', 'enabled', 'allow_write',
                              'binding_confirmed', 'username_env', 'password_env',
-                             'comment_policy_file', 'comment_policy_required') if k in repo}}
+                             'comment_policy_file', 'comment_policy_required', 'credential_source') if k in repo}}
     report = {'status': 'planned', 'db_id': db_id, 'changes': changes, 'approval_token': token,
               'target': target,
               'connection_checked': False, 'apply_permission_changed': False,
@@ -233,9 +244,65 @@ def save(root, db_id, updates, approval):
         lock.unlink()
 
 
+def credentials(root, db_id):
+    """Open a separate native dialog. No stdin/stdout pipe carries credentials."""
+    root, _, raw, config, index = load(root, db_id)
+    db = config['databases'][index]
+    validate(root, config, db)
+    repo = db['repository']
+    if not WINDOWS:
+        raise ValueError('credential dialog requires a Windows desktop')
+    if repo.get('credential_source') != 'windows-user-env':
+        raise ValueError('approve a plan with --credential-source windows-user-env before opening the dialog')
+    shell = shutil.which('powershell.exe')
+    script = Path(__file__).resolve().with_name('set-repository-credentials.ps1')
+    if not shell or not script.is_file():
+        raise ValueError('Windows credential dialog component unavailable')
+    folder = root / 'logs/repository-setup'
+    if root not in folder.resolve().parents:
+        raise ValueError('credential request directory must be inside workspace')
+    folder.mkdir(parents=True, exist_ok=True)
+    request_id = uuid.uuid4().hex
+    request = folder / (request_id + '.json')
+    request.write_text(json.dumps({'db_id': db_id, 'profile_hash': digest(raw), 'created': time.time()}), encoding='utf-8')
+    result = folder / (request_id + '.result.json')
+    args = [shell, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-WindowStyle', 'Hidden', '-File', str(script),
+            '-UsernameEnv', repo['username_env'], '-PasswordEnv', repo['password_env'],
+            '-DatabaseLabel', db_id, '-RepositoryAddress', repo['path'], '-StatusFile', str(result)]
+    try:
+        subprocess.Popen(args, cwd=str(root), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except OSError:
+        request.unlink()
+        raise ValueError('could not open credential dialog on the Windows desktop') from None
+    return {'status': 'dialog_requested', 'request_id': request_id, 'db_id': db_id,
+            'next': 'User enters credentials in the native window. Poll credentials-status; never request secrets in chat.'}
+
+
+def credentials_status(root, db_id, request_id):
+    root, _, raw, _, _ = load(root, db_id)
+    if not re.fullmatch(r'[0-9a-f]{32}', request_id):
+        raise ValueError('invalid credential request id')
+    folder = root / 'logs/repository-setup'
+    if root not in folder.resolve().parents:
+        raise ValueError('credential request directory must be inside workspace')
+    request = read_json(folder / (request_id + '.json'))
+    if request.get('db_id') != db_id or request.get('profile_hash') != digest(raw):
+        raise ValueError('profile changed since dialog request; inspect the current profile before continuing')
+    result = folder / (request_id + '.result.json')
+    state = read_json(result).get('status') if result.is_file() else ('pending' if time.time() - request['created'] < 600 else 'unverified')
+    if state not in ('pending', 'saved', 'cancelled', 'error', 'unverified'):
+        raise ValueError('invalid dialog result')
+    report = {'status': state, 'db_id': db_id, 'connection_checked': False}
+    if state == 'saved':
+        report['credentials_available'] = check(root, db_id)['credentials_available']
+        report['restart_required'] = False
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['check', 'plan', 'save'])
+    parser.add_argument('action', choices=['check', 'plan', 'save', 'credentials', 'credentials-status'])
     parser.add_argument('--db', required=True)
     parser.add_argument('--v8path')
     parser.add_argument('--repository-path', dest='path')
@@ -243,15 +310,24 @@ def main():
     parser.add_argument('--username-env')
     parser.add_argument('--password-env')
     parser.add_argument('--comment-policy-file')
+    parser.add_argument('--credential-source', choices=['process-env', 'windows-user-env'])
+    parser.add_argument('--request-id', default='')
     for flag in ('enabled', 'allow-write', 'binding-confirmed'):
         parser.add_argument('--' + flag, choices=['yes', 'no'])
     parser.add_argument('--approve', default='')
     args = vars(parser.parse_args())
     action, db_id, approval = args.pop('action'), args.pop('db'), args.pop('approve')
+    request_id = args.pop('request_id')
     updates = {k: (v == 'yes' if k in {'enabled', 'allow_write', 'binding_confirmed'} else v)
                for k, v in args.items() if v is not None}
     try:
-        if action == 'check':
+        if action in ('credentials', 'credentials-status'):
+            if updates or approval or (action == 'credentials' and request_id):
+                raise ValueError('credential actions accept only --db and status --request-id')
+            report = credentials(Path.cwd(), db_id) if action == 'credentials' else credentials_status(Path.cwd(), db_id, request_id)
+        elif request_id:
+            raise ValueError('--request-id is only supported for credentials-status')
+        elif action == 'check':
             if updates or approval:
                 raise ValueError('check accepts only --db')
             report = check(Path.cwd(), db_id)
