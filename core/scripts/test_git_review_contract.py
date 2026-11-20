@@ -18,8 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class ReviewContractTests(unittest.TestCase):
     def test_plain_report_and_complete_addresses(self):
         text = (ROOT / 'core/agents/1c-git-reviewer.md').read_text(encoding='utf-8')
-        self.assertNotIn('```', text)
-        for marker in ('без fenced code blocks', 'Module.bsl', 'полный адрес',
+        for marker in ('без кодового блока вокруг всего отчёта', 'Module.bsl', 'полный адрес',
                        'Конфигуратор:', 'Файл:', 'Место:', 'review_sha',
                        'Номера строк — 1-based', 'Каждое замечание самодостаточно',
                        'Документ.<Имя>.Форма.<ИмяФормы>.Модуль'):
