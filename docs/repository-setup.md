@@ -26,6 +26,13 @@ python scripts/repository_setup.py check --db finance-dev
 python scripts/repository_setup.py plan --db finance-dev --v8path "C:\Program Files\1cv8\8.3.xx.xxxx\bin\1cv8.exe" --repository-path "tcp://repository-server/dev" --repository-environment dev --username-env ONEC_REPOSITORY_USER --password-env ONEC_REPOSITORY_PASSWORD --comment-policy-file ".kilo/context/projects/_corporate/repository-comment.json"
 ```
 
+Адрес хранилища может быть `tcp://...`, `http://...`, `https://...` либо абсолютным
+файловым/сетевым путём. HTTP(S)-адрес веб-публикации передаётся платформе целиком:
+путь публикации, порт, регистр, экранирование и завершающий `/` не переписываются.
+Логин/пароль внутри URL запрещены; используются имена env. Мастер и рабочая
+обёртка применяют одну проверку URI. Проверка формата не доказывает доступность
+публикации или привязку базы; это проверяется отдельно.
+
 Для OpenWork/Claude/Codex путь политики берётся из их фактического установленного
 контекста. В публичном pet-проекте флаг политики необязателен. В корпоративном
 проекте агент обязан взять корпоративную политику из контекста; неизвестный путь
