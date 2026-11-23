@@ -63,3 +63,6 @@ Thumbs.db
 /.v8-project.json.*.backup
 /.v8-project.json.*.tmp
 /.v8-project.json.setup.lock
+
+# Real deployment contexts belong in the private overlay
+/core/context/projects/

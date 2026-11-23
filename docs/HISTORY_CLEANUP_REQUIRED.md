@@ -1,63 +1,29 @@
-# Отчёт: необходимость очистки истории Git
+# Public-history privacy maintenance
 
-## Контекст
+The public history has been sanitized to remove private deployment contexts,
+company-specific standards and identifiers, and corporate commit-email metadata.
+This document intentionally contains no former private values or old commit IDs.
 
-В ходе подготовки публичной версии harness корпоративные данные были удалены из текущего
-дерева (HEAD). Однако их версии остаются в истории Git.
+## Prevent reintroduction
 
-## Типы найденных проблем
+- Keep actual deployment profiles, project catalogs, company standards, internal
+  addresses, credentials and company model settings in the private overlay.
+- Use fictional neutral examples in the public repository.
+- Use a public GitHub noreply identity for this repository's commits.
+- A mailmap only changes presentation; it does not remove original commit metadata.
+- After a history rewrite, clone again. Never merge or push branches from an old
+  clone into the sanitized history. Preserve uncommitted work separately and review
+  patches before applying them to a new clone.
+- Update external pins and submodule gitlinks to an audited sanitized revision.
+- Keep any pre-cleanup backup private. Never publish it as a backup branch or tag.
+- Review CI logs/artifacts, release assets, PRs, issues and other public surfaces
+  separately from Git object history.
 
-| Тип | Описание |
-|---|---|
-| Корпоративные стандарты | Файлы стандартов разработки компании (раньше в `core/context/standards/`) |
-| Per-project контексты | Внутренние проекты, модули, объекты, префиксы (раньше в `core/context/projects/`) |
-| Внутренние URL | Корпоративный GitLab URL в AGENT-INSTALL.md |
-| Внутренние префиксы | Префиксы объектов в агентах и скриптах |
+## Limits
 
-## Затронутые пути
+Rewriting controlled branches cannot remove external clones or forks. GitHub may
+retain old objects, cached pages and read-only references. Residual sensitive data
+may require GitHub Support; removal is not guaranteed for non-secret information.
 
-| Путь | Тип данных |
-|---|---|
-| `core/context/standards/company-standards.md` | Корпоративные стандарты |
-| `core/context/projects/finance/` | Per-project контекст |
-| `core/context/projects/trade/` | Per-project контекст |
-| `core/context/projects/collector/` | Per-project контекст |
-| `AGENT-INSTALL.md` | Внутренний URL (заменён на `{GITHUB_URL}`) |
-| `core/agents/*.md` | Внутренние префиксы (заменены на нейтральные) |
-| `core/scripts/build_summaries.py` | Внутренние префиксы в help text |
-
-## Коммиты, где файлы присутствовали
-
-Файлы присутствовали в коммитах до ветки `fix/first-pilot-readiness`. Конкретные хеши
-коммитов можно получить через:
-```bash
-git log --all --oneline -- core/context/standards/company-standards.md
-git log --all --oneline -- core/context/projects/
-```
-
-## Рекомендации владельцу
-
-1. **Сделать репозиторий приватным** до очистки истории.
-2. **Если обнаружен настоящий секрет** (пароль, токен, ключ) — выполнить ротацию секрета
-   немедленно, независимо от очистки истории.
-3. **Очистка истории** потребует `git filter-repo` или `BFG Repo-Cleaner`:
-   ```bash
-   git filter-repo --invert-paths --path core/context/standards/company-standards.md
-   git filter-repo --invert-paths --path core/context/projects/
-   ```
-4. **Force push потребуется** после очистки:
-   ```bash
-   git push --force --all
-   git push --force --tags
-   ```
-5. **Координация со всеми клонами** — уведомить всех пользователей, что потребуется
-   повторное клонирование после очистки.
-6. **Альтернатива** — оставить историю приватной и создать новый чистый репозиторий
-   без истории корпоративных данных.
-
-## Предупреждение
-
-Очистка истории переписывает все коммиты. Это разрушительная операция:
-- потребует force push;
-- потребует координации со всеми клонами;
-- может привести к потере данных при ошибке — сделать backup репозитория перед очисткой.
+Official procedure:
+https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository
