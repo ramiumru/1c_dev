@@ -57,7 +57,7 @@ overlay/
 
 `<agentDir>`, `<skillDir>`, `<contextDir>` — пути выбранного адаптера
 (`.kilo/agent`, `.kilo/skills`, `.kilo/context` для kilo; `.claude/...` для claude;
-`.opencode/...` для openworks; `agents/`, `skills/`, `context/` для codex).
+`.opencode/...` для openworks; `agents/` + native definitions, `.agents/skills`, `context/` для codex).
 
 Пример:
 

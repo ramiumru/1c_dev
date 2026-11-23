@@ -36,5 +36,7 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
       - name: Python compile check
         run: python -m compileall -q core/scripts core/skills
-      - name: Validate (skip smoke — no PowerShell on Linux)
-        run: python core/scripts/validate.py --skip-smoke
+      - name: YAML frontmatter regression (pwsh preinstalled on ubuntu-latest)
+        run: python core/scripts/test_frontmatter.py
+      - name: Validate (with smoke — installer must work with '/' separators)
+        run: python core/scripts/validate.py

@@ -54,6 +54,15 @@ BACKUP_ROOT = "backups"  # относительный путь внутри proj
 _TASK_ID_RE = __import__("re").compile(r"^TASK-[A-Za-z0-9]+(-[A-Za-z0-9]+)*$")
 
 
+def _sha256_file(path: Path, chunk: int = 1024 * 1024) -> str:
+    """SHA-256 потоково: DT-выгрузка может весить десятки ГБ."""
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(chunk), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
 def redact(text: str) -> str:
     import re
     for param in ("-Password", "/P", "--password", "-PasswordEnv", "-UserName", "-UserNameEnv", "-V8Path"):
@@ -207,7 +216,7 @@ def main() -> int:
         return 1
 
     # 9. Вычислить SHA-256
-    artifact_sha = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    artifact_sha = _sha256_file(artifact_path)
 
     # 10. Атомарно создать backup.md
     backup_md_dir = control_dir / task_id

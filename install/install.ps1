@@ -55,6 +55,7 @@ param(
     [switch]$OverlayDryRun
 )
 $ErrorActionPreference = "Stop"
+$script:PathSep = [string][System.IO.Path]::DirectorySeparatorChar
 $repo = Split-Path -Parent $PSScriptRoot   # корень репо
 $utf8Bom = [System.Text.UTF8Encoding]::new($true)
 
@@ -190,7 +191,7 @@ if ($OverlayPath) {
 
     $overlayPlan = @()
     foreach ($cat in $overlayCategories) {
-        $catSrc = Join-Path $overlayRoot ($cat.src -replace '/','\')
+        $catSrc = Join-Path $overlayRoot ($cat.src -replace '/',$script:PathSep)
         if (-not (Test-Path -LiteralPath $catSrc -PathType Container)) { continue }
         foreach ($sf in (Get-OverlayFiles $catSrc)) {
             $relSrc = $sf.FullName.Substring($catSrc.Length).TrimStart('\','/') -replace '\\','/'
@@ -198,8 +199,8 @@ if ($OverlayPath) {
             if (-not (Test-OverlayRelPath $relDst)) {
                 throw "Overlay path отклонён (absolute/../.git): $($cat.src)/$relSrc"
             }
-            $dstPath = [System.IO.Path]::GetFullPath((Join-Path $Target ($relDst -replace '/','\')))
-            if (-not $dstPath.StartsWith($targetRootFull + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $dstPath = [System.IO.Path]::GetFullPath((Join-Path $Target ($relDst -replace '/',$script:PathSep)))
+            if (-not $dstPath.StartsWith($targetRootFull + $script:PathSep, [System.StringComparison]::OrdinalIgnoreCase)) {
                 throw "Overlay target вне project root: $relDst"
             }
             $skillName = $null
@@ -225,7 +226,8 @@ if ($Mode -eq "update") {
                     $userModifiedFiles[$f.path] = $true
                 }
             }
-            Write-Host "  update: обнаружено $($userModifiedFiles.Count) user-modified файлов (будут сохранены)"
+            $keep = @($userModifiedFiles.Keys | Where-Object { $_ -notlike 'scripts/*' }).Count
+            Write-Host "  update: обнаружено $($userModifiedFiles.Count) user-modified файлов ($keep будут сохранены; scripts/ всегда обновляются)"
         } catch {
             Write-Host "  update: .ai-rules.json не читается — полная установка (манифест повреждён)"
         }
@@ -235,6 +237,11 @@ if ($Mode -eq "update") {
 }
 
 # --- Вспомогательные функции ---
+
+function Test-IsBuildCache($item) {
+    # __pycache__/*.pyc — артефакты локального запуска тестов в checkout harness, не ресурсы
+    return ($item.Extension -in @('.pyc','.pyo')) -or ($item.FullName -match '[\\/]__pycache__[\\/]')
+}
 
 function Test-ShouldOverwrite($relPath) {
     # LICENSE целевого проекта — НИКОГДА не перезаписывается (P0-2.2)
@@ -293,13 +300,22 @@ if ($Tool -eq 'codex') {
     Get-ChildItem $skillSrc -Directory | ForEach-Object {
         $name = $_.Name
         $dst = Join-Path $Target "$skills/$name"
-        # Копировать содержимое каталога, а не сам каталог (предотвращает nesting)
-        if (Test-Path $dst) {
-            Copy-Item "$($_.FullName)\*" $dst -Recurse -Force
-        } else {
-            Copy-Item $_.FullName $dst -Recurse -Force
+        $skillDirSrc = $_.FullName
+        # Пофайловое копирование через Safe-CopyFile: update сохраняет user-modified файлы
+        # скилла (как агенты/правила); кэши Python не устанавливаются.
+        $copied = @()
+        Get-ChildItem -LiteralPath $skillDirSrc -Recurse -File | Where-Object { -not (Test-IsBuildCache $_) } | ForEach-Object {
+            $relInside = $_.FullName.Substring($skillDirSrc.Length).TrimStart('\','/') -replace '\\','/'
+            $relTarget = "$skills/$name/$relInside"
+            $dstFile = Join-Path $Target ($relTarget -replace '/',$script:PathSep)
+            if (Test-ShouldOverwrite $relTarget) {
+                $dstDir = Split-Path $dstFile -Parent
+                if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
+                Copy-Item -LiteralPath $_.FullName $dstFile -Force
+                $copied += $dstFile
+            }
         }
-        Get-ChildItem $dst -Recurse -File | ForEach-Object {
+        $copied | ForEach-Object { Get-Item -LiteralPath $_ } | ForEach-Object {
             $content = [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8)
             if ($content -match '\{\{SKILL') {
                 $content = $content -replace '\{\{SKILL_DIR\}\}', "$skills/$name"
@@ -493,9 +509,15 @@ $scriptsDst = Join-Path $Target "scripts"
 # Копировать содержимое каталога, а не сам каталог (предотвращает nesting: scripts/scripts/)
 if (Test-Path $scriptsDst) {
     # Update: копировать пофайлово с перезаписью
-    Get-ChildItem "$repo\core\scripts" -Recurse -File | ForEach-Object {
+    # scripts/ — guards и wrappers безопасности: при update ВСЕГДА перезаписываются эталоном
+    # harness (user-modified guard не сохраняется намеренно), о чём выводится предупреждение.
+    $modScripts = @($script:userModifiedFiles.Keys | Where-Object { $_ -like 'scripts/*' })
+    if ($modScripts.Count -gt 0) {
+        Write-Host "    WARN: scripts/ перезаписаны эталоном harness (локальные правки не сохраняются): $($modScripts -join ', ')"
+    }
+    Get-ChildItem "$repo\core\scripts" -Recurse -File | Where-Object { -not (Test-IsBuildCache $_) } | ForEach-Object {
         $rel = $_.FullName.Substring("$repo\core\scripts".Length).TrimStart('\','/') -replace '\\','/'
-        $dstFile = Join-Path $scriptsDst $rel
+        $dstFile = Join-Path $scriptsDst ($rel -replace '/',$script:PathSep)
         $dstDir = Split-Path $dstFile -Parent
         if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
         Copy-Item $_.FullName $dstFile -Force
@@ -503,7 +525,13 @@ if (Test-Path $scriptsDst) {
 } else {
     # Install: копировать содержимое (не сам каталог)
     New-Item -ItemType Directory -Force -Path $scriptsDst | Out-Null
-    Copy-Item "$repo\core\scripts\*" $scriptsDst -Recurse -Force
+    Get-ChildItem "$repo\core\scripts" -Recurse -File | Where-Object { -not (Test-IsBuildCache $_) } | ForEach-Object {
+        $rel = $_.FullName.Substring("$repo\core\scripts".Length).TrimStart('\','/') -replace '\\','/'
+        $dstFile = Join-Path $scriptsDst ($rel -replace '/',$script:PathSep)
+        $dstDir = Split-Path $dstFile -Parent
+        if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
+        Copy-Item $_.FullName $dstFile -Force
+    }
 }
 
 $specsDst = Join-Path $Target "specs"
@@ -544,7 +572,7 @@ function Add-ManifestEntryFromSource($srcDir, $targetRelBase, $sourcePrefix) {
     if (-not (Test-Path -LiteralPath $srcDir)) { return }
     Get-ChildItem -LiteralPath $srcDir -File | ForEach-Object {
         $relTarget = "$targetRelBase/$($_.Name)" -replace '\\','/'
-        $dstFile = Join-Path $Target ($relTarget -replace '/','\')
+        $dstFile = Join-Path $Target ($relTarget -replace '/',$script:PathSep)
         if (Test-Path -LiteralPath $dstFile) {
             $hash = (Get-FileHash -LiteralPath $dstFile -Algorithm SHA256).Hash
             # $script:files — иначе += создаёт локальную копию и записи теряются
@@ -571,7 +599,7 @@ if ($Tool -ne 'codex' -and (Test-Path -LiteralPath $skillsSrc)) {
             $relInside = $_.FullName.Substring($skillDir.Length).TrimStart('\','/') -replace '\\','/'
             if (-not $relInside) { return }
             $relTarget = "$skills/$skillName/$relInside" -replace '\\','/'
-            $dstFile = Join-Path $Target ($relTarget -replace '/','\')
+            $dstFile = Join-Path $Target ($relTarget -replace '/',$script:PathSep)
             if (Test-Path -LiteralPath $dstFile) {
                 $hash = (Get-FileHash -LiteralPath $dstFile -Algorithm SHA256).Hash
                 $script:files += [PSCustomObject]@{ path=$relTarget; source="core/skills/$skillName/$relInside"; installedHash=$hash; userModified=$false }
@@ -633,6 +661,19 @@ if (Test-Path $aiPath) {
 }
 
 # Сериализация манифеста (не перезаписывать существующий без -Force в update-режиме)
+# Сохранённые user-modified файлы: в манифесте остаётся исходный installedHash harness,
+# иначе следующий update принял бы правку за «чистую» установку и молча перезаписал её.
+if ($Mode -eq "update" -and -not $Force -and $existingManifest) {
+    $oldHashes = @{}
+    foreach ($of in $existingManifest.files) { $oldHashes[$of.path] = $of.installedHash }
+    foreach ($e in $files) {
+        if ($userModifiedFiles.ContainsKey($e.path) -and $e.path -notlike 'scripts/*' -and $oldHashes.ContainsKey($e.path)) {
+            $e.installedHash = $oldHashes[$e.path]
+            $e.userModified = $true
+        }
+    }
+}
+
 $manifest = [PSCustomObject]@{
     protocolVersion = "1.0"
     tool = $Tool
@@ -721,7 +762,7 @@ if ($OverlayPath) {
         foreach ($f in $files) { $basePaths[$f.path] = $true }
         foreach ($old in $oldOverlayFiles) {
             if ($newOverlayPaths.ContainsKey($old.path) -or $basePaths.ContainsKey($old.path)) { continue }
-            $orphanPath = Join-Path $Target ($old.path -replace '/','\')
+            $orphanPath = Join-Path $Target ($old.path -replace '/',$script:PathSep)
             if (-not (Test-Path -LiteralPath $orphanPath -PathType Leaf)) { continue }
             $curHash = (Get-FileHash -LiteralPath $orphanPath -Algorithm SHA256).Hash
             if ($curHash -eq $old.installedHash) {

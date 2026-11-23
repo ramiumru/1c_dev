@@ -20,10 +20,10 @@ foreach ($name in $agents) {
 
     # Determine tools based on agent role
     $tools = switch ($name) {
-        "1c-do"        { "Read, Edit, Glob, Grep, Task" }
-        "1c-analyst"   { "Read, Glob, Grep, Bash, Skill" }
-        "1c-developer" { "Read, Edit, Glob, Grep, Bash, Skill" }
-        "1c-reviewer"  { "Read, Edit, Glob, Grep, Bash, Skill" }
+        "1c-do"        { "Read, Write, Edit, Glob, Grep, Task" }
+        "1c-analyst"   { "Read, Write, Edit, Glob, Grep, Bash, Skill" }
+        "1c-developer" { "Read, Write, Edit, Glob, Grep, Bash, Skill" }
+        "1c-reviewer"  { "Read, Glob, Grep, Bash, Skill" }
         "1c-applier"   { "Read, Glob, Grep, Bash, Skill" }
         "1c-tools"     { "Read, Glob, Grep, Bash" }
         "1c-git-reviewer" { "Read, Glob, Grep, Bash" }

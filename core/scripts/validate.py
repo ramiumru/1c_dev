@@ -108,6 +108,7 @@ REQUIRED_FILES_SOURCE = [
     "core/scripts/plan_parser.py",
     "core/scripts/test_plan_parser.py",
     "core/scripts/test_confirmed_regressions.py",
+    "core/scripts/test_guard_hardening.py",
     "core/scripts/test_development_preflight.py",
     "core/scripts/development_preflight.py",
     "core/scripts/bsl-check.py",
@@ -169,6 +170,7 @@ REQUIRED_FILES_INSTALLED = [
     "scripts/plan_parser.py",
     "scripts/test_plan_parser.py",
     "scripts/test_confirmed_regressions.py",
+    "scripts/test_guard_hardening.py",
     "scripts/test_development_preflight.py",
     "scripts/development_preflight.py",
     "scripts/bsl-check.py",
@@ -893,6 +895,16 @@ def check_confirmed_regressions(rep: Report) -> None:
         rep.ok("confirmed-regressions: native skills, async BSL, report aliases and strict explicit object lists")
     else:
         rep.error(f"confirmed-regressions: {result.stdout[-1000:]} {result.stderr[-3000:]}")
+
+
+def check_guard_hardening_regressions(rep: Report) -> None:
+    scripts = ROOT / "core/scripts" if IS_SOURCE_REPO else ROOT / "scripts"
+    result = subprocess.run([sys.executable, str(scripts / "test_guard_hardening.py")],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
+    if result.returncode == 0:
+        rep.ok("guard-hardening: streaming backup hash, no self-review, extension profile fail-closed")
+    else:
+        rep.error(f"guard-hardening: {result.stdout[-1000:]} {result.stderr[-3000:]}")
 
 
 def check_repository_setup_regressions(rep: Report) -> None:
@@ -3706,6 +3718,7 @@ def main() -> int:
     check_plan_parser(rep)
     check_development_preflight(rep)
     check_confirmed_regressions(rep)
+    check_guard_hardening_regressions(rep)
     check_repository_setup_regressions(rep)
     check_repository_regressions(rep)
     check_python_runtime_regressions(rep)

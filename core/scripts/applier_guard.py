@@ -77,6 +77,8 @@ BACKUP_MAX_AGE_HOURS = 24
 _TASK_ID_RE = re.compile(r"^TASK-[A-Za-z0-9]+(-[A-Za-z0-9]+)*$")
 _SELF_APPROVAL_DENY = {"1c-developer"}
 _HIGH_RISK_SELF_DENY = {"1c-developer", "1c-analyst"}
+# reviewed_by не может быть автором реализации/spec или транспортом review
+_REVIEWER_DENY = {"1c-developer", "1c-analyst", "1c-do", "1c-applier"}
 HIGH_RISK_MARKERS = (
     "проведени", "движени", "транзакци", "блокиров", "RLS", "права",
     "регламентн", "фонов", "экспортн", "метаданны", "интеграционн",
@@ -89,6 +91,15 @@ def _read_text(path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="replace")
     except Exception:
         return ""
+
+
+def _sha256_file(path: Path, chunk: int = 1024 * 1024) -> str:
+    """SHA-256 потоково: DT-выгрузка может весить десятки ГБ, read_bytes() даёт MemoryError."""
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(chunk), b""):
+            h.update(block)
+    return h.hexdigest()
 
 
 def _parse_yaml_block(text: str) -> dict:
@@ -248,6 +259,10 @@ class Guard:
             allow_apply = db.get("allow_apply")
             if not (allow_apply is True or str(allow_apply).strip().lower() == "true"):
                 self.fail(f"environment: серверная база '{db_id}' без allow_apply: true")
+        if str(db.get("extension", "")).strip():
+            # safe_apply грузит XML только в основную конфигурацию; поле extension привело бы
+            # к load в основную + UpdateDBCfg расширения. Расширения вне скоупа пилота.
+            self.fail(f"scope: база '{db_id}' с полем extension — apply расширений не поддержан пилотом")
         self._db_id = db_id
         self._db_env = db_env
         self._db_record = db
@@ -399,6 +414,8 @@ class Guard:
         elif not _validate_iso_timestamp(reviewed_at):
             self.fail(f"SDD: reviewed_at='{reviewed_at}' — некорректный ISO 8601 timestamp")
 
+        if reviewed_by and reviewed_by.lower() in _REVIEWER_DENY:
+            self.fail(f"SDD: reviewed_by='{reviewed_by}' — роль не может выступать ревьюером (само-ревью)")
         if approved_by and reviewed_by and approved_by.lower() == reviewed_by.lower():
             self.fail(f"SDD: нарушение независимости — reviewed_by='{reviewed_by}' совпадает с approved_by")
 
@@ -572,7 +589,7 @@ class Guard:
                 elif validate_hash_format and not validate_hash_format(artifact_sha):
                     self.fail(f"backup: artifact_sha256 неверный формат (ожидается 64 lowercase hex)")
                 else:
-                    actual_sha = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+                    actual_sha = _sha256_file(artifact_path)
                     if actual_sha != artifact_sha:
                         self.fail("backup: artifact_sha256 не совпадает с фактическим хешем артефакта")
             else:
