@@ -15,7 +15,7 @@ Read-only операции status/history/diff требуют настроенн
 
 ```text
 python scripts/safe_repository.py --db dev --operation status
-python scripts/safe_repository.py --db dev --operation diff --objects ОбщийМодуль.МойМодуль
+python scripts/safe_repository.py --db dev --operation diff --objects ОбщийМодуль.МойМодуль --version 125
 python scripts/safe_repository.py --db dev --operation lock --objects ОбщийМодуль.МойМодуль --task TASK-TEST --intent prepare
 python scripts/safe_repository.py --db dev --operation commit --objects ОбщийМодуль.МойМодуль --task TASK-TEST --intent publish --summary "уточнён комментарий метода"
 python scripts/safe_repository.py --db dev --operation unlock --objects ОбщийМодуль.МойМодуль --task TASK-TEST --intent release
@@ -26,6 +26,17 @@ python scripts/safe_repository.py --db dev --operation unlock --objects Общи
 изменения без SDD/apply этого Harness нужен `--existing-change` и явная просьба пользователя.
 Для SDD-задачи этот флаг не обходит evidence успешного apply и неизменности source/spec/review.
 Сначала прочитать diff. Отдельные куски объекта не публикуются: операция помещает объект целиком.
+
+`diff` требует `--version N`: платформа 8.3.27 без номера версии хранилища отвечает
+«Не указана версия хранилища». Номер последней версии взять из отчёта `status`
+(`report.txt` в каталоге receipt), не выдумывать.
+
+Длительность: запуск Конфигуратора и сравнение крупной конфигурации идут минутами.
+Обёртка сама ограничивает 1cv8 (`repository.timeout_seconds`, по умолчанию 480 с) и
+укладывается в 540 с вместе с записью receipt/platform.log. Вызывай её через shell-инструмент
+с таймаутом 600000 мс (у Kilo по умолчанию 120 с — обёртка будет убита посреди сеанса, receipt
+останется `started`, 1cv8.exe — висеть). Не поднимай timeout_seconds выше 540 без увеличения
+лимита клиента. После прерывания: проверить процессы 1cv8.exe и захваты, не повторять вслепую.
 
 Profile `.v8-project.json`: запись базы с repository.enabled, адресом, env-именами credentials;
 для мутаций — repository.allow_write, непроизводственные назначения обоих

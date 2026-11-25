@@ -146,6 +146,8 @@ def object_names(value):
     from build_summaries import EN_TO_RU_TYPE
     aliases = dict(EN_TO_RU_TYPE, Form='Форма', Template='Макет', Command='Команда')
     result = []
+    if isinstance(value, str) and not value.strip():
+        return result  # CLI default '' for status/history: no objects, not one empty name
     for raw in value.split(',') if isinstance(value, str) else value:
         raw = raw.strip()
         parts = raw.split('.')

@@ -284,6 +284,48 @@ class RepositoryTests(unittest.TestCase):
         result = support.read_json(next((self.root / 'logs/repository-inspect').glob('*/receipt.json')))
         self.assertIn('unverified', result['binding_evidence'])
 
+    def test_cli_empty_objects_string_for_read_ops(self):
+        # CLI passes --objects '' by default; it must mean "no objects", not one empty name
+        self.assertEqual(support.object_names(''), [])
+        self.assertEqual(support.object_names('  '), [])
+        self.assertEqual(runner.execute(self.root, 'test', 'status', '', '', dry_run=True), 0)
+        self.assertEqual(runner.execute(self.root, 'test', 'history', '', '', dry_run=True), 0)
+
+    def test_diff_requires_explicit_repository_version(self):
+        with self.assertRaises(ValueError): runner.execute(self.root, 'test', 'diff', self.objects, self.task, dry_run=True)
+        with self.assertRaises(ValueError): runner.execute(self.root, 'test', 'diff', self.objects, self.task, dry_run=True, version=0)
+        with self.assertRaises(ValueError): runner.execute(self.root, 'test', 'status', '', '', dry_run=True, version=5)
+        self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task, dry_run=True, version=5), 0)
+
+    def test_version_and_timeout_reach_runner(self):
+        seen = {}
+        def fake(args, **kwargs):
+            seen['args'], seen['timeout'] = args, kwargs.get('timeout')
+            log = Path(args[args.index('-LogDirectory') + 1])
+            (log / 'result.json').write_text(json.dumps({'platform_started': True, 'effective_exit': 0}))
+            return subprocess.CompletedProcess(args, 0, '', '')
+        with patch.object(runner.shutil, 'which', return_value='pwsh'), patch.object(runner.subprocess, 'run', side_effect=fake):
+            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task, version=42), 0)
+        args = seen['args']
+        self.assertEqual(args[args.index('-Version') + 1], '42')
+        self.assertEqual(args[args.index('-TimeoutSeconds') + 1], str(runner.DEFAULT_TIMEOUT_SECONDS))
+        self.assertEqual(seen['timeout'], runner.DEFAULT_TIMEOUT_SECONDS + runner.RUNNER_GRACE_SECONDS)
+
+    def test_runner_timeout_is_unverified_not_started(self):
+        def fake(args, **kwargs):
+            raise subprocess.TimeoutExpired(args, kwargs.get('timeout'))
+        with patch.object(runner.shutil, 'which', return_value='pwsh'), patch.object(runner.subprocess, 'run', side_effect=fake):
+            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task, version=3), 1)
+        receipt = support.read_json(next(support.receipt_root(self.root, self.task).glob('*/receipt.json')))
+        self.assertEqual(receipt['state'], 'unverified')
+        self.assertIn('1cv8', receipt['diagnostic'])
+
+    def test_profile_timeout_bounds(self):
+        for bad in (10, 99999, '900', True):
+            self.db['repository']['timeout_seconds'] = bad; self.save()
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                runner.execute(self.root, 'test', 'status', '', '', dry_run=True)
+
     def test_scope_mapping_and_release_of_old_locks_are_refused(self):
         self.receipt(acquired=[])
         with self.assertRaises(ValueError): runner.execute(self.root, 'test', 'unlock', self.objects, self.task, intent='release', dry_run=True)
@@ -340,7 +382,7 @@ class PowerShellRepositoryTests(unittest.TestCase):
     def test_real_ps_lock_commit_comment_and_sanitized_evidence(self):
         with patch.dict(os.environ, {'REPO_FAKE_MODE': 'ok', 'REPO_FAKE_SECRET': 'fixture-secret'}):
             self.assertEqual(runner.execute(self.root, 'test', 'lock', self.objects, self.task, intent='prepare'), 0)
-            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task), 0)
+            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task, version=7), 0)
             self.assertEqual(runner.execute(self.root, 'test', 'commit', self.objects, self.task,
                                            explicit_comment='Тест "кавычек"\nвторая строка', intent='publish', existing_change=True), 0)
         receipts = list(support.receipt_root(self.root, self.task).glob('*/receipt.json'))
@@ -367,7 +409,7 @@ class PowerShellRepositoryTests(unittest.TestCase):
     def test_real_ps_unchanged_object_has_a_distinct_no_changes_state(self):
         self.receipt()
         with patch.dict(os.environ, {'REPO_FAKE_MODE': 'nochanges'}):
-            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task), 0)
+            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task, version=7), 0)
             self.assertEqual(runner.execute(self.root, 'test', 'commit', self.objects, self.task,
                                            summary='fixture', intent='publish', existing_change=True), 0)
         latest = support.read_json(sorted(support.receipt_root(self.root, self.task).glob('*/receipt.json'))[-1])
@@ -378,7 +420,7 @@ class PowerShellRepositoryTests(unittest.TestCase):
         self.receipt(acquired=[])
         capture = self.root / 'fake-args.txt'
         with patch.dict(os.environ, {'REPO_FAKE_MODE': 'ok', 'REPO_FAKE_ARGS': str(capture)}):
-            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task), 0)
+            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task, version=7), 0)
             self.assertEqual(runner.execute(self.root, 'test', 'commit', self.objects, self.task,
                                            summary='fixture', intent='publish', existing_change=True), 0)
         latest = support.read_json(sorted(support.receipt_root(self.root, self.task).glob('*/receipt.json'))[-1])
@@ -396,14 +438,15 @@ class PowerShellRepositoryTests(unittest.TestCase):
             cfg['databases'][0]['repository']['path'] = address
             (self.root / '.v8-project.json').write_text(json.dumps(cfg), encoding='utf-8')
             with patch.dict(os.environ, {'REPO_FAKE_MODE': 'ok', 'REPO_FAKE_ARGS': str(capture)}):
-                self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task), 0)
+                self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task, version=7), 0)
             args = capture.read_text(encoding='utf-8-sig').splitlines()
             self.assertEqual(args[args.index('/ConfigurationRepositoryF') + 1], address)
+            self.assertEqual(args[args.index('-SecondVersion') + 1], '7')
 
     def test_real_ps_silent_commit_is_not_claimed_as_success(self):
         self.receipt()
         with patch.dict(os.environ, {'REPO_FAKE_MODE': 'silent'}):
-            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task), 0)
+            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task, version=7), 0)
             self.assertEqual(runner.execute(self.root, 'test', 'commit', self.objects, self.task,
                                            summary='fixture', intent='publish', existing_change=True), 1)
         latest = support.read_json(sorted(support.receipt_root(self.root, self.task).glob('*/receipt.json'))[-1])

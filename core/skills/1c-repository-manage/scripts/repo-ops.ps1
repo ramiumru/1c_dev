@@ -902,8 +902,10 @@ try {
             $arguments += "-ReportFormat txt"
         }
         'diff' {
+            # 8.3.27: without -SecondVersion the platform answers "Не указана версия хранилища".
+            if ($Version -lt 1) { throw "diff requires -Version N (repository version from status report)" }
             $arguments += "/CompareCfg -FirstConfigurationType MainConfiguration -SecondConfigurationType ConfigurationRepository"
-            if ($Version -ge 0) { $arguments += "-SecondVersion $Version" }
+            $arguments += "-SecondVersion $Version"
             if ($objectsXml) { $arguments += "-Objects `"$objectsXml`"" }
             $arguments += "-ReportType Brief -IncludeChangedObjects -IncludeDeletedObjects -IncludeAddedObjects"
             $arguments += "-ReportFormat txt -ReportFile `"$ReportFile`""

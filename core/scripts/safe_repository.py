@@ -17,10 +17,31 @@ from repository_support import (READ_OPS, WRITE_OPS, INTENTS, profile, object_na
 from safe_apply import ROOT, find_skills_dir
 
 
-def execute(root, db_id, operation, objects, task, summary='', explicit_comment='', intent='', dry_run=False, existing_change=False, task_ref='', title='', description=''):
+# Agent shell tools (Kilo/OpenCode) allow at most 600 s per command: 1cv8 budget + grace
+# must fit, otherwise the client kills the wrapper before it records evidence.
+DEFAULT_TIMEOUT_SECONDS = 480  # Designer start + CompareCfg of a large configuration
+RUNNER_GRACE_SECONDS = 60      # repo-ops kills 1cv8 itself; Python waits for its evidence
+
+
+def timeout_seconds(db):
+    value = db['repository'].get('timeout_seconds', DEFAULT_TIMEOUT_SECONDS)
+    if type(value) is not int or not 60 <= value <= 3600:
+        raise ValueError('repository: repository.timeout_seconds must be an integer 60..3600')
+    return value
+
+
+def execute(root, db_id, operation, objects, task, summary='', explicit_comment='', intent='', dry_run=False, existing_change=False, task_ref='', title='', description='', version=None):
     root = Path(root).resolve()
     db = profile(root, db_id, operation)
     objects = object_names(objects)
+    timeout = timeout_seconds(db)
+    if operation == 'diff':
+        # 8.3.27 rejects /CompareCfg against ConfigurationRepository without -SecondVersion
+        # ("Не указана версия хранилища"); the latest number comes from a status report.
+        if type(version) is not int or version < 1:
+            raise ValueError('repository: diff requires --version N (latest repository version from the status report)')
+    elif version is not None:
+        raise ValueError('repository: --version is supported only for diff')
     if operation in WRITE_OPS:
         if not objects or intent != INTENTS[operation]:
             raise ValueError('repository: explicit objects and matching prepare/publish/release intent required')
@@ -46,7 +67,7 @@ def execute(root, db_id, operation, objects, task, summary='', explicit_comment=
         raise ValueError('repository: objects are not supported for status/history')
     if dry_run:
         print(json.dumps({'dry_run': True, 'db': db_id, 'operation': operation, 'objects': objects,
-                          'comment': text, 'binding': 'user_confirmed' if db['repository'].get('binding_confirmed') else 'unverified',
+                          'version': version, 'timeout_seconds': timeout, 'comment': text, 'binding': 'user_confirmed' if db['repository'].get('binding_confirmed') else 'unverified',
                           'platform_started': False}, ensure_ascii=False))
         return 0
     pwsh = shutil.which('pwsh') or shutil.which('powershell')
@@ -60,7 +81,9 @@ def execute(root, db_id, operation, objects, task, summary='', explicit_comment=
     args = [pwsh, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script),
             '-Operation', operation, '-V8Path', db['_repository_v8path'],
             '-RepositoryPath', db['repository']['path'], '-LogDirectory', str(log),
-            '-TargetEnvironment', db['_repository_environment']]
+            '-TargetEnvironment', db['_repository_environment'], '-TimeoutSeconds', str(timeout)]
+    if version is not None:
+        args += ['-Version', str(version)]
     if db['type'] == 'file':
         args += ['-InfoBasePath', db['path']]
     else:
@@ -80,12 +103,20 @@ def execute(root, db_id, operation, objects, task, summary='', explicit_comment=
         (log / 'comment.txt').write_text(text, encoding='utf-8')
         args += ['-CommentFile', str(log / 'comment.txt')]
     receipt = {'operation': operation, 'db': db_id, 'objects': objects, 'profile_hash': fingerprint(db),
-               'intent': intent, 'state': 'started', 'binding_evidence': 'user-confirmed profile' if db['repository'].get('binding_confirmed') is True else 'unverified; status does not prove binding',
+               'intent': intent, 'repository_version': version, 'timeout_seconds': timeout, 'state': 'started', 'binding_evidence': 'user-confirmed profile' if db['repository'].get('binding_confirmed') is True else 'unverified; status does not prove binding',
                'automatic_retry_allowed': False, 'verification': evidence, 'keep_locked_requested': keep_locked}
     receipt_file = log / 'receipt.json'
     receipt_file.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding='utf-8')
     try:
-        run = subprocess.run(args, cwd=root, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        try:
+            run = subprocess.run(args, cwd=root, capture_output=True, text=True, encoding='utf-8', errors='replace',
+                                 timeout=timeout + RUNNER_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            receipt.update(state='unverified', diagnostic=(
+                f'runner did not finish in {timeout + RUNNER_GRACE_SECONDS}s; a 1cv8.exe Designer may still run. '
+                'Check processes and repository locks before any retry.'))
+            print('repository: runner timeout; inspect receipt and running 1cv8.exe before any retry', file=sys.stderr)
+            return 1
         output = redact(run.stdout + '\n' + run.stderr, db)
         (log / 'runner.log').write_text(output, encoding='utf-8')
         result = read_json(log / 'result.json') if (log / 'result.json').is_file() else {}
@@ -143,6 +174,7 @@ def main():
     parser.add_argument('--db', required=True)
     parser.add_argument('--operation', choices=sorted(READ_OPS | WRITE_OPS), required=True)
     parser.add_argument('--objects', default='')
+    parser.add_argument('--version', type=int, default=None, help='diff only: repository version to compare with (latest from status)')
     parser.add_argument('--task', default='')
     parser.add_argument('--summary', default='')
     parser.add_argument('--title', default='', help='Title for a configured private comment template')
@@ -155,7 +187,7 @@ def main():
     args = parser.parse_args()
     try:
         return execute(args.project_root, args.db, args.operation, args.objects, args.task,
-                       args.summary, args.comment, args.intent, args.dry_run, args.existing_change, args.task_ref, args.title, args.description)
+                       args.summary, args.comment, args.intent, args.dry_run, args.existing_change, args.task_ref, args.title, args.description, args.version)
     except (ValueError, OSError) as exc:
         print(f'ERROR {exc}', file=sys.stderr)
         return 2
