@@ -15,7 +15,8 @@ Read-only операции status/history/diff требуют настроенн
 
 ```text
 python scripts/safe_repository.py --db dev --operation status
-python scripts/safe_repository.py --db dev --operation diff --objects ОбщийМодуль.МойМодуль --version 125
+python scripts/safe_repository.py --db dev --operation diff --objects ОбщийМодуль.МойМодуль --version 125 --background
+python scripts/safe_repository.py --wait pilot-control/TASK-TEST/repository/<stamp>/receipt.json
 python scripts/safe_repository.py --db dev --operation lock --objects ОбщийМодуль.МойМодуль --task TASK-TEST --intent prepare
 python scripts/safe_repository.py --db dev --operation commit --objects ОбщийМодуль.МойМодуль --task TASK-TEST --intent publish --summary "уточнён комментарий метода"
 python scripts/safe_repository.py --db dev --operation unlock --objects ОбщийМодуль.МойМодуль --task TASK-TEST --intent release
@@ -37,6 +38,14 @@ python scripts/safe_repository.py --db dev --operation unlock --objects Общи
 с таймаутом 600000 мс (у Kilo по умолчанию 120 с — обёртка будет убита посреди сеанса, receipt
 останется `started`, 1cv8.exe — висеть). Не поднимай timeout_seconds выше 540 без увеличения
 лимита клиента. После прерывания: проверить процессы 1cv8.exe и захваты, не повторять вслепую.
+
+`diff` и `history` на крупной конфигурации запускай с `--background`: Конфигуратор сначала
+загружает всю версию хранилища (`-Objects` сужает только отчёт), это легко дольше 10 минут.
+Фоновый запуск сразу возвращает путь receipt (`state=running`, лимит 1cv8 —
+`repository.background_timeout_seconds`, по умолчанию 3600 с). Дальше `--wait <receipt>`:
+каждый вызов ждёт до 540 с; код 3 — ещё идёт, вызвать снова; 0 — готово, читать `report.txt`;
+1 — неуспех или `stale` (прошёл дедлайн без результата). Не запускай второй diff, пока первый
+`running`. Мутации (lock/commit/unlock) в фоне не поддерживаются.
 
 Profile `.v8-project.json`: запись базы с repository.enabled, адресом, env-именами credentials;
 для мутаций — repository.allow_write, непроизводственные назначения обоих

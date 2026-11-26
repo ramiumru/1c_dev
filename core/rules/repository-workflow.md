@@ -9,7 +9,8 @@
 1. Пользователь просит изменить, применить и поместить → 1c-do сохраняет эту составную
    цель, определяет db/TASK/scope. До реализации — repository_setup.py check;
    при неполноте профиля настройка по инструкции 1c-do, затем read-only status → diff
-   (`--version` = последняя версия из отчёта status). Намерение apply не означает намерения commit.
+   (`--version` = последняя версия из отчёта status; diff — с `--background` + `--wait`).
+   Намерение apply не означает намерения commit.
 2. Для repository-enabled базы до первой загрузки в ИБ делегировать 1c-repository:
    status/diff и lock существующих объектов с intent prepare. До получения/изменения
    файлов проверить актуальность; не вызывать Revised/update и не затирать source из БД.

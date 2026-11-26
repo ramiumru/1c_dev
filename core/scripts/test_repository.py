@@ -326,6 +326,75 @@ class RepositoryTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 runner.execute(self.root, 'test', 'status', '', '', dry_run=True)
 
+    def test_background_only_for_read_operations(self):
+        with self.assertRaises(ValueError):
+            runner.execute(self.root, 'test', 'lock', self.objects, self.task, intent='prepare', dry_run=True, background=True)
+
+    def _background_diff(self):
+        spawned = []
+        with patch.object(runner.shutil, 'which', return_value='pwsh'), \
+             patch.object(runner.subprocess, 'Popen', side_effect=lambda cmd, **kw: spawned.append(cmd)):
+            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task, version=9, background=True), 0)
+        self.assertEqual(len(spawned), 1)
+        self.assertIn('--run-job', spawned[0])
+        log = Path(spawned[0][spawned[0].index('--run-job') + 1])
+        return log, support.read_json(log / 'receipt.json')
+
+    def test_background_start_records_running_receipt_and_long_limit(self):
+        log, receipt = self._background_diff()
+        self.assertEqual(receipt['state'], 'running')
+        self.assertEqual(receipt['timeout_seconds'], runner.BACKGROUND_TIMEOUT_SECONDS)
+        job = support.read_json(log / 'job.json')
+        self.assertNotIn('args', job)  # no executable command line is persisted
+        self.assertEqual(job['version'], 9)
+        self.assertNotIn('fixture-secret', (log / 'job.json').read_text(encoding='utf-8'))  # env names only
+
+    def test_background_job_completes_and_wait_reports_it(self):
+        log, _ = self._background_diff()
+        self.assertEqual(runner.wait_receipt(self.root, log / 'receipt.json', max_wait=0), 3)
+        seen = {}
+        def fake(args, **kwargs):
+            seen['args'] = args
+            (log / 'result.json').write_text(json.dumps({'platform_started': True, 'effective_exit': 0}))
+            (log / 'report.txt').write_text('fixture report', encoding='utf-8')
+            return subprocess.CompletedProcess(args, 0, '', '')
+        job = support.read_json(log / 'job.json'); job['operation'] = 'lock'
+        (log / 'job.json').write_text(json.dumps(job), encoding='utf-8')
+        with self.assertRaises(ValueError):  # tampered job cannot turn into a mutation
+            runner.run_job(self.root, log)
+        receipt = support.read_json(log / 'receipt.json'); receipt['runner_claimed'] = False
+        (log / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
+        job['operation'] = 'diff'; (log / 'job.json').write_text(json.dumps(job), encoding='utf-8')
+        with patch.object(runner.shutil, 'which', return_value='pwsh'), patch.object(runner.subprocess, 'run', side_effect=fake):
+            self.assertEqual(runner.run_job(self.root, log), 0)
+        with self.assertRaises(ValueError):  # one-shot: a finished job cannot be replayed
+            runner.run_job(self.root, log)
+        final = support.read_json(log / 'receipt.json')
+        self.assertEqual(final['state'], 'succeeded')
+        self.assertTrue(final['finished_at'])
+        self.assertEqual(seen['args'][seen['args'].index('-Version') + 1], '9')
+        self.assertEqual(seen['args'][seen['args'].index('-TimeoutSeconds') + 1], str(runner.BACKGROUND_TIMEOUT_SECONDS))
+        self.assertEqual(runner.wait_receipt(self.root, log / 'receipt.json', max_wait=0), 0)
+        self.assertEqual(support.find_diff_receipt(self.root, self.task, self.profile('commit'), self.objects), str(log / 'receipt.json'))
+
+    def test_second_run_refused_while_background_active(self):
+        log, receipt = self._background_diff()
+        with self.assertRaises(ValueError):
+            runner.execute(self.root, 'test', 'status', '', '', dry_run=True)
+        receipt['deadline_utc'] = '2000-01-01T00:00:00+00:00'  # stale run no longer blocks
+        (log / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
+        self.assertEqual(runner.execute(self.root, 'test', 'status', '', '', dry_run=True), 0)
+
+    def test_wait_detects_stale_runner_and_rejects_foreign_paths(self):
+        log, receipt = self._background_diff()
+        receipt['deadline_utc'] = '2000-01-01T00:00:00+00:00'
+        (log / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
+        self.assertEqual(runner.wait_receipt(self.root, log / 'receipt.json', max_wait=0), 1)
+        outside = self.root / 'receipt.json'
+        outside.write_text('{}', encoding='utf-8')
+        with self.assertRaises(ValueError):
+            runner.wait_receipt(self.root, outside, max_wait=0)
+
     def test_scope_mapping_and_release_of_old_locks_are_refused(self):
         self.receipt(acquired=[])
         with self.assertRaises(ValueError): runner.execute(self.root, 'test', 'unlock', self.objects, self.task, intent='release', dry_run=True)
@@ -394,6 +463,20 @@ class PowerShellRepositoryTests(unittest.TestCase):
         self.assertEqual(final['state'], 'succeeded')
         self.assertEqual(final['result']['committed'], self.objects)
         with self.assertRaises(ValueError): support.find_lock_receipt(self.root, self.task, self.profile(), self.objects)
+
+    def test_real_ps_background_diff_detaches_and_completes(self):
+        with patch.dict(os.environ, {'REPO_FAKE_MODE': 'ok'}):
+            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task, version=7, background=True), 0)
+            receipt = next(support.receipt_root(self.root, self.task).glob('*/receipt.json'))
+            code = 3
+            for _ in range(12):
+                code = runner.wait_receipt(self.root, receipt, max_wait=10, poll=1)
+                if code != 3:
+                    break
+        self.assertEqual(code, 0)
+        final = support.read_json(receipt)
+        self.assertEqual(final['state'], 'succeeded')
+        self.assertEqual(final['mode'], 'background')
 
     def test_real_ps_partial_lock_same_names_different_types(self):
         self.objects = ['Справочник.X', 'Документ.X']
