@@ -378,6 +378,8 @@ def find_diff_receipt(root, task, db, objects):
         entry = read_json(path)
         if entry.get('profile_hash') != fingerprint(db):
             continue
+        if entry.get('reconciliations') or entry.get('late_runner_result'):
+            continue  # a reconciled run is never publication evidence, whatever its state says
         if entry.get('operation') == 'diff' and entry.get('state') == 'succeeded' and set(objects) <= set(entry.get('objects', [])):
             if not (path.parent / 'report.txt').is_file():
                 break

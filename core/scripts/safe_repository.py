@@ -25,7 +25,11 @@ DEFAULT_TIMEOUT_SECONDS = 480  # Designer start + CompareCfg of a large configur
 RUNNER_GRACE_SECONDS = 60      # repo-ops kills 1cv8 itself; Python waits for its evidence
 BACKGROUND_TIMEOUT_SECONDS = 3600  # CompareCfg loads the whole repository version first
 WAIT_LIMIT_SECONDS = 540           # one --wait call must fit the agent shell limit
-TERMINAL_STATES = {'succeeded', 'no_changes', 'unverified', 'rebase_required', 'not_started'}
+MUTEX_WAIT_SECONDS = 30            # critical sections are file updates only, never a platform run
+# 'running' = queued background request, 'started' = foreground request before launch,
+# 'launched' = platform invocation allowed/started; everything else is terminal.
+ACTIVE_STATES = {'running', 'started', 'launched'}
+TERMINAL_STATES = {'succeeded', 'no_changes', 'unverified', 'rebase_required', 'not_started', 'reconciled'}
 # exit codes of --wait
 WAIT_DONE, WAIT_FAILED, WAIT_RUNNING, WAIT_STALE = 0, 1, 3, 4
 
@@ -35,10 +39,17 @@ def _now():
 
 
 def _write_json(path, data):
-    """Atomic replace: a background runner and --wait read the same receipt concurrently."""
-    tmp = path.with_name(path.name + f'.{os.getpid()}.tmp')
+    """Atomic replace: readers never see a partial receipt."""
+    tmp = path.with_name(path.name + f'.{os.getpid()}.{uuid.uuid4().hex[:6]}.tmp')
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-    os.replace(tmp, path)
+    for attempt in range(40):  # Windows: replace fails while a reader (--wait) has the file open
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == 39:
+                raise
+            time.sleep(0.05)
 
 
 def background_timeout_seconds(db):
@@ -65,62 +76,135 @@ def _deadline_passed(entry):
     return datetime.now(timezone.utc) > due
 
 
-# --- one Designer session per database: OS-atomic lock file ---------------------------------
-# Created with O_CREAT|O_EXCL. Released only by the run that owns it once the platform outcome is
-# known, or by an explicit --reconcile with a recorded reason. Never cleared by elapsed time.
+# --- Ownership protocol ---------------------------------------------------------------------
+# One Designer session per database. Every ownership transition — acquire, launch, finalize,
+# reconcile, release — happens inside the database mutex: an OS advisory lock held by the kernel
+# (fcntl / msvcrt), released automatically if the process dies, so it can never go stale.
+# The owner lock file carries a random token; transitions verify the token under the mutex,
+# so a delayed owner can never act on (or delete) a newer owner's lock.
 
 def _db_lock_path(root, db_id):
     return Path(root) / 'logs' / 'repository-locks' / (hashlib.sha256(db_id.encode('utf-8')).hexdigest()[:16] + '.lock')
 
 
-def db_lock_holder(root, db_id):
-    path = _db_lock_path(root, db_id)
-    if not path.exists():
+class _FileLock:
+    """OS advisory lock on a file (fcntl / msvcrt); the kernel drops it when the process dies."""
+    def __init__(self, path, wait_seconds, busy_message):
+        self.path = Path(path)
+        self.wait = wait_seconds
+        self.busy = busy_message
+        self.fh = None
+
+    def __enter__(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.fh = open(self.path, 'a+b')
+        deadline = time.monotonic() + self.wait
+        while True:
+            try:
+                if os.name == 'nt':
+                    import msvcrt
+                    self.fh.seek(0)
+                    msvcrt.locking(self.fh.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(self.fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return self
+            except OSError:
+                if time.monotonic() >= deadline:
+                    self.fh.close()
+                    raise ValueError(self.busy)
+                time.sleep(0.05)
+
+    def __exit__(self, *exc):
+        try:
+            if os.name == 'nt':
+                import msvcrt
+                self.fh.seek(0)
+                msvcrt.locking(self.fh.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self.fh.fileno(), fcntl.LOCK_UN)
+        finally:
+            self.fh.close()
+        return False
+
+
+def _DbMutex(lock_path):
+    """Short critical sections for ownership transitions (file updates only, never a platform run)."""
+    return _FileLock(Path(lock_path).with_suffix('.mutex'), MUTEX_WAIT_SECONDS,
+                     'repository: database coordination mutex is busy; retry the command later')
+
+
+def _runner_liveness(log, wait=0):
+    """Held by the Python runner for its whole life (before launch until after finalize).
+    Free means: no live runner for this receipt can launch or record anything any more."""
+    return _FileLock(Path(log) / 'runner.alive', wait,
+                     'repository: the safe_repository.py runner for this receipt is still alive; wait for it '
+                     '(--wait) or stop that Python process first — reconcile refused')
+
+
+def _read_lock(lock_path):
+    try:
+        return read_json(lock_path)
+    except FileNotFoundError:
         return None
-    try:
-        return read_json(path)
     except (OSError, ValueError):
-        return {'receipt': '<unreadable lock>', 'db': db_id}
+        return {'receipt': '<unreadable lock>', 'token': None}
 
 
-def _busy_error(root, db_id, holder):
+def db_lock_holder(root, db_id):
+    return _read_lock(_db_lock_path(root, db_id))
+
+
+def _busy_error(holder):
     return ValueError(f"repository: database is busy — run {holder.get('receipt')} has no established outcome. "
-                      "Use --wait; if it is stale, confirm with the user that no 1cv8 Designer for this base runs, "
-                      "then --reconcile <receipt> --reason \"...\". Do not start another operation.")
+                      "Use --wait. If it is stale: ask the user to confirm that neither a 1cv8 Designer for this "
+                      "base nor a safe_repository.py runner process is alive, then --reconcile <receipt> "
+                      "--reason \"...\". Do not start another operation.")
 
 
-def acquire_db_lock(root, db_id, receipt_file, operation, mode):
-    path = _db_lock_path(root, db_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
-        raise _busy_error(root, db_id, db_lock_holder(root, db_id) or {}) from None
+def _acquire_owner(lock_path, db_id, receipt_file, operation, mode):
+    """Inside the mutex: create the owner lock or refuse. Returns the owner token."""
+    token = uuid.uuid4().hex
+    holder = _read_lock(lock_path)
+    if holder is not None:
+        raise _busy_error(holder)
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     with os.fdopen(fd, 'w', encoding='utf-8') as fh:
-        json.dump({'db': db_id, 'receipt': str(receipt_file), 'operation': operation, 'mode': mode,
-                   'created_at': _now(), 'pid': os.getpid()}, fh, ensure_ascii=False)
+        json.dump({'db': db_id, 'receipt': str(receipt_file), 'token': token, 'operation': operation,
+                   'mode': mode, 'created_at': _now(), 'pid': os.getpid()}, fh, ensure_ascii=False)
+    return token
+
+
+def _release_owner(lock_path, receipt_file, token):
+    """Inside the mutex: remove the lock only if this exact owner still holds it."""
+    holder = _read_lock(lock_path)
+    if holder and holder.get('token') == token and holder.get('receipt') == str(receipt_file):
+        os.remove(lock_path)
+        return True
+    return False
+
+
+def _owns(lock_path, receipt_file, token):
+    holder = _read_lock(lock_path)
+    return bool(holder and token and holder.get('token') == token and holder.get('receipt') == str(receipt_file))
 
 
 def locks_held_by(root, receipt_file):
-    """Lock files that reference this receipt — independent of the receipt's own (editable) db field."""
+    """Lock files that reference this receipt — independent of the receipt's own (editable) db field.
+    Advisory listing only; every decision re-checks ownership under the mutex."""
     held = []
     for path in (Path(root) / 'logs' / 'repository-locks').glob('*.lock'):
-        try:
-            if read_json(path).get('receipt') == str(receipt_file):
-                held.append(path)
-        except (OSError, ValueError):
-            continue
+        holder = _read_lock(path)
+        if holder and holder.get('receipt') == str(receipt_file):
+            held.append(path)
     return held
-
-
-def release_db_lock(root, receipt_file):
-    for path in locks_held_by(root, receipt_file):
-        os.remove(path)
 
 
 def request_digest(receipt):
     """Canonical requested parameters; the runner executes only what this digest covers."""
-    fields = {k: receipt.get(k) for k in ('operation', 'db', 'objects', 'repository_version', 'timeout_seconds', 'profile_hash')}
+    fields = {k: receipt.get(k) for k in ('operation', 'db', 'objects', 'repository_version', 'timeout_seconds',
+                                          'profile_hash', 'lock_token')}
     return hashlib.sha256(json.dumps(fields, ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()
 
 
@@ -196,7 +280,7 @@ def execute(root, db_id, operation, objects, task, summary='', explicit_comment=
         raise ValueError('repository: objects are not supported for status/history')
     holder = db_lock_holder(root, db_id)
     if holder:
-        raise _busy_error(root, db_id, holder)
+        raise _busy_error(holder)
     if dry_run:
         print(json.dumps({'dry_run': True, 'db': db_id, 'operation': operation, 'objects': objects,
                           'version': version, 'timeout_seconds': timeout, 'background': background, 'comment': text, 'binding': 'user_confirmed' if db['repository'].get('binding_confirmed') else 'unverified',
@@ -206,40 +290,104 @@ def execute(root, db_id, operation, objects, task, summary='', explicit_comment=
     base = receipt_root(root, task) if task else root / 'logs/repository-inspect'
     log = base / stamp
     receipt_file = log / 'receipt.json'
+    lock_path = _db_lock_path(root, db_id)
     _runner_command(root, db, operation, objects, log, version, timeout, keep_locked)  # fail before any state
-    acquire_db_lock(root, db_id, receipt_file, operation, 'background' if background else 'foreground')
-    try:
-        log.mkdir(parents=True)
-        if text:
-            (log / 'comment.txt').write_text(text, encoding='utf-8')
-        args = _runner_command(root, db, operation, objects, log, version, timeout, keep_locked)
-        receipt = {'operation': operation, 'db': db_id, 'objects': objects, 'profile_hash': fingerprint(db),
-                   'intent': intent, 'repository_version': version, 'timeout_seconds': timeout, 'state': 'started',
-                   'started_at': _now(),
-                   'binding_evidence': 'user-confirmed profile' if db['repository'].get('binding_confirmed') is True else 'unverified; status does not prove binding',
-                   'automatic_retry_allowed': False, 'verification': evidence, 'keep_locked_requested': keep_locked}
-        receipt['request_sha256'] = request_digest(receipt)
-        _write_json(receipt_file, receipt)
-    except BaseException:
-        release_db_lock(root, receipt_file)  # nothing was launched
-        raise
+    with _DbMutex(lock_path):
+        token = _acquire_owner(lock_path, db_id, receipt_file, operation, 'background' if background else 'foreground')
+        try:
+            log.mkdir(parents=True)
+            if text:
+                (log / 'comment.txt').write_text(text, encoding='utf-8')
+            receipt = {'operation': operation, 'db': db_id, 'objects': objects, 'profile_hash': fingerprint(db),
+                       'intent': intent, 'repository_version': version, 'timeout_seconds': timeout,
+                       'state': 'running' if background else 'started', 'started_at': _now(),
+                       'lock_token': token, 'lock_file': str(lock_path),
+                       'binding_evidence': 'user-confirmed profile' if db['repository'].get('binding_confirmed') is True else 'unverified; status does not prove binding',
+                       'automatic_retry_allowed': False, 'verification': evidence, 'keep_locked_requested': keep_locked}
+            if background:
+                receipt.update(mode='background', deadline_utc=datetime.fromtimestamp(
+                    time.time() + timeout + RUNNER_GRACE_SECONDS, timezone.utc).isoformat())
+            receipt['request_sha256'] = request_digest(receipt)
+            _write_json(receipt_file, receipt)
+        except BaseException:
+            _release_owner(lock_path, receipt_file, token)  # nothing was launched
+            raise
     if background:
-        return _start_background(root, db_id, receipt, receipt_file, timeout)
-    return _run_recorded(root, db, operation, objects, args, log, receipt, receipt_file, timeout)
+        return _start_background(root, receipt_file)
+    args = _runner_command(root, db, operation, objects, log, version, timeout, keep_locked)
+    with _runner_liveness(log):
+        if not _launch(lock_path, receipt_file, receipt['request_sha256'], 'started'):
+            print('repository: launch refused — the run was reconciled or ownership changed', file=sys.stderr)
+            return 1
+        return _run_recorded(root, db, operation, objects, args, log, receipt_file, timeout, lock_path, token)
 
 
-def _run_recorded(root, db, operation, objects, args, log, receipt, receipt_file, timeout):
-    """Run repo-ops once and record the outcome. The database lock is released only when the
-    runner itself finished and wrote result.json (platform process ended); otherwise it stays."""
+def _launch(lock_path, receipt_file, expected_digest, pending_state):
+    """Fence: the single point where a platform invocation becomes allowed.
+    Under the mutex the receipt is re-read from disk; launch only if this owner still holds the
+    lock, the request is unchanged, the run is still pending and its deadline has not passed."""
+    with _DbMutex(lock_path):
+        disk = read_json(receipt_file)
+        if disk.get('state') != pending_state:
+            return False  # reconciled/cancelled/finished — never revive
+        token = disk.get('lock_token')
+        reason = None
+        if not _owns(lock_path, receipt_file, token):
+            reason = 'database lock is not held by this run'
+        elif disk.get('request_sha256') != expected_digest or request_digest(disk) != expected_digest:
+            reason = 'requested parameters were modified after submission'
+        elif _deadline_passed(disk):
+            reason = 'deadline passed before the runner could launch'
+        if reason:
+            _not_started_locked(lock_path, receipt_file, disk, reason)
+            return False
+        disk.update(state='launched', launched_at=_now(), runner_pid=os.getpid())
+        _write_json(receipt_file, disk)
+        return True
+
+
+def _not_started_locked(lock_path, receipt_file, disk, reason, db=None):
+    """Inside the mutex: known non-launch -> terminal not_started, release own lock."""
+    disk.update(state='not_started', platform_started=False, outcome_known=True, finished_at=_now(),
+                diagnostic=redact(str(reason), db) if db else str(reason))
+    _write_json(receipt_file, disk)
+    _release_owner(lock_path, receipt_file, disk.get('lock_token'))
+
+
+def _finalize(lock_path, receipt_file, token, updates, outcome_known):
+    """Fence: the single point where a launched run records its outcome.
+    A run that was reconciled meanwhile keeps its state and audit trail; the late result is
+    attached for diagnosis only and never becomes evidence."""
+    with _DbMutex(lock_path):
+        disk = read_json(receipt_file)
+        if disk.get('state') == 'launched' and disk.get('lock_token') == token and _owns(lock_path, receipt_file, token):
+            disk.update(updates)
+            disk.update(finished_at=_now(), outcome_known=outcome_known)
+            if disk.get('state') not in TERMINAL_STATES:
+                disk['state'] = 'unverified'
+            _write_json(receipt_file, disk)
+            if outcome_known:
+                _release_owner(lock_path, receipt_file, token)
+            return disk['state']
+        disk['late_runner_result'] = {'at': _now(), 'state': updates.get('state'), 'runner_exit': updates.get('runner_exit'),
+                                      'outcome_known': outcome_known}
+        _write_json(receipt_file, disk)
+        return disk.get('state')
+
+
+def _run_recorded(root, db, operation, objects, args, log, receipt_file, timeout, lock_path, token):
+    """Run repo-ops once (launch already fenced) and record the outcome through _finalize.
+    The database is released only when repo-ops wrote result.json (the platform process ended)."""
+    updates = {'state': 'unverified'}
     outcome_known = False
+    code = 1
     try:
         try:
             run = subprocess.run(args, cwd=root, capture_output=True, text=True, encoding='utf-8', errors='replace',
                                  timeout=timeout + RUNNER_GRACE_SECONDS)
         except subprocess.TimeoutExpired:
-            receipt.update(state='unverified', diagnostic=(
-                f'runner did not finish in {timeout + RUNNER_GRACE_SECONDS}s; a 1cv8.exe Designer may still run. '
-                'Database stays locked until --reconcile after checking processes and repository locks.'))
+            updates['diagnostic'] = (f'runner did not finish in {timeout + RUNNER_GRACE_SECONDS}s; a 1cv8.exe Designer may '
+                                     'still run. Database stays locked until --reconcile after checking processes and locks.')
             print('repository: runner timeout; inspect receipt and running 1cv8.exe before any retry', file=sys.stderr)
             return 1
         output = redact(run.stdout + '\n' + run.stderr, db)
@@ -247,8 +395,7 @@ def _run_recorded(root, db, operation, objects, args, log, receipt, receipt_file
         has_result = (log / 'result.json').is_file()
         result = read_json(log / 'result.json') if has_result else {}
         outcome_known = has_result  # repo-ops reached its finally: the Designer process has ended
-        code = run.returncode
-        state = 'succeeded' if code == 0 and result.get('effective_exit') == 0 and result.get('platform_started') else 'unverified'
+        state = 'succeeded' if run.returncode == 0 and result.get('effective_exit') == 0 and result.get('platform_started') else 'unverified'
         if result.get('timed_out'):
             state = 'unverified'
         if operation == 'lock' and state == 'succeeded' and not result.get('operation_block') and not result.get('locked'):
@@ -263,39 +410,25 @@ def _run_recorded(root, db, operation, objects, args, log, receipt, receipt_file
                 state = 'unverified'  # partial/silent success is not full publication evidence
             elif not result.get('committed'):
                 state = 'no_changes'
-        receipt.update(state=state, runner_exit=code, acquired_now=result.get('locked', []), result=result)
+        updates.update(state=state, runner_exit=run.returncode, acquired_now=result.get('locked', []), result=result)
         if not has_result:
-            receipt['diagnostic'] = 'runner exited without result.json; platform outcome unknown — database stays locked'
+            updates['diagnostic'] = 'runner exited without result.json; platform outcome unknown — database stays locked'
         print(output)
-        print(f'repository: state={state}; receipt={receipt_file}')
-        return 0 if state in {'succeeded', 'no_changes'} else 1
+        code = 0 if state in {'succeeded', 'no_changes'} else 1
+        return code
     except (OSError, ValueError) as exc:
-        receipt.update(state='unverified', diagnostic=redact(str(exc), db))
+        updates.update(state='unverified', diagnostic=redact(str(exc), db))
         print('repository: execution failed; inspect receipt before any retry', file=sys.stderr)
         return 1
     finally:
-        if receipt['state'] not in TERMINAL_STATES:
-            receipt['state'] = 'unverified'
-        receipt['finished_at'] = _now()
-        receipt['outcome_known'] = outcome_known
-        _write_json(receipt_file, receipt)
-        if outcome_known:
-            release_db_lock(root, receipt_file)
+        recorded = _finalize(lock_path, receipt_file, token, updates, outcome_known)
+        print(f'repository: state={recorded}; receipt={receipt_file}')
+        if recorded != updates.get('state'):
+            print('repository: run was reconciled meanwhile; its late result is kept for diagnosis only', file=sys.stderr)
 
 
-def _not_started(root, receipt, receipt_file, reason, db=None):
-    """Known non-launch: the platform was never invoked, so the database lock can be released."""
-    receipt.update(state='not_started', platform_started=False, outcome_known=True, finished_at=_now(),
-                   diagnostic=redact(str(reason), db) if db else str(reason))
-    _write_json(receipt_file, receipt)
-    release_db_lock(root, receipt_file)
-
-
-def _start_background(root, db_id, receipt, receipt_file, timeout):
+def _start_background(root, receipt_file):
     """Detach the recorded run from the agent shell (Kilo kills commands after <=600 s)."""
-    receipt.update(state='running', mode='background',
-                   deadline_utc=datetime.fromtimestamp(time.time() + timeout + RUNNER_GRACE_SECONDS, timezone.utc).isoformat())
-    _write_json(receipt_file, receipt)
     cmd = [sys.executable, str(Path(__file__).resolve()), '--project-root', str(root), '--run-job', str(receipt_file.parent)]
     kwargs = dict(cwd=root, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
     try:
@@ -308,13 +441,28 @@ def _start_background(root, db_id, receipt, receipt_file, timeout):
         else:
             subprocess.Popen(cmd, start_new_session=True, **kwargs)
     except OSError as exc:
-        _not_started(root, receipt, receipt_file, f'background runner could not be started: {exc}')
+        _mark_not_started(receipt_file, f'background runner could not be started: {exc}')
         print(f'repository: state=not_started; receipt={receipt_file}', file=sys.stderr)
         return 1
+    timeout = read_json(receipt_file).get('timeout_seconds')
     print(f'repository: state=running; receipt={receipt_file}')
     print(f'repository: poll with --wait "{receipt_file}" (each call waits up to {WAIT_LIMIT_SECONDS}s); '
           f'1cv8 limit {timeout}s')
     return 0
+
+
+def _mark_not_started(receipt_file, reason, db=None):
+    """Known non-launch of a still-pending run (state running/started), fenced by the mutex."""
+    try:
+        lock_path = Path(read_json(receipt_file).get('lock_file') or '')
+    except (OSError, ValueError):
+        return
+    if not lock_path.name:
+        return
+    with _DbMutex(lock_path):
+        disk = read_json(receipt_file)
+        if disk.get('state') in {'running', 'started'}:
+            _not_started_locked(lock_path, receipt_file, disk, reason, db)
 
 
 def _receipt_dirs(root):
@@ -334,15 +482,23 @@ def run_job(root, log):
         raise ValueError('repository: background job already claimed by another runner') from None
     with os.fdopen(fd, 'w', encoding='utf-8') as fh:
         fh.write(json.dumps({'pid': os.getpid(), 'claimed_at': _now()}))
+    with _runner_liveness(log):
+        return _run_job_alive(root, log, receipt_file)
+
+
+def _run_job_alive(root, log, receipt_file):
     receipt = read_json(receipt_file)
     db = None
+    lock_path = None
     try:
         if receipt.get('mode') != 'background' or receipt.get('state') != 'running':
             raise ValueError('background job is not pending')
         if receipt.get('request_sha256') != request_digest(receipt):
             raise ValueError('requested parameters were modified after submission')
-        holder = db_lock_holder(root, receipt.get('db', ''))
-        if not holder or holder.get('receipt') != str(receipt_file):
+        lock_path = _db_lock_path(root, str(receipt.get('db', '')))
+        if Path(receipt.get('lock_file', '')) != lock_path:
+            raise ValueError('lock file does not belong to the requested database')
+        if not _owns(lock_path, receipt_file, receipt.get('lock_token')):
             raise ValueError('database lock is not held by this run')
         operation = receipt['operation']
         if operation not in READ_OPS:
@@ -362,12 +518,12 @@ def run_job(root, log):
         if operation != 'diff' and version is not None:
             raise ValueError('version is supported only for diff')
         args = _runner_command(root, db, operation, objects, log, version, timeout, False)
-    except (OSError, ValueError, KeyError) as exc:
-        if receipt.get('state') == 'running':
-            _not_started(root, receipt, receipt_file, f'background runner refused to launch: {exc}', db)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        _mark_not_started(receipt_file, f'background runner refused to launch: {exc}', db)
         raise ValueError(f'repository: background runner refused to launch: {exc}') from None
-    receipt['runner_pid'] = os.getpid()
-    return _run_recorded(root, db, operation, objects, args, log, receipt, receipt_file, timeout)
+    if not _launch(lock_path, receipt_file, receipt['request_sha256'], 'running'):
+        raise ValueError('repository: background runner refused to launch: run was reconciled, changed or expired')
+    return _run_recorded(root, db, operation, objects, args, log, receipt_file, timeout, lock_path, receipt['lock_token'])
 
 
 def wait_receipt(root, receipt_path, max_wait=WAIT_LIMIT_SECONDS, poll=5):
@@ -395,36 +551,47 @@ def wait_receipt(root, receipt_path, max_wait=WAIT_LIMIT_SECONDS, poll=5):
                 return WAIT_DONE if state in {'succeeded', 'no_changes'} else WAIT_FAILED
             if _deadline_passed(entry):
                 print('repository: state=stale — deadline passed without a result. The database stays locked: '
-                      'confirm with the user that no 1cv8 Designer for this base runs, then --reconcile.', file=sys.stderr)
+                      'ask the user to confirm that neither 1cv8 nor the safe_repository.py runner is alive, '
+                      'then --reconcile.', file=sys.stderr)
                 return WAIT_STALE
         if time.monotonic() >= end:
             if unreadable is not None:
                 print(f'repository: receipt unreadable within the wait budget ({unreadable}); nothing is confirmed', file=sys.stderr)
                 return WAIT_FAILED
-            print(f"repository: state=running; still working, call --wait again (deadline {entry.get('deadline_utc')})")
+            print(f"repository: state={entry.get('state')}; still working, call --wait again (deadline {entry.get('deadline_utc')})")
             return WAIT_RUNNING
         time.sleep(min(poll, max(0.0, end - time.monotonic())) or 0.01)
 
 
 def reconcile(root, receipt_path, reason):
     """Explicit, audited release of a database whose run has no established outcome.
-    Only after the user confirmed that no Designer session for this base is running."""
+    Only after the user confirmed that neither a 1cv8 Designer for this base nor a Python runner
+    is alive. Under the mutex: a pending run can no longer launch, a launched run can no longer
+    revive or overwrite this record."""
     root = Path(root).resolve()
     path = Path(receipt_path).resolve()
     if path.name != 'receipt.json' or not any(path.is_relative_to(d.resolve()) for d in _receipt_dirs(root)):
         raise ValueError('repository: --reconcile accepts only a receipt.json under pilot-control/ or logs/repository-inspect/')
     if not reason or len(reason.strip()) < 10:
-        raise ValueError('repository: --reason must state what the user confirmed (no running 1cv8 Designer etc.)')
-    entry = read_json(path)
-    if not locks_held_by(root, path):
+        raise ValueError('repository: --reason must state what the user confirmed (no running 1cv8 Designer / runner)')
+    candidates = locks_held_by(root, path)
+    if not candidates:
         raise ValueError('repository: this receipt does not hold a database lock; nothing to reconcile')
-    if entry.get('state') in {'running', 'started'}:
-        entry['state'] = 'unverified'
-    entry.setdefault('reconciliations', []).append({'at': _now(), 'reason': reason.strip(), 'previous_state': entry.get('state')})
-    entry['outcome_known'] = False  # reconciliation releases the barrier, it does not prove the outcome
-    _write_json(path, entry)
-    release_db_lock(root, path)
-    print(f'repository: reconciled; database lock released; receipt={path} (outcome remains unverified)')
+    for lock_path in candidates:
+        with _DbMutex(lock_path):
+            entry = read_json(path)
+            holder = _read_lock(lock_path) or {}
+            if not (holder.get('receipt') == str(path) and holder.get('token') and holder.get('token') == entry.get('lock_token')):
+                raise ValueError('repository: lock ownership does not match this receipt; nothing released')
+            with _runner_liveness(path.parent):  # raises while the Python runner is alive
+                pass
+            previous = entry.get('state')
+            entry['state'] = 'reconciled'
+            entry['outcome_known'] = False  # reconciliation releases the barrier, it does not prove the outcome
+            entry.setdefault('reconciliations', []).append({'at': _now(), 'reason': reason.strip(), 'previous_state': previous})
+            _write_json(path, entry)
+            _release_owner(lock_path, path, entry['lock_token'])
+    print(f'repository: reconciled; database lock released; receipt={path} (outcome unverified, not evidence)')
     return 0
 
 
