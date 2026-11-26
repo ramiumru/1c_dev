@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -330,70 +331,198 @@ class RepositoryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runner.execute(self.root, 'test', 'lock', self.objects, self.task, intent='prepare', dry_run=True, background=True)
 
-    def _background_diff(self):
+    def _background_diff(self, version=9):
         spawned = []
         with patch.object(runner.shutil, 'which', return_value='pwsh'), \
              patch.object(runner.subprocess, 'Popen', side_effect=lambda cmd, **kw: spawned.append(cmd)):
-            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task, version=9, background=True), 0)
+            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task, version=version, background=True), 0)
         self.assertEqual(len(spawned), 1)
-        self.assertIn('--run-job', spawned[0])
         log = Path(spawned[0][spawned[0].index('--run-job') + 1])
         return log, support.read_json(log / 'receipt.json')
 
-    def test_background_start_records_running_receipt_and_long_limit(self):
-        log, receipt = self._background_diff()
-        self.assertEqual(receipt['state'], 'running')
-        self.assertEqual(receipt['timeout_seconds'], runner.BACKGROUND_TIMEOUT_SECONDS)
-        job = support.read_json(log / 'job.json')
-        self.assertNotIn('args', job)  # no executable command line is persisted
-        self.assertEqual(job['version'], 9)
-        self.assertNotIn('fixture-secret', (log / 'job.json').read_text(encoding='utf-8'))  # env names only
-
-    def test_background_job_completes_and_wait_reports_it(self):
-        log, _ = self._background_diff()
-        self.assertEqual(runner.wait_receipt(self.root, log / 'receipt.json', max_wait=0), 3)
-        seen = {}
+    def _platform(self, log, calls):
         def fake(args, **kwargs):
-            seen['args'] = args
+            calls.append(args)
             (log / 'result.json').write_text(json.dumps({'platform_started': True, 'effective_exit': 0}))
             (log / 'report.txt').write_text('fixture report', encoding='utf-8')
             return subprocess.CompletedProcess(args, 0, '', '')
-        job = support.read_json(log / 'job.json'); job['operation'] = 'lock'
-        (log / 'job.json').write_text(json.dumps(job), encoding='utf-8')
-        with self.assertRaises(ValueError):  # tampered job cannot turn into a mutation
-            runner.run_job(self.root, log)
-        receipt = support.read_json(log / 'receipt.json'); receipt['runner_claimed'] = False
-        (log / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
-        job['operation'] = 'diff'; (log / 'job.json').write_text(json.dumps(job), encoding='utf-8')
-        with patch.object(runner.shutil, 'which', return_value='pwsh'), patch.object(runner.subprocess, 'run', side_effect=fake):
-            self.assertEqual(runner.run_job(self.root, log), 0)
-        with self.assertRaises(ValueError):  # one-shot: a finished job cannot be replayed
-            runner.run_job(self.root, log)
+        return fake
+
+    def _run_job(self, log, calls):
+        with patch.object(runner.shutil, 'which', return_value='pwsh'), \
+             patch.object(runner.subprocess, 'run', side_effect=self._platform(log, calls)):
+            return runner.run_job(self.root, log)
+
+    def test_background_start_records_request_and_holds_database(self):
+        log, receipt = self._background_diff()
+        self.assertEqual(receipt['state'], 'running')
+        self.assertEqual(receipt['timeout_seconds'], runner.BACKGROUND_TIMEOUT_SECONDS)
+        self.assertEqual(receipt['request_sha256'], runner.request_digest(receipt))
+        self.assertFalse((log / 'job.json').exists())  # no separate, unbound command file
+        self.assertEqual(runner.db_lock_holder(self.root, 'test')['receipt'], str(log / 'receipt.json'))
+        with self.assertRaises(ValueError):  # busy: even dry-run of another operation is refused
+            runner.execute(self.root, 'test', 'status', '', '', dry_run=True)
+
+    def test_background_job_completes_releases_database_and_is_evidence(self):
+        log, _ = self._background_diff()
+        self.assertEqual(runner.wait_receipt(self.root, log / 'receipt.json', max_wait=0), runner.WAIT_RUNNING)
+        calls = []
+        self.assertEqual(self._run_job(log, calls), 0)
+        self.assertEqual(len(calls), 1)
+        args = calls[0]
+        self.assertEqual(args[args.index('-Version') + 1], '9')
+        self.assertEqual(args[args.index('-Objects') + 1], ','.join(self.objects))
+        self.assertEqual(args[args.index('-TimeoutSeconds') + 1], str(runner.BACKGROUND_TIMEOUT_SECONDS))
         final = support.read_json(log / 'receipt.json')
-        self.assertEqual(final['state'], 'succeeded')
-        self.assertTrue(final['finished_at'])
-        self.assertEqual(seen['args'][seen['args'].index('-Version') + 1], '9')
-        self.assertEqual(seen['args'][seen['args'].index('-TimeoutSeconds') + 1], str(runner.BACKGROUND_TIMEOUT_SECONDS))
-        self.assertEqual(runner.wait_receipt(self.root, log / 'receipt.json', max_wait=0), 0)
+        self.assertEqual((final['state'], final['outcome_known']), ('succeeded', True))
+        self.assertIsNone(runner.db_lock_holder(self.root, 'test'))
+        self.assertEqual(runner.wait_receipt(self.root, log / 'receipt.json', max_wait=0), runner.WAIT_DONE)
         self.assertEqual(support.find_diff_receipt(self.root, self.task, self.profile('commit'), self.objects), str(log / 'receipt.json'))
 
-    def test_second_run_refused_while_background_active(self):
-        log, receipt = self._background_diff()
-        with self.assertRaises(ValueError):
-            runner.execute(self.root, 'test', 'status', '', '', dry_run=True)
-        receipt['deadline_utc'] = '2000-01-01T00:00:00+00:00'  # stale run no longer blocks
-        (log / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
-        self.assertEqual(runner.execute(self.root, 'test', 'status', '', '', dry_run=True), 0)
+    def test_modified_request_is_never_executed(self):
+        # review P1: receipt evidence must match what actually ran; each field change is refused
+        for field, value in (('objects', ['ОбщийМодуль.Other']), ('repository_version', 123),
+                             ('operation', 'status'), ('operation', 'history'), ('operation', 'lock'),
+                             ('timeout_seconds', 60), ('db', 'other'), ('profile_hash', 'x')):
+            with self.subTest(field=field, value=value):
+                log, receipt = self._background_diff()
+                receipt[field] = value
+                (log / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
+                calls = []
+                with self.assertRaises(ValueError):
+                    self._run_job(log, calls)
+                self.assertEqual(calls, [])
+                final = support.read_json(log / 'receipt.json')
+                self.assertEqual(final['state'], 'not_started')
+                self.assertTrue(final['finished_at'] and final['diagnostic'])
+                self.assertEqual(runner.wait_receipt(self.root, log / 'receipt.json', max_wait=0), runner.WAIT_FAILED)
+                # a known non-launch releases whatever lock this receipt held, whatever its db field says
+                self.assertIsNone(runner.db_lock_holder(self.root, 'test'))
 
-    def test_wait_detects_stale_runner_and_rejects_foreign_paths(self):
+    def test_profile_drift_after_submission_is_not_started(self):
+        log, _ = self._background_diff()
+        self.db['repository']['background_timeout_seconds'] = 600; self.save()
+        calls = []
+        with self.assertRaises(ValueError):
+            self._run_job(log, calls)
+        self.assertEqual(calls, [])
+        self.assertEqual(support.read_json(log / 'receipt.json')['state'], 'not_started')
+        self.assertIsNone(runner.db_lock_holder(self.root, 'test'))  # known non-launch releases
+
+    def test_missing_executable_in_runner_is_not_started(self):
+        log, _ = self._background_diff()
+        with patch.object(runner.shutil, 'which', return_value=None):
+            with self.assertRaises(ValueError):
+                runner.run_job(self.root, log)
+        self.assertEqual(support.read_json(log / 'receipt.json')['state'], 'not_started')
+
+    def test_popen_failure_is_not_started_and_releases(self):
+        def boom(cmd, **kw):
+            raise OSError('spawn denied')
+        with patch.object(runner.shutil, 'which', return_value='pwsh'), patch.object(runner.subprocess, 'Popen', side_effect=boom):
+            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task, version=9, background=True), 1)
+        receipt = support.read_json(next(support.receipt_root(self.root, self.task).glob('*/receipt.json')))
+        self.assertEqual(receipt['state'], 'not_started')
+        self.assertIn('spawn denied', receipt['diagnostic'])
+        self.assertIsNone(runner.db_lock_holder(self.root, 'test'))
+
+    def test_one_shot_claim_is_atomic_under_concurrency(self):
+        # review P1: two runners released at the same instant -> exactly one platform call
+        import threading
+        log, _ = self._background_diff()
+        calls, outcomes, gate = [], [], threading.Barrier(2)
+        real_open = os.open
+        def gated_open(path, flags, *a):
+            if str(path).endswith('runner.claim'):
+                gate.wait(timeout=5)
+            return real_open(path, flags, *a)
+        def worker():
+            try:
+                outcomes.append(runner.run_job(self.root, log))
+            except ValueError:
+                outcomes.append('refused')
+        with patch.object(runner.os, 'open', side_effect=gated_open), \
+             patch.object(runner.shutil, 'which', return_value='pwsh'), \
+             patch.object(runner.subprocess, 'run', side_effect=self._platform(log, calls)):
+            threads = [threading.Thread(target=worker) for _ in range(2)]
+            [t.start() for t in threads]; [t.join(10) for t in threads]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(sorted(map(str, outcomes)), ['0', 'refused'])
+
+    def test_concurrent_submissions_launch_at_most_one(self):
+        import threading
+        results, gate, spawned = [], threading.Barrier(2), []
+        real_open = os.open
+        def gated_open(path, flags, *a):
+            if str(path).endswith('.lock'):
+                gate.wait(timeout=5)
+            return real_open(path, flags, *a)
+        def submit():
+            try:
+                results.append(runner.execute(self.root, 'test', 'diff', self.objects, self.task, version=9, background=True))
+            except ValueError:
+                results.append('busy')
+        with patch.object(runner.os, 'open', side_effect=gated_open), \
+             patch.object(runner.shutil, 'which', return_value='pwsh'), \
+             patch.object(runner.subprocess, 'Popen', side_effect=lambda cmd, **kw: spawned.append(cmd)):
+            threads = [threading.Thread(target=submit) for _ in range(2)]
+            [t.start() for t in threads]; [t.join(10) for t in threads]
+        self.assertEqual(len(spawned), 1)
+        self.assertEqual(sorted(map(str, results)), ['0', 'busy'])
+
+    def test_expired_unresolved_run_keeps_database_locked(self):
+        # review P1: deadline expiry is not proof of completion
         log, receipt = self._background_diff()
         receipt['deadline_utc'] = '2000-01-01T00:00:00+00:00'
+        receipt['request_sha256'] = runner.request_digest(receipt)  # deadline is not a request field
         (log / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
-        self.assertEqual(runner.wait_receipt(self.root, log / 'receipt.json', max_wait=0), 1)
+        self.assertEqual(runner.wait_receipt(self.root, log / 'receipt.json', max_wait=0), runner.WAIT_STALE)
+        with self.assertRaises(ValueError):
+            runner.execute(self.root, 'test', 'status', '', '', dry_run=True)
+        with self.assertRaises(ValueError):
+            runner.execute(self.root, 'test', 'lock', self.objects, self.task, intent='prepare', dry_run=True)
+        with self.assertRaises(ValueError):  # reconciliation needs a stated reason
+            runner.reconcile(self.root, log / 'receipt.json', '')
+        self.assertEqual(runner.reconcile(self.root, log / 'receipt.json', 'user confirmed: no 1cv8 Designer running'), 0)
+        final = support.read_json(log / 'receipt.json')
+        self.assertEqual((final['state'], final['outcome_known']), ('unverified', False))
+        self.assertEqual(len(final['reconciliations']), 1)
+        self.assertEqual(runner.execute(self.root, 'test', 'status', '', '', dry_run=True), 0)
+        with self.assertRaises(ValueError):  # a reconciled unverified diff is not commit evidence
+            support.find_diff_receipt(self.root, self.task, self.profile('commit'), self.objects)
+
+    def test_foreground_unknown_outcome_keeps_database_locked(self):
+        def fake(args, **kwargs):
+            raise subprocess.TimeoutExpired(args, kwargs.get('timeout'))
+        with patch.object(runner.shutil, 'which', return_value='pwsh'), patch.object(runner.subprocess, 'run', side_effect=fake):
+            self.assertEqual(runner.execute(self.root, 'test', 'diff', self.objects, self.task, version=3), 1)
+        self.assertIsNotNone(runner.db_lock_holder(self.root, 'test'))
+        with self.assertRaises(ValueError):
+            runner.execute(self.root, 'test', 'status', '', '', dry_run=True)
+
+    def test_wait_budget_holds_on_persistent_corrupt_receipt(self):
+        # review P2: malformed JSON must not extend the wait beyond its budget
+        log, _ = self._background_diff()
+        (log / 'receipt.json').write_text('{broken', encoding='utf-8')
+        reads = []
+        real = runner.read_json
+        def counting(p):
+            reads.append(p)
+            return real(p)
+        with patch.object(runner, 'read_json', side_effect=counting):
+            started = time.monotonic()
+            self.assertEqual(runner.wait_receipt(self.root, log / 'receipt.json', max_wait=0), runner.WAIT_FAILED)
+            self.assertEqual(len(reads), 1)
+            self.assertEqual(runner.wait_receipt(self.root, log / 'receipt.json', max_wait=1, poll=0.2), runner.WAIT_FAILED)
+            self.assertLess(time.monotonic() - started, 3)
+
+    def test_wait_rejects_foreign_paths(self):
         outside = self.root / 'receipt.json'
         outside.write_text('{}', encoding='utf-8')
         with self.assertRaises(ValueError):
             runner.wait_receipt(self.root, outside, max_wait=0)
+        with self.assertRaises(ValueError):
+            runner.reconcile(self.root, outside, 'user confirmed nothing runs')
 
     def test_scope_mapping_and_release_of_old_locks_are_refused(self):
         self.receipt(acquired=[])
