@@ -123,8 +123,13 @@ def profile(root, db_id, operation):
                 raise ValueError(f'repository: required Process environment variable is absent: {name}')
     if not repo.get('username_env'):
         raise ValueError('repository: repository.username_env is required')
-    v8path = db.get('v8path') or config.get('v8path')
-    if not isinstance(v8path, str) or not v8path.strip():
+    from platform_path import resolve_v8path
+    try:
+        # same priority as safe_apply/safe_backup; repo-ops checks the executable itself
+        v8path, _source = resolve_v8path(config, db, check_exists=False)
+    except ValueError as exc:
+        raise ValueError(f'repository: {exc}') from None
+    if not v8path:
         raise ValueError('repository: explicit v8path is required')
     for value in (v8path, repo['path'], db.get('path', ''), db.get('server', ''), db.get('ref', '')):
         if not isinstance(value, str) or any(c == '"' or ord(c) < 32 for c in value):
