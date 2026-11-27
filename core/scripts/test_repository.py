@@ -703,6 +703,89 @@ class RepositoryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runner.execute(self.root, 'test', 'lock', self.objects, self.task, intent='prepare', dry_run=True, refresh_of=prior)
 
+    # --- review of cc14f09 -------------------------------------------------------------------
+    def test_lock_outcome_explicit_negative_beats_completion_line(self):
+        receipt = self._lock_receipt_file('refresh', 'pilot-control/TASK-TEST/repository/0001/receipt.json')
+        for field in ('not_locked', 'unlocked'):
+            with self.subTest(field=field):
+                result = dict(self.CLEAN_REFRESH, **{field: ['общиймодуль.example']})
+                state, note = runner._lock_outcome(receipt, self.objects, result)
+                self.assertEqual(state, 'unverified')
+                self.assertIn('not locked', note)
+        acquire = self._lock_receipt_file('acquire')  # even with a per-object capture line
+        both = dict(self.CLEAN_REFRESH, locked=self.objects, not_locked=self.objects)
+        self.assertEqual(runner._lock_outcome(acquire, self.objects, both)[0], 'unverified')
+
+    def _write_receipt(self, key, **fields):
+        path = support.receipt_root(self.root, self.task) / key / 'receipt.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        value = {'operation': 'lock', 'state': 'succeeded', 'objects': self.objects,
+                 'profile_hash': support.fingerprint(self.profile())}
+        value.update(fields)
+        path.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
+        return str(path)
+
+    def test_basis_requires_confirmed_capture_of_every_object(self):
+        # old succeeded receipt with empty acquired_now is not a basis
+        self._write_receipt('0001', acquired_now=[])
+        with self.assertRaises(ValueError):
+            support.confirmed_lock_basis(self.root, self.task, self.profile(), self.objects)
+        # pilot-compatible old receipt: object explicitly in acquired_now, no lock_kind at all
+        origin = self._write_receipt('0002', acquired_now=self.objects)
+        self.assertEqual(support.confirmed_lock_basis(self.root, self.task, self.profile(), self.objects), origin)
+
+    def test_basis_follows_refresh_chain_to_original_capture(self):
+        origin = self._write_receipt('0001', acquired_now=self.objects)
+        r1 = self._write_receipt('0002', acquired_now=[], lock_kind='refresh', refresh_of=origin,
+                                 lock_assessment='refresh_confirmed of x')
+        r2 = self._write_receipt('0003', acquired_now=[], lock_kind='refresh', refresh_of=r1,
+                                 lock_assessment='refresh_confirmed of y')
+        self.assertEqual(support.confirmed_lock_basis(self.root, self.task, self.profile(), self.objects), r2)
+
+    def test_basis_rejects_broken_or_unconfirmed_chains(self):
+        empty = self._write_receipt('0001', acquired_now=[])
+        self._write_receipt('0002', acquired_now=[], lock_kind='refresh', refresh_of=empty,
+                            lock_assessment='refresh_confirmed of x')
+        with self.assertRaises(ValueError):  # chain ends at a receipt without a capture
+            support.confirmed_lock_basis(self.root, self.task, self.profile(), self.objects)
+        self._write_receipt('0003', acquired_now=[], lock_kind='refresh', refresh_of=str(self.root / 'nowhere/receipt.json'),
+                            lock_assessment='refresh_confirmed of x')
+        with self.assertRaises(ValueError):  # dangling link
+            support.confirmed_lock_basis(self.root, self.task, self.profile(), self.objects)
+        origin = self._write_receipt('0004', acquired_now=self.objects)
+        self._write_receipt('0005', acquired_now=[], lock_kind='refresh', refresh_of=origin)  # no refresh_confirmed
+        with self.assertRaises(ValueError):
+            support.confirmed_lock_basis(self.root, self.task, self.profile(), self.objects)
+
+    def test_basis_broken_by_release_after_capture(self):
+        origin = self._write_receipt('0001', acquired_now=self.objects)
+        self._write_receipt('0002', operation='unlock', objects=self.objects, result={'unlocked': self.objects})
+        self._write_receipt('0003', acquired_now=[], lock_kind='refresh', refresh_of=origin,
+                            lock_assessment='refresh_confirmed of x')
+        with self.assertRaises(ValueError):
+            support.confirmed_lock_basis(self.root, self.task, self.profile(), self.objects)
+
+    def test_basis_rechecked_under_mutex_when_reserving(self):
+        # unlock finishes after the first basis check but before the database mutex
+        origin = self._write_receipt('0001', acquired_now=self.objects)
+        real = runner.confirmed_lock_basis
+        calls = []
+        def racing(root, task, db, objects):
+            calls.append(1)                      # counted before: the re-check raises
+            value = real(root, task, db, objects)
+            if len(calls) == 1:
+                self._write_receipt('0002', operation='unlock', objects=self.objects, result={'unlocked': self.objects})
+            return value
+        platform = []
+        with patch.object(runner, 'confirmed_lock_basis', side_effect=racing), \
+             patch.object(runner.shutil, 'which', return_value='pwsh'), \
+             patch.object(runner.subprocess, 'run', side_effect=lambda a, **k: platform.append(a)):
+            with self.assertRaises(ValueError):
+                runner.execute(self.root, 'test', 'lock', self.objects, self.task, intent='prepare', refresh_of=origin)
+        self.assertEqual(len(calls), 2)          # second check happened under the mutex
+        self.assertEqual(platform, [])           # nothing launched
+        self.assertIsNone(runner.db_lock_holder(self.root, 'test'))  # no reservation left behind
+
     def test_scope_mapping_and_release_of_old_locks_are_refused(self):
         self.receipt(acquired=[])
         with self.assertRaises(ValueError): runner.execute(self.root, 'test', 'unlock', self.objects, self.task, intent='release', dry_run=True)
@@ -848,7 +931,8 @@ class PowerShellRepositoryTests(unittest.TestCase):
 
     def test_real_ps_negative_refresh_answers_stop_before_load(self):
         cases = {'empty': 'unverified', 'other': 'unverified', 'received': 'rebase_required',
-                 'refresh_nodump': 'unverified', 'refresh_extra': 'unverified'}
+                 'refresh_nodump': 'unverified', 'refresh_extra': 'unverified',
+                 'refresh_notlocked': 'unverified'}
         for mode, expected in cases.items():
             with self.subTest(mode=mode):
                 self.tearDown_receipts()
@@ -859,6 +943,43 @@ class PowerShellRepositoryTests(unittest.TestCase):
                 latest = self._latest()
                 self.assertEqual(latest['state'], expected)
                 self.assertEqual(latest['acquired_now'], [])
+
+    def test_real_ps_old_empty_acquired_receipt_cannot_basis_refresh(self):
+        self.receipt(acquired=[])  # succeeded lock receipt without a confirmed capture
+        code, loaded = self._safe_apply('refresh')
+        self.assertEqual(code, 1)
+        self.assertEqual(loaded, [])
+
+    def test_real_ps_second_refresh_follows_chain(self):
+        self.assertEqual(self._prepare('ok'), 0)
+        self.assertEqual(self._safe_apply('refresh'), (0, ['db-load-xml', 'db-update']))
+        code, loaded = self._safe_apply('refresh')
+        self.assertEqual((code, loaded), (0, ['db-load-xml', 'db-update']))
+        latest = self._latest()
+        self.assertEqual((latest['lock_kind'], latest['acquired_now']), ('refresh', []))
+
+    def test_real_ps_refresh_after_unlock_is_refused(self):
+        self.assertEqual(self._prepare('ok'), 0)
+        with patch.dict(os.environ, {'REPO_FAKE_MODE': 'ok'}):
+            self.assertEqual(runner.execute(self.root, 'test', 'unlock', self.objects, self.task, intent='release'), 0)
+        code, loaded = self._safe_apply('refresh')
+        self.assertEqual((code, loaded), (1, []))
+
+    def test_real_ps_unlock_race_before_mutex_blocks_load(self):
+        self.assertEqual(self._prepare('ok'), 0)
+        real = runner.confirmed_lock_basis
+        state = {'n': 0}
+        def racing(root, task, db, objects):
+            state['n'] += 1                      # counted before: the re-check raises
+            value = real(root, task, db, objects)
+            if state['n'] == 2:  # execute's first check passed; unlock lands before the mutex
+                with patch.dict(os.environ, {'REPO_FAKE_MODE': 'ok'}):
+                    self.assertEqual(runner.execute(self.root, 'test', 'unlock', self.objects, self.task, intent='release'), 0)
+            return value
+        with patch.object(runner, 'confirmed_lock_basis', side_effect=racing):
+            code, loaded = self._safe_apply('refresh')
+        self.assertEqual((code, loaded), (1, []))
+        self.assertGreaterEqual(state['n'], 3)
 
     def tearDown_receipts(self):
         import shutil
@@ -943,6 +1064,7 @@ LOCK_MODES = {
     'other': lambda names: ['Объект захвачен для редактирования другим пользователем: '+n+' (OtherUser)' for n in names],
     'received': lambda names: ['Объект получен из хранилища: '+n for n in names] + ['Захват объектов в хранилище успешно завершен'],
     'refresh_extra': lambda names: ['Захват объектов в хранилище успешно завершен', 'Непредвиденная строка платформы'],
+    'refresh_notlocked': lambda names: ['Объект не захвачен для редактирования: '+n for n in names] + ['Захват объектов в хранилище успешно завершен'],
 }
 log = ['----- Начало операции с хранилищем -----']
 DONE = 'Захват объектов в хранилище успешно завершен'
@@ -984,6 +1106,7 @@ class Fake {
   else if(isLock&&mode=="other"){lines.Clear();foreach(string n in names)lines.Add("Объект захвачен для редактирования другим пользователем: "+n+" (OtherUser)");}
   else if(isLock&&mode=="received"){lines.Clear();foreach(string n in names)lines.Add("Объект получен из хранилища: "+n);lines.Add(done);}
   else if(isLock&&mode=="refresh_extra"){lines.Clear();lines.Add(done);lines.Add("Непредвиденная строка платформы");}
+  else if(isLock&&mode=="refresh_notlocked"){lines.Clear();foreach(string n in names)lines.Add("Объект не захвачен для редактирования: "+n);lines.Add(done);}
   else if(isLock)for(int i=0;i<names.Count;i++)lines.Add(mode=="partial"&&i>0?"Объект захвачен для редактирования другим пользователем: "+names[i]+" (OtherUser)":"Объект захвачен для редактирования: "+names[i]);
   if(Array.IndexOf(a,"/ConfigurationRepositoryCommit")>=0&&mode!="silent")foreach(string n in names)lines.Add((mode=="nochanges"?"Объект не был изменен: ":"Объект помещен в хранилище: ")+n);
   if(Array.IndexOf(a,"/ConfigurationRepositoryUnLock")>=0)foreach(string n in names)lines.Add("Захват объекта отменен: "+n);

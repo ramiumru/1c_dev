@@ -15,7 +15,8 @@ from pathlib import Path
 
 from repository_support import (READ_OPS, WRITE_OPS, INTENTS, profile, object_names,
                                 comment, redact, fingerprint, receipt_root,
-                                find_lock_receipt, required_objects, read_json, check_publication_evidence, find_diff_receipt)
+                                find_lock_receipt, required_objects, read_json, check_publication_evidence, find_diff_receipt,
+                                confirmed_lock_basis)
 from safe_apply import ROOT, find_skills_dir
 
 
@@ -282,9 +283,9 @@ def execute(root, db_id, operation, objects, task, summary='', explicit_comment=
     if operation == 'lock':
         lock_kind = 'acquire'
         if refresh_of is not None:
-            # refresh of a confirmed prepare: same task, same profile, requested objects within it
-            prior = find_lock_receipt(root, task, db, objects)
-            if prior.get('_receipt_path') != str(refresh_of):
+            # refresh of a confirmed prepare: same task, same profile, requested objects within it;
+            # re-checked under the database mutex when the operation is reserved (below)
+            if confirmed_lock_basis(root, task, db, objects) != str(refresh_of):
                 raise ValueError('repository: lock refresh is not bound to the latest confirmed prepare of this task')
             lock_kind = 'refresh'
     elif refresh_of is not None:
@@ -304,6 +305,10 @@ def execute(root, db_id, operation, objects, task, summary='', explicit_comment=
     lock_path = _db_lock_path(root, db_id)
     _runner_command(root, db, operation, objects, log, version, timeout, keep_locked)  # fail before any state
     with _DbMutex(lock_path):
+        if lock_kind == 'refresh':
+            # an unlock/commit may have finished between the check above and this reservation
+            if confirmed_lock_basis(root, task, db, objects) != str(refresh_of):
+                raise ValueError('repository: confirmed prepare changed before the refresh was reserved; apply blocked')
         token = _acquire_owner(lock_path, db_id, receipt_file, operation, 'background' if background else 'foreground')
         try:
             log.mkdir(parents=True)
@@ -446,6 +451,11 @@ def _lock_outcome(receipt_file, objects, result):
     The «Already locked by you» text is printed by repo-ops itself and is never a signal."""
     key = lambda n: str(n).strip().lower().replace('ё', 'е')  # same as repo-ops Get-ObjectKey (+ё)
     locked = {key(n) for n in result.get('locked', [])}
+    # an explicit negative per-object answer wins over any general completion line
+    negative = {key(n) for n in list(result.get('not_locked', [])) + list(result.get('unlocked', []))}
+    denied = [n for n in objects if key(n) in negative]
+    if denied:
+        return 'unverified', f'platform reported {denied} as not locked/unlocked'
     missing = [n for n in objects if key(n) not in locked]
     if not missing:
         return 'succeeded', 'acquired by platform per-object lines'
@@ -647,10 +657,10 @@ def before_apply(root, db_id, task, files, config_src, dry_run):
     objects = required_objects(config_src, files)
     if not objects:
         raise ValueError('repository: no existing mutable object scope could be derived for apply')
-    prior = find_lock_receipt(root, task, db, objects)
+    prior = confirmed_lock_basis(root, task, db, objects)
     if dry_run:
         print('repository: prepared scope checked; live locks are NOT refreshed in dry-run')
-    elif execute(root, db_id, 'lock', objects, task, intent='prepare', refresh_of=prior['_receipt_path']) != 0:
+    elif execute(root, db_id, 'lock', objects, task, intent='prepare', refresh_of=prior) != 0:
         raise ValueError('repository: lock refresh failed; apply blocked')
 
 

@@ -331,6 +331,86 @@ def find_lock_receipt(root, task, db, objects, acquired_only=False):
     raise ValueError('repository: prepare the exact objects through 1c-repository before apply/commit')
 
 
+def _object_key(name):
+    return str(name).strip().lower().replace('ё', 'е')
+
+
+def _released_objects(entry):
+    """Objects a receipt released (same rules as find_lock_receipt)."""
+    result = entry.get('result', {}) or {}
+    released = {_object_key(n) for n in result.get('unlocked', [])}
+    if not entry.get('keep_locked_requested'):
+        released |= {_object_key(n) for n in result.get('committed', [])}
+    if entry.get('state') in {'succeeded', 'no_changes'} and entry.get('operation') in {'commit', 'unlock'} \
+            and not entry.get('keep_locked_requested'):
+        released |= {_object_key(n) for n in entry.get('objects', [])}
+    return released
+
+
+def confirmed_lock_basis(root, task, db, objects):
+    """Basis for a lock refresh: the latest lock receipt of this task/profile that covers the
+    objects, where EVERY object has a valid chain back to an original confirmed capture:
+    a succeeded lock receipt that lists the object in acquired_now. A previous refresh counts
+    only as a link of such a chain (lock_kind=refresh, refresh_confirmed, refresh_of inside
+    this task). Any release of the object after its original capture breaks the chain.
+    Old receipts with the object in acquired_now are valid originals as they are."""
+    root = Path(root).resolve()
+    folder = receipt_root(root, task)
+    paths = sorted(folder.glob('*/receipt.json'))          # oldest -> newest (stamp order)
+    entries = {}
+    for path in paths:
+        try:
+            entries[str(path)] = read_json(path)
+        except (OSError, ValueError):
+            continue
+    mine = fingerprint(db)
+    order = [str(p) for p in paths if str(p) in entries]
+    wanted = [_object_key(n) for n in objects]
+
+    def covers(entry, key):
+        return key in {_object_key(n) for n in entry.get('objects', [])}
+
+    basis = None
+    for path in reversed(order):
+        entry = entries[path]
+        if entry.get('profile_hash') != mine:
+            continue
+        if entry.get('operation') == 'lock' and entry.get('state') == 'succeeded' \
+                and all(covers(entry, k) for k in wanted):
+            basis = path
+            break
+        if _released_objects(entry) & set(wanted):
+            break   # a newer release of any wanted object: nothing older can be a basis
+    if basis is None:
+        raise ValueError('repository: no confirmed prepare for these objects in this task; refresh refused')
+
+    for key in wanted:
+        current, seen = basis, set()
+        while True:
+            if current in seen or current not in entries:
+                raise ValueError(f'repository: broken refresh chain for {key}; refresh refused')
+            seen.add(current)
+            entry = entries[current]
+            if entry.get('profile_hash') != mine or entry.get('operation') != 'lock' \
+                    or entry.get('state') != 'succeeded' or not covers(entry, key):
+                raise ValueError(f'repository: refresh chain for {key} reaches an unconfirmed receipt; refresh refused')
+            if key in {_object_key(n) for n in entry.get('acquired_now', [])}:
+                origin = current
+                break
+            link = entry.get('refresh_of')
+            if entry.get('lock_kind') != 'refresh' or not link \
+                    or 'refresh_confirmed' not in str(entry.get('lock_assessment', '')):
+                raise ValueError(f'repository: no confirmed capture of {key} behind {current}; refresh refused')
+            link = str(Path(link).resolve()) if Path(link).is_absolute() else str((Path(root) / link).resolve())
+            if not Path(link).is_relative_to(folder.resolve()):
+                raise ValueError(f'repository: refresh chain for {key} leaves this task; refresh refused')
+            current = link
+        for later in order[order.index(origin) + 1:]:
+            if entries[later].get('profile_hash') == mine and key in _released_objects(entries[later]):
+                raise ValueError(f'repository: {key} was released after its capture; prepare again')
+    return basis
+
+
 def file_hashes(root, paths):
     result = {}
     root = Path(root).resolve()
