@@ -418,6 +418,8 @@ function Read-RepoLog {
         Locked = @(); LockedByOther = @(); Received = @(); Committed = @()
         Unchanged = @(); Unlocked = @(); NotLocked = @(); Modified = @(); Missing = @()
         EmptyList = $false; HasOperationBlock = $false
+        # platform's own completion line for a lock run without per-object lines
+        LockDone = $false; Unrecognized = @()
     }
     if (-not $LogText) { return $r }
     $inMissing = $false
@@ -439,6 +441,8 @@ function Read-RepoLog {
         elseif ($line -match '^Захват объекта отменен:\s*(.+)$')                   { $r.Unlocked += $Matches[1].Trim() }
         elseif ($line -match '^Объект не захвачен для редактирования:\s*(.+)$')    { $r.NotLocked += $Matches[1].Trim() }
         elseif ($line -match "^Объект '(.+?)' был изменен")                        { $r.Modified += $Matches[1] }
+        elseif ($line -match '^Захват объектов в хранилище успешно заверш[её]н\.?$') { $r.LockDone = $true }
+        else                                                                        { $r.Unrecognized += $line }
     }
     return $r
 }
@@ -524,8 +528,10 @@ function Get-RepoVerdict {
             }
             if ($Log.Locked.Count -eq 0) {
                 if ($PlatformExit -eq 0) {
-                    # The platform prints no line for an object you already hold.
-                    Write-Host "Already locked by you — the platform reports nothing for objects you hold; nothing changed." -ForegroundColor Green
+                    # No per-object line from the platform. This script cannot tell an existing own
+                    # lock from a silent failure; Harness decides from the prior prepare receipt,
+                    # the platform completion line and /DumpResult (result.json lock_done etc.).
+                    Write-Host "No per-object lock lines from the platform (completion line: $(if ($Log.LockDone) { 'present' } else { 'absent' })); not proof of an existing lock." -ForegroundColor Yellow
                     Write-ReceivedObjects $Log.Received
                     return 0
                 }
@@ -836,6 +842,7 @@ if ($Force) {
 }
 
 # --- Temp workspace ---
+$resultCode = $null   # /DumpResult code; stays $null when the platform never wrote it (timeout etc.)
 $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "repo_ops_$(Get-Random)"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
@@ -1091,6 +1098,7 @@ try {
         received=@($state.Received); committed=@($state.Committed); unchanged=@($state.Unchanged)
         unlocked=@($state.Unlocked); not_locked=@($state.NotLocked); modified=@($state.Modified)
         operation_block=[bool]$state.HasOperationBlock
+        dump_result=$resultCode; lock_done=[bool]$state.LockDone; unrecognized_count=@($state.Unrecognized).Count
     }
     $json = Protect-Secrets ($data | ConvertTo-Json -Depth 6) $script:HarnessSecrets
     [System.IO.File]::WriteAllText((Join-Path $LogDirectory 'result.json'), $json, (New-Object System.Text.UTF8Encoding($false)))

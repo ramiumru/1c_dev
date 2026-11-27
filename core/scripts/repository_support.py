@@ -326,6 +326,7 @@ def find_lock_receipt(root, task, db, objects, acquired_only=False):
         if (entry.get('operation') == 'lock' and (acquired_only or entry.get('state') == 'succeeded')
                 and not set(objects) & released
                 and set(objects) <= set(entry.get('acquired_now' if acquired_only else 'objects', []))):
+            entry['_receipt_path'] = str(path)
             return entry
     raise ValueError('repository: prepare the exact objects through 1c-repository before apply/commit')
 

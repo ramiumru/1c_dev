@@ -653,6 +653,56 @@ class RepositoryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runner.reconcile(self.root, outside, 'user confirmed nothing runs')
 
+    def _lock_receipt_file(self, lock_kind, refresh_of=None):
+        path = self.root / 'pilot-control' / self.task / 'repository' / 'probe' / 'receipt.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({'lock_kind': lock_kind, 'refresh_of': refresh_of}), encoding='utf-8')
+        return path
+
+    CLEAN_REFRESH = {'platform_exit': 0, 'effective_exit': 0, 'dump_result': 0, 'lock_done': True,
+                     'unrecognized_count': 0, 'locked': [], 'locked_by_other': [], 'received': [], 'timed_out': False}
+
+    def test_lock_outcome_refresh_requires_every_signal(self):
+        receipt = self._lock_receipt_file('refresh', 'pilot-control/TASK-TEST/repository/0001/receipt.json')
+        self.assertEqual(runner._lock_outcome(receipt, self.objects, dict(self.CLEAN_REFRESH))[0], 'succeeded')
+        for field, bad in (('platform_exit', 1), ('effective_exit', 1), ('dump_result', None), ('dump_result', 2),
+                           ('lock_done', False), ('unrecognized_count', 1), ('locked_by_other', [{'Name': 'x'}]),
+                           ('received', ['ОбщийМодуль.Example']), ('timed_out', True)):
+            with self.subTest(field=field, bad=bad):
+                result = dict(self.CLEAN_REFRESH, **{field: bad})
+                self.assertEqual(runner._lock_outcome(receipt, self.objects, result)[0], 'unverified')
+
+    def test_lock_outcome_without_refresh_context_never_trusts_completion_line(self):
+        receipt = self._lock_receipt_file('acquire')
+        self.assertEqual(runner._lock_outcome(receipt, self.objects, dict(self.CLEAN_REFRESH))[0], 'unverified')
+
+    def test_lock_outcome_partial_per_object_lines(self):
+        objects = ['ОбщийМодуль.Example', 'Документ.X']
+        acquire = self._lock_receipt_file('acquire')
+        partial = dict(self.CLEAN_REFRESH, locked=['ОбщийМодуль.Example'], lock_done=False)
+        self.assertEqual(runner._lock_outcome(acquire, objects, partial)[0], 'unverified')
+        full = dict(partial, locked=['общиймодуль.example', 'Документ.X'])  # platform casing tolerated
+        self.assertEqual(runner._lock_outcome(acquire, objects, full)[0], 'succeeded')
+
+    def test_refresh_must_bind_to_latest_confirmed_prepare(self):
+        self.receipt()  # confirmed prepare 0001
+        with self.assertRaises(ValueError):
+            runner.execute(self.root, 'test', 'lock', self.objects, self.task, intent='prepare', dry_run=True,
+                           refresh_of=self.root / 'pilot-control/TASK-TEST/repository/9999/receipt.json')
+        with self.assertRaises(ValueError):  # other objects are not covered by that prepare
+            runner.execute(self.root, 'test', 'lock', ['Документ.Other'], self.task, intent='prepare', dry_run=True,
+                           refresh_of=support.receipt_root(self.root, self.task) / '0001' / 'receipt.json')
+        prior = support.find_lock_receipt(self.root, self.task, self.profile(), self.objects)['_receipt_path']
+        self.assertEqual(runner.execute(self.root, 'test', 'lock', self.objects, self.task, intent='prepare',
+                                        dry_run=True, refresh_of=prior), 0)
+
+    def test_refresh_after_profile_change_is_refused(self):
+        self.receipt()
+        prior = support.find_lock_receipt(self.root, self.task, self.profile(), self.objects)['_receipt_path']
+        self.db['repository']['path'] = 'tcp://fake.invalid/other'; self.save()
+        with self.assertRaises(ValueError):
+            runner.execute(self.root, 'test', 'lock', self.objects, self.task, intent='prepare', dry_run=True, refresh_of=prior)
+
     def test_scope_mapping_and_release_of_old_locks_are_refused(self):
         self.receipt(acquired=[])
         with self.assertRaises(ValueError): runner.execute(self.root, 'test', 'unlock', self.objects, self.task, intent='release', dry_run=True)
@@ -736,6 +786,86 @@ class PowerShellRepositoryTests(unittest.TestCase):
         self.assertEqual(final['state'], 'succeeded')
         self.assertEqual(final['mode'], 'background')
 
+    # --- lock refresh before safe_apply (incident 2026-11-27, anonymized fixtures) -----------
+    PLAN_FILE = 'projects/pet/src/CommonModules/Example/Ext/Module.bsl'
+
+    def _plan(self):
+        module = self.root / self.PLAN_FILE
+        module.parent.mkdir(parents=True, exist_ok=True)
+        module.write_text('// fixture', encoding='utf-8')
+        report = self.root / 'specs' / self.task / '06_change_report.md'
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text('## Изменённые файлы\n- ' + self.PLAN_FILE + '\n', encoding='utf-8')
+
+    def _prepare(self, mode='ok'):
+        with patch.dict(os.environ, {'REPO_FAKE_MODE': mode}):
+            return runner.execute(self.root, 'test', 'lock', self.objects, self.task, intent='prepare')
+
+    def _safe_apply(self, mode):
+        import safe_apply
+        self._plan()
+        loaded = []
+        argv = ['safe_apply.py', '--task', self.task, '--db', 'test', '--project-root', str(self.root)]
+        with patch.dict(os.environ, {'REPO_FAKE_MODE': mode}), patch.object(sys, 'argv', argv), \
+             patch.object(safe_apply, 'run_guard', return_value=0), \
+             patch.object(safe_apply, 'run_skill', side_effect=lambda name, *a: loaded.append(name) or 0), \
+             patch.object(support, 'record_apply', return_value=None):
+            code = safe_apply.main()
+        return code, loaded
+
+    def _latest(self):
+        return support.read_json(sorted(support.receipt_root(self.root, self.task).glob('*/receipt.json'))[-1])
+
+    def test_real_ps_confirmed_refresh_reaches_load_without_new_acquisition(self):
+        self.assertEqual(self._prepare('ok'), 0)
+        first = self._latest()
+        self.assertEqual(first['acquired_now'], self.objects)
+        code, loaded = self._safe_apply('refresh')
+        self.assertEqual(code, 0)
+        self.assertEqual(loaded, ['db-load-xml', 'db-update'])
+        refresh = self._latest()
+        self.assertEqual((refresh['state'], refresh['lock_kind']), ('succeeded', 'refresh'))
+        self.assertTrue(refresh['refresh_of'].endswith('receipt.json'))
+        self.assertIn('refresh_confirmed', refresh['lock_assessment'])
+        self.assertEqual(refresh['acquired_now'], [])  # confirmation, not a new capture
+        self.assertEqual(refresh['result']['dump_result'], 0)
+        self.assertTrue(refresh['result']['lock_done'])
+        # release authority still comes from the original prepare only
+        owner = support.find_lock_receipt(self.root, self.task, self.profile(), self.objects, acquired_only=True)
+        self.assertEqual(owner['_receipt_path'], refresh['refresh_of'])
+        self.assertNotIn('Already locked by you', json.dumps(refresh, ensure_ascii=False))
+
+    def test_real_ps_same_answer_without_confirmed_prepare_is_unverified(self):
+        # first prepare itself answers only with the completion line: nothing is confirmed
+        self.assertEqual(self._prepare('refresh'), 1)
+        first = self._latest()
+        self.assertEqual(first['state'], 'unverified')
+        self.assertEqual(first['acquired_now'], [])
+        self.assertIn('no confirmed prepare', first['lock_assessment'])
+        code, loaded = self._safe_apply('refresh')
+        self.assertEqual(code, 1)
+        self.assertEqual(loaded, [])
+
+    def test_real_ps_negative_refresh_answers_stop_before_load(self):
+        cases = {'empty': 'unverified', 'other': 'unverified', 'received': 'rebase_required',
+                 'refresh_nodump': 'unverified', 'refresh_extra': 'unverified'}
+        for mode, expected in cases.items():
+            with self.subTest(mode=mode):
+                self.tearDown_receipts()
+                self.assertEqual(self._prepare('ok'), 0)
+                code, loaded = self._safe_apply(mode)
+                self.assertEqual(code, 1)
+                self.assertEqual(loaded, [], 'safe_apply must not reach db-load-xml')
+                latest = self._latest()
+                self.assertEqual(latest['state'], expected)
+                self.assertEqual(latest['acquired_now'], [])
+
+    def tearDown_receipts(self):
+        import shutil
+        shutil.rmtree(self.root / 'pilot-control', ignore_errors=True)
+        lock_dir = self.root / 'logs' / 'repository-locks'
+        self.assertFalse(list(lock_dir.glob('*.lock')) if lock_dir.exists() else [], 'previous case left a database lock')
+
     def test_real_ps_partial_lock_same_names_different_types(self):
         self.objects = ['Справочник.X', 'Документ.X']
         with patch.dict(os.environ, {'REPO_FAKE_MODE': 'partial'}):
@@ -804,8 +934,21 @@ names = []
 if val('-Objects'):
     names = [n.attrib['fullName'] for n in ET.parse(val('-Objects')).getroot() if 'fullName' in n.attrib]
 mode = os.environ.get('REPO_FAKE_MODE', 'ok')
+# Lock answers without per-object lines (incident 2026-11-27, anonymized): the platform wrote only
+# its completion line. Variants: empty /Out, foreign lock, newer object version, unknown extra line.
+LOCK_MODES = {
+    'refresh': lambda names: ['Захват объектов в хранилище успешно завершен'],
+    'refresh_nodump': lambda names: ['Захват объектов в хранилище успешно завершен'],
+    'empty': lambda names: [],
+    'other': lambda names: ['Объект захвачен для редактирования другим пользователем: '+n+' (OtherUser)' for n in names],
+    'received': lambda names: ['Объект получен из хранилища: '+n for n in names] + ['Захват объектов в хранилище успешно завершен'],
+    'refresh_extra': lambda names: ['Захват объектов в хранилище успешно завершен', 'Непредвиденная строка платформы'],
+}
 log = ['----- Начало операции с хранилищем -----']
-if '/ConfigurationRepositoryLock' in args:
+DONE = 'Захват объектов в хранилище успешно завершен'
+if '/ConfigurationRepositoryLock' in args and mode in LOCK_MODES:
+    log = LOCK_MODES[mode](names)
+elif '/ConfigurationRepositoryLock' in args:
     for i,n in enumerate(names):
         log.append(('Объект захвачен для редактирования другим пользователем: '+n+' (OtherUser)') if mode == 'partial' and i else 'Объект захвачен для редактирования: '+n)
 if '/ConfigurationRepositoryCommit' in args and mode != 'silent':
@@ -815,7 +958,7 @@ if '/ConfigurationRepositoryUnLock' in args:
 if os.environ.get('REPO_FAKE_SECRET'):
     log += ['diagnostic '+os.environ['REPO_FAKE_SECRET']]
 if val('/Out'): pathlib.Path(val('/Out')).write_text('\n'.join(log),encoding='utf-8-sig')
-if val('/DumpResult'): pathlib.Path(val('/DumpResult')).write_text('0',encoding='utf-8')
+if val('/DumpResult') and mode != 'refresh_nodump': pathlib.Path(val('/DumpResult')).write_text('0',encoding='utf-8')
 report = val('/ConfigurationRepositoryReport') or val('-ReportFile')
 if report: pathlib.Path(report).write_text('Fixture report',encoding='utf-8')
 '''
@@ -834,12 +977,19 @@ class Fake {
   if(x!=null) { var d=new XmlDocument();d.Load(x);foreach(XmlNode n in d.SelectNodes("//*[local-name()='Object']"))names.Add(n.Attributes["fullName"].Value); }
   string mode=Environment.GetEnvironmentVariable("REPO_FAKE_MODE");
   var lines=new List<string>();lines.Add("----- Начало операции с хранилищем -----");
-  if(Array.IndexOf(a,"/ConfigurationRepositoryLock")>=0)for(int i=0;i<names.Count;i++)lines.Add(mode=="partial"&&i>0?"Объект захвачен для редактирования другим пользователем: "+names[i]+" (OtherUser)":"Объект захвачен для редактирования: "+names[i]);
+  string done="Захват объектов в хранилище успешно завершен";
+  bool isLock=Array.IndexOf(a,"/ConfigurationRepositoryLock")>=0;
+  if(isLock&&(mode=="refresh"||mode=="refresh_nodump")){lines.Clear();lines.Add(done);}
+  else if(isLock&&mode=="empty"){lines.Clear();}
+  else if(isLock&&mode=="other"){lines.Clear();foreach(string n in names)lines.Add("Объект захвачен для редактирования другим пользователем: "+n+" (OtherUser)");}
+  else if(isLock&&mode=="received"){lines.Clear();foreach(string n in names)lines.Add("Объект получен из хранилища: "+n);lines.Add(done);}
+  else if(isLock&&mode=="refresh_extra"){lines.Clear();lines.Add(done);lines.Add("Непредвиденная строка платформы");}
+  else if(isLock)for(int i=0;i<names.Count;i++)lines.Add(mode=="partial"&&i>0?"Объект захвачен для редактирования другим пользователем: "+names[i]+" (OtherUser)":"Объект захвачен для редактирования: "+names[i]);
   if(Array.IndexOf(a,"/ConfigurationRepositoryCommit")>=0&&mode!="silent")foreach(string n in names)lines.Add((mode=="nochanges"?"Объект не был изменен: ":"Объект помещен в хранилище: ")+n);
   if(Array.IndexOf(a,"/ConfigurationRepositoryUnLock")>=0)foreach(string n in names)lines.Add("Захват объекта отменен: "+n);
   string secret=Environment.GetEnvironmentVariable("REPO_FAKE_SECRET");if(secret!=null)lines.Add("diagnostic "+secret);
   if(V(a,"/Out")!=null)File.WriteAllText(V(a,"/Out"),String.Join("\n",lines),new UTF8Encoding(true));
-  if(V(a,"/DumpResult")!=null)File.WriteAllText(V(a,"/DumpResult"),"0");
+  if(V(a,"/DumpResult")!=null&&mode!="refresh_nodump")File.WriteAllText(V(a,"/DumpResult"),"0");
   string report=V(a,"/ConfigurationRepositoryReport")??V(a,"-ReportFile");if(report!=null)File.WriteAllText(report,"Fixture report");
   return 0;
  }

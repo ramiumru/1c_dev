@@ -204,7 +204,7 @@ def locks_held_by(root, receipt_file):
 def request_digest(receipt):
     """Canonical requested parameters; the runner executes only what this digest covers."""
     fields = {k: receipt.get(k) for k in ('operation', 'db', 'objects', 'repository_version', 'timeout_seconds',
-                                          'profile_hash', 'lock_token')}
+                                          'profile_hash', 'lock_token', 'lock_kind', 'refresh_of')}
     return hashlib.sha256(json.dumps(fields, ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()
 
 
@@ -240,7 +240,7 @@ def _runner_command(root, db, operation, objects, log, version, timeout, keep_lo
     return args
 
 
-def execute(root, db_id, operation, objects, task, summary='', explicit_comment='', intent='', dry_run=False, existing_change=False, task_ref='', title='', description='', version=None, background=False):
+def execute(root, db_id, operation, objects, task, summary='', explicit_comment='', intent='', dry_run=False, existing_change=False, task_ref='', title='', description='', version=None, background=False, refresh_of=None):
     root = Path(root).resolve()
     db = profile(root, db_id, operation)
     objects = object_names(objects)
@@ -278,6 +278,17 @@ def execute(root, db_id, operation, objects, task, summary='', explicit_comment=
             raise ValueError('repository: release only locks positively acquired by this task; pre-existing locks are preserved')
     if operation in {'status', 'history'} and objects:
         raise ValueError('repository: objects are not supported for status/history')
+    lock_kind = None
+    if operation == 'lock':
+        lock_kind = 'acquire'
+        if refresh_of is not None:
+            # refresh of a confirmed prepare: same task, same profile, requested objects within it
+            prior = find_lock_receipt(root, task, db, objects)
+            if prior.get('_receipt_path') != str(refresh_of):
+                raise ValueError('repository: lock refresh is not bound to the latest confirmed prepare of this task')
+            lock_kind = 'refresh'
+    elif refresh_of is not None:
+        raise ValueError('repository: refresh_of applies to lock only')
     holder = db_lock_holder(root, db_id)
     if holder:
         raise _busy_error(holder)
@@ -302,6 +313,7 @@ def execute(root, db_id, operation, objects, task, summary='', explicit_comment=
                        'intent': intent, 'repository_version': version, 'timeout_seconds': timeout,
                        'state': 'running' if background else 'started', 'started_at': _now(),
                        'lock_token': token, 'lock_file': str(lock_path),
+                       'lock_kind': lock_kind, 'refresh_of': str(refresh_of) if refresh_of else None,
                        'binding_evidence': 'user-confirmed profile' if db['repository'].get('binding_confirmed') is True else 'unverified; status does not prove binding',
                        'automatic_retry_allowed': False, 'verification': evidence, 'keep_locked_requested': keep_locked}
             if background:
@@ -398,10 +410,10 @@ def _run_recorded(root, db, operation, objects, args, log, receipt_file, timeout
         state = 'succeeded' if run.returncode == 0 and result.get('effective_exit') == 0 and result.get('platform_started') else 'unverified'
         if result.get('timed_out'):
             state = 'unverified'
-        if operation == 'lock' and state == 'succeeded' and not result.get('operation_block') and not result.get('locked'):
-            platform_log = log / 'platform.log'
-            if platform_log.is_file() and platform_log.read_text(encoding='utf-8-sig').strip():
-                state = 'unverified'  # unrecognized nonempty log is not an already-owned acknowledgement
+        if operation == 'lock' and state == 'succeeded':
+            state, lock_note = _lock_outcome(receipt_file, objects, result)
+            if lock_note:
+                updates['lock_assessment'] = lock_note
         if result.get('received'):
             state = 'rebase_required'  # no overwrite of source truth, no automatic apply
         if operation == 'commit' and state == 'succeeded':
@@ -425,6 +437,35 @@ def _run_recorded(root, db, operation, objects, args, log, receipt_file, timeout
         print(f'repository: state={recorded}; receipt={receipt_file}')
         if recorded != updates.get('state'):
             print('repository: run was reconciled meanwhile; its late result is kept for diagnosis only', file=sys.stderr)
+
+
+def _lock_outcome(receipt_file, objects, result):
+    """Every requested object must be confirmed either by the platform's own per-object line
+    («Объект захвачен для редактирования: …») or — only when refreshing a confirmed prepare of the
+    same task/profile — by the platform's completion line with all launch signals clean.
+    The «Already locked by you» text is printed by repo-ops itself and is never a signal."""
+    key = lambda n: str(n).strip().lower().replace('ё', 'е')  # same as repo-ops Get-ObjectKey (+ё)
+    locked = {key(n) for n in result.get('locked', [])}
+    missing = [n for n in objects if key(n) not in locked]
+    if not missing:
+        return 'succeeded', 'acquired by platform per-object lines'
+    disk = read_json(receipt_file)
+    if disk.get('lock_kind') != 'refresh' or not disk.get('refresh_of'):
+        return 'unverified', f'no platform confirmation for {missing}; no confirmed prepare to refresh'
+    checks = {
+        'platform_exit=0': result.get('platform_exit') == 0,
+        'effective_exit=0': result.get('effective_exit') == 0,
+        'dump_result=0': result.get('dump_result') == 0,
+        'completion line': result.get('lock_done') is True,
+        'no unrecognized lines': result.get('unrecognized_count') == 0,
+        'no other-user locks': not result.get('locked_by_other'),
+        'no received objects': not result.get('received'),
+        'not timed out': not result.get('timed_out'),
+    }
+    failed = [k for k, ok in checks.items() if not ok]
+    if failed:
+        return 'unverified', f'refresh not confirmed for {missing}: failed {failed}'
+    return 'succeeded', f'refresh_confirmed of {disk["refresh_of"]} for {missing}'
 
 
 def _start_background(root, receipt_file):
@@ -606,10 +647,10 @@ def before_apply(root, db_id, task, files, config_src, dry_run):
     objects = required_objects(config_src, files)
     if not objects:
         raise ValueError('repository: no existing mutable object scope could be derived for apply')
-    find_lock_receipt(root, task, db, objects)
+    prior = find_lock_receipt(root, task, db, objects)
     if dry_run:
         print('repository: prepared scope checked; live locks are NOT refreshed in dry-run')
-    elif execute(root, db_id, 'lock', objects, task, intent='prepare') != 0:
+    elif execute(root, db_id, 'lock', objects, task, intent='prepare', refresh_of=prior['_receipt_path']) != 0:
         raise ValueError('repository: lock refresh failed; apply blocked')
 
 
