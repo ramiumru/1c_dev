@@ -319,15 +319,142 @@ def find_lock_receipt(root, task, db, objects, acquired_only=False):
             continue
         result = entry.get('result', {})
         released.update(result.get('unlocked', []))
+        denied = denied_objects(entry)
+        released.update(n for n in objects if _object_key(n) in denied)
         if not entry.get('keep_locked_requested'):
             released.update(result.get('committed', []))
         if entry.get('state') in {'succeeded', 'no_changes'} and entry.get('operation') in {'commit', 'unlock'} and not entry.get('keep_locked_requested'):
             released.update(entry.get('objects', []))
         if (entry.get('operation') == 'lock' and (acquired_only or entry.get('state') == 'succeeded')
                 and not set(objects) & released
-                and set(objects) <= set(entry.get('acquired_now' if acquired_only else 'objects', []))):
+                and (({_object_key(n) for n in objects} <= confirmed_captures(entry)) if acquired_only
+                     else set(objects) <= set(entry.get('objects', [])))):
+            entry['_receipt_path'] = str(path)
             return entry
     raise ValueError('repository: prepare the exact objects through 1c-repository before apply/commit')
+
+
+def _object_key(name):
+    return str(name).strip().lower().replace('ё', 'е')
+
+
+def _names(values):
+    out = set()
+    for value in values or []:
+        if isinstance(value, dict):  # locked_by_other: {"Name": ..., "Holder": ...}
+            value = value.get('Name') or value.get('name') or ''
+        out.add(_object_key(value))
+    return out - {''}
+
+
+def denied_objects(entry):
+    """Explicit platform evidence that the task does NOT hold the lock on an object:
+    «не захвачен», «захват отменен» or «захвачен другим пользователем» — in any state."""
+    result = entry.get('result', {}) or {}
+    return _names(result.get('not_locked')) | _names(result.get('unlocked')) | _names(result.get('locked_by_other'))
+
+
+def received_objects(entry):
+    """A newer object version was received from the repository: sources must be reconciled."""
+    return _names((entry.get('result', {}) or {}).get('received'))
+
+
+def confirmed_captures(entry):
+    """acquired_now minus objects the same receipt contradicts (capture and denial at once)."""
+    return {_object_key(n) for n in entry.get('acquired_now', [])} - denied_objects(entry)
+
+
+def _released_objects(entry):
+    """Objects a receipt released (same rules as find_lock_receipt)."""
+    result = entry.get('result', {}) or {}
+    released = {_object_key(n) for n in result.get('unlocked', [])}
+    if not entry.get('keep_locked_requested'):
+        released |= {_object_key(n) for n in result.get('committed', [])}
+    if entry.get('state') in {'succeeded', 'no_changes'} and entry.get('operation') in {'commit', 'unlock'} \
+            and not entry.get('keep_locked_requested'):
+        released |= {_object_key(n) for n in entry.get('objects', [])}
+    return released
+
+
+def confirmed_lock_basis(root, task, db, objects):
+    """Basis for a lock refresh: the latest lock receipt of this task/profile that covers the
+    objects, where EVERY object has a valid chain back to an original confirmed capture:
+    a succeeded lock receipt that lists the object in acquired_now. A previous refresh counts
+    only as a link of such a chain (lock_kind=refresh, refresh_confirmed, refresh_of inside
+    this task). Any release of the object after its original capture breaks the chain.
+    Old receipts with the object in acquired_now are valid originals as they are."""
+    root = Path(root).resolve()
+    folder = receipt_root(root, task)
+    paths = sorted(folder.glob('*/receipt.json'))          # oldest -> newest (stamp order)
+    entries = {}
+    for path in paths:
+        try:
+            entries[str(path)] = read_json(path)
+        except (OSError, ValueError):
+            continue
+    mine = fingerprint(db)
+    order = [str(p) for p in paths if str(p) in entries]
+    wanted = [_object_key(n) for n in objects]
+
+    def covers(entry, key):
+        return key in {_object_key(n) for n in entry.get('objects', [])}
+
+    basis = None
+    for path in reversed(order):
+        entry = entries[path]
+        if entry.get('profile_hash') != mine:
+            continue
+        if entry.get('operation') == 'lock' and entry.get('state') == 'succeeded' \
+                and all(covers(entry, k) for k in wanted):
+            basis = path
+            break
+        # newer release/denial/received version of a wanted object: nothing older is a basis
+        if received_objects(entry) & set(wanted):
+            raise ValueError('repository: a newer object version was received after the prepare; '
+                             'reconcile the sources (rebase), then prepare again')
+        if denied_objects(entry) & set(wanted):
+            raise ValueError('repository: platform reported a wanted object as not held by this task '
+                             '(not locked / locked by another user); prepare again')
+        if _released_objects(entry) & set(wanted):
+            raise ValueError('repository: a wanted object was released after the prepare; prepare again')
+    if basis is None:
+        raise ValueError('repository: no confirmed prepare for these objects in this task; refresh refused')
+
+    for key in wanted:
+        current, seen = basis, set()
+        while True:
+            if current in seen or current not in entries:
+                raise ValueError(f'repository: broken refresh chain for {key}; refresh refused')
+            seen.add(current)
+            entry = entries[current]
+            if entry.get('profile_hash') != mine or entry.get('operation') != 'lock' \
+                    or entry.get('state') != 'succeeded' or not covers(entry, key):
+                raise ValueError(f'repository: refresh chain for {key} reaches an unconfirmed receipt; refresh refused')
+            if key in denied_objects(entry) or key in received_objects(entry):
+                raise ValueError(f'repository: {current} contradicts the capture of {key}; refresh refused')
+            if key in confirmed_captures(entry):
+                origin = current
+                break
+            link = entry.get('refresh_of')
+            if entry.get('lock_kind') != 'refresh' or not link \
+                    or 'refresh_confirmed' not in str(entry.get('lock_assessment', '')):
+                raise ValueError(f'repository: no confirmed capture of {key} behind {current}; refresh refused')
+            link = str(Path(link).resolve()) if Path(link).is_absolute() else str((Path(root) / link).resolve())
+            if not Path(link).is_relative_to(folder.resolve()):
+                raise ValueError(f'repository: refresh chain for {key} leaves this task; refresh refused')
+            current = link
+        for later in order[order.index(origin) + 1:]:
+            entry = entries[later]
+            if entry.get('profile_hash') != mine:
+                continue
+            if key in _released_objects(entry):
+                raise ValueError(f'repository: {key} was released after its capture; prepare again')
+            if key in denied_objects(entry):
+                raise ValueError(f'repository: platform later reported {key} as not held by this task; prepare again')
+            if key in received_objects(entry):
+                raise ValueError(f'repository: a newer version of {key} was received after its capture; '
+                                 'reconcile the sources (rebase), then prepare again')
+    return basis
 
 
 def file_hashes(root, paths):
