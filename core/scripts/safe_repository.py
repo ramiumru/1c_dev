@@ -16,7 +16,7 @@ from pathlib import Path
 from repository_support import (READ_OPS, WRITE_OPS, INTENTS, profile, object_names,
                                 comment, redact, fingerprint, receipt_root,
                                 find_lock_receipt, required_objects, read_json, check_publication_evidence, find_diff_receipt,
-                                confirmed_lock_basis)
+                                confirmed_lock_basis, denied_objects)
 from safe_apply import ROOT, find_skills_dir
 
 
@@ -427,7 +427,10 @@ def _run_recorded(root, db, operation, objects, args, log, receipt_file, timeout
                 state = 'unverified'  # partial/silent success is not full publication evidence
             elif not result.get('committed'):
                 state = 'no_changes'
-        updates.update(state=state, runner_exit=run.returncode, acquired_now=result.get('locked', []), result=result)
+        # a capture line contradicted by a denial for the same object is not a capture
+        denied = denied_objects({'result': result})
+        captured = [n for n in result.get('locked', []) if str(n).strip().lower().replace('ё', 'е') not in denied]
+        updates.update(state=state, runner_exit=run.returncode, acquired_now=captured, result=result)
         if not has_result:
             updates['diagnostic'] = 'runner exited without result.json; platform outcome unknown — database stays locked'
         print(output)
@@ -452,7 +455,7 @@ def _lock_outcome(receipt_file, objects, result):
     key = lambda n: str(n).strip().lower().replace('ё', 'е')  # same as repo-ops Get-ObjectKey (+ё)
     locked = {key(n) for n in result.get('locked', [])}
     # an explicit negative per-object answer wins over any general completion line
-    negative = {key(n) for n in list(result.get('not_locked', [])) + list(result.get('unlocked', []))}
+    negative = denied_objects({'result': result})  # not locked / unlocked / locked by another user
     denied = [n for n in objects if key(n) in negative]
     if denied:
         return 'unverified', f'platform reported {denied} as not locked/unlocked'
