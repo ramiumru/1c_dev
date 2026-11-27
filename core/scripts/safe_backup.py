@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from platform_path import resolve_v8path
 try:
     from _root import find_root as _find_root_shared
 except ImportError:
@@ -157,8 +158,12 @@ def main() -> int:
         print(f"ERROR: skill-скрипт не найден: {skill_script}", file=sys.stderr)
         return 2
 
-    # 5. Сформировать аргументы для backup
-    v8path = str(cfg.get("v8path", "")).strip()
+    # 5. Сформировать аргументы для backup (тот же выбор платформы, что у safe_apply)
+    try:
+        v8path, _source = resolve_v8path(cfg, db)
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
     ps_args: list[str] = []
     if v8path:
         ps_args.extend(["-V8Path", v8path])

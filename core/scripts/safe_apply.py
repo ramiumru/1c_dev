@@ -40,6 +40,7 @@ try:
     from _root import find_root as _find_root_shared
 except ImportError:
     _find_root_shared = None
+from platform_path import resolve_v8path
 try:
     from plan_parser import parse_plan_from_file, normalize_files_for_powershell
 except ImportError:
@@ -95,7 +96,12 @@ def load_db_config(db_id: str, project_root: Path = None) -> dict:
         print(f"ERROR: база '{db_id}' не найдена в реестре", file=sys.stderr)
         return {}
     db = matches[0]
-    db["__v8path"] = str(cfg.get("v8path", "")).strip()
+    try:
+        # one choice for the whole apply: load-xml and update get the same -V8Path
+        db["__v8path"], db["__v8path_source"] = resolve_v8path(cfg, db)
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return {}
     return db
 
 
