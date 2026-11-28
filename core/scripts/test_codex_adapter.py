@@ -104,11 +104,14 @@ class InstalledTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         for script in ('doctor.py', 'validate.py'):
             args = [os.sys.executable, str(self.target / 'scripts' / script)]
+            timeout = 90
             if script == 'validate.py':
                 args.append('--skip-smoke')
+                # Installed validation still runs the apply and repository suites.
+                timeout = 240
             env = dict(os.environ, PYTHONPYCACHEPREFIX=str(Path(self.temp.name) / 'pycache'))
             result = subprocess.run(args, cwd=self.target, env=env, capture_output=True,
-                                    text=True, encoding='utf-8', timeout=90)
+                                    text=True, encoding='utf-8', timeout=timeout)
             self.assertEqual(result.returncode, 0, result.stdout[-6000:] + result.stderr)
         manifest = json.loads((self.target / '.ai-rules.json').read_bytes().decode('utf-8-sig'))
         entries = {f['path']: f for f in manifest['files']}

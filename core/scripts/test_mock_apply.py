@@ -134,6 +134,8 @@ def create_fake_skills(tdpath: Path, exit_codes: dict) -> Path:
         env_key = skill_name.upper().replace("-", "_") + "_EXIT"
         # JSONL writer: append one line per call. Log path embedded directly.
         runner_script = f'''# Fake runner for {skill_name}
+# HARNESS_STAGE_PROTOCOL: 1
+if ($env:HARNESS_STAGE_MARKER) {{ [System.IO.File]::WriteAllText($env:HARNESS_STAGE_MARKER, 'platform-started') }}
 $ErrorActionPreference = 'Stop'
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -367,12 +369,16 @@ def main() -> int:
         results.append(("error load: only load called", seq == ["db-load-xml"], f"seq={seq}"))
         results.append(("error load: nonzero exit", rc != 0, f"exit={rc}"))
 
-        # Error on update: load+update in order
-        rc, log = run_safe_apply(tdpath, task_id, "collector", {"db-update": 1})
-        seq = [e["skill"] for e in log]
-        results.append(("error update: load+update in order",
-                         seq == ["db-load-xml", "db-update"], f"seq={seq}"))
-        results.append(("error update: nonzero exit", rc != 0, f"exit={rc}"))
+        # A failed load leaves an unresolved journal. Exercise the separate update
+        # failure scenario with its own database fixture.
+        with tempfile.TemporaryDirectory(prefix="mock_apply_update_error_") as update_dir:
+            update_root = Path(update_dir)
+            update_task = setup_test_env(update_root)["task_id"]
+            rc, log = run_safe_apply(update_root, update_task, "collector", {"db-update": 1})
+            seq = [e["skill"] for e in log]
+            results.append(("error update: load+update in order",
+                             seq == ["db-load-xml", "db-update"], f"seq={seq}"))
+            results.append(("error update: nonzero exit", rc != 0, f"exit={rc}"))
 
         # Path with spaces and Cyrillic
         with tempfile.TemporaryDirectory(prefix="кириллица пробел ") as td2:
@@ -384,8 +390,11 @@ def main() -> int:
                              seq == ["db-load-xml", "db-update"], f"seq={seq}, exit={rc}"))
 
         # Run from different cwd
-        with tempfile.TemporaryDirectory(prefix="other_cwd_") as other_cwd:
-            rc, log = run_safe_apply(tdpath, task_id, "collector", {}, cwd=other_cwd)
+        with tempfile.TemporaryDirectory(prefix="mock_apply_cwd_") as cwd_project, \
+                tempfile.TemporaryDirectory(prefix="other_cwd_") as other_cwd:
+            cwd_root = Path(cwd_project)
+            cwd_task = setup_test_env(cwd_root)["task_id"]
+            rc, log = run_safe_apply(cwd_root, cwd_task, "collector", {}, cwd=other_cwd)
             seq = [e["skill"] for e in log]
             results.append(("different cwd: success sequence",
                              seq == ["db-load-xml", "db-update"], f"seq={seq}, exit={rc}"))

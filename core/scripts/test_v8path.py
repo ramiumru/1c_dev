@@ -26,7 +26,10 @@ FAKE_SKILL = r'''param(
   [string]$V8Path, [string]$InfoBasePath, [string]$InfoBaseServer, [string]$InfoBaseRef,
   [string]$UserName, [string]$UserNameEnv, [string]$PasswordEnv, [string]$ConfigDir,
   [string]$Mode, [string]$Files, [string]$Extension, [string]$OutputFile)
+# HARNESS_STAGE_PROTOCOL: 1
+if ($env:HARNESS_STAGE_MARKER) { [IO.File]::WriteAllText($env:HARNESS_STAGE_MARKER, 'ack') }
 $name = Split-Path -Leaf $PSCommandPath
+if ($env:HARNESS_STAGE_MARKER) { [IO.File]::WriteAllText($env:HARNESS_STAGE_MARKER, 'platform-started') }
 [IO.File]::AppendAllText((Join-Path $env:V8_CAPTURE_DIR 'calls.txt'), "$name|$V8Path`n")
 if ($OutputFile) { [IO.File]::WriteAllText($OutputFile, 'fixture dt') }
 $code = [Environment]::GetEnvironmentVariable('FAKE_EXIT_' + ($name -replace '\.ps1$','' -replace '-','_'))

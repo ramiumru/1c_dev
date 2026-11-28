@@ -111,6 +111,9 @@ REQUIRED_FILES_SOURCE = [
     "core/scripts/test_guard_hardening.py",
     "core/scripts/platform_path.py",
     "core/scripts/test_v8path.py",
+    "core/scripts/test_apply_batch.py",
+    "core/scripts/os_lock.py",
+    "docs/experiments/repository-load-probe.ps1",
     "core/scripts/test_development_preflight.py",
     "core/scripts/development_preflight.py",
     "core/scripts/bsl-check.py",
@@ -175,6 +178,8 @@ REQUIRED_FILES_INSTALLED = [
     "scripts/test_guard_hardening.py",
     "scripts/platform_path.py",
     "scripts/test_v8path.py",
+    "scripts/test_apply_batch.py",
+    "scripts/os_lock.py",
     "scripts/test_development_preflight.py",
     "scripts/development_preflight.py",
     "scripts/bsl-check.py",
@@ -871,7 +876,7 @@ def check_codex_adapter(rep: Report, skip_smoke: bool) -> None:
         if skip_smoke:
             cmd.append("--source-only")
         result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                                errors="replace", timeout=300)
+                                errors="replace", timeout=360)
         if result.returncode == 0:
             rep.ok("codex-adapter: source contracts" if skip_smoke else
                    "codex-adapter: native skills/agents, migration, repeated update and user-file protection")
@@ -919,6 +924,28 @@ def check_v8path_regressions(rep: Report) -> None:
         rep.ok("v8path: database path wins over root for load/update/backup; no silent substitution")
     else:
         rep.error(f"v8path: {result.stdout[-1000:]} {result.stderr[-3000:]}")
+
+
+def check_apply_batch_regressions(rep: Report) -> None:
+    scripts = ROOT / "core/scripts" if IS_SOURCE_REPO else ROOT / "scripts"
+    result = subprocess.run([sys.executable, str(scripts / "test_apply_batch.py")],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+    if result.returncode == 0:
+        rep.ok("apply-batch: repository connection line blocks update; stage timeout journaled as unknown")
+    else:
+        rep.error(f"apply-batch: {result.stdout[-1000:]} {result.stderr[-3000:]}")
+
+
+def check_load_probe_masking(rep: Report) -> None:
+    if not IS_SOURCE_REPO:
+        return  # the operator probe ships with the harness sources only
+    test = ROOT / "docs/experiments/test_repository_load_probe.py"
+    result = subprocess.run([sys.executable, str(test)], capture_output=True, text=True,
+                            encoding="utf-8", errors="replace", timeout=180)
+    if result.returncode == 0:
+        rep.ok("load-probe: diagnostic command built masked; quoted credentials never in artifacts")
+    else:
+        rep.error(f"load-probe: {result.stdout[-1000:]} {result.stderr[-3000:]}")
 
 
 def check_repository_setup_regressions(rep: Report) -> None:
@@ -3734,6 +3761,8 @@ def main() -> int:
     check_confirmed_regressions(rep)
     check_guard_hardening_regressions(rep)
     check_v8path_regressions(rep)
+    check_apply_batch_regressions(rep)
+    check_load_probe_masking(rep)
     check_repository_setup_regressions(rep)
     check_repository_regressions(rep)
     check_python_runtime_regressions(rep)
