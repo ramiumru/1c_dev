@@ -212,6 +212,78 @@ def run_guard(task: str, db: str, config_src: str, files_rel: list[str], project
     return r.returncode
 
 
+# --- Stage timeout and durable stage journal (pilot incident 2026-11-28) ---------------------
+# An agent shell kills commands after <=600 s; a stage that outlives it leaves no answer.
+# The journal pilot-control/<TASK>/apply-run.json records each stage before and after it runs,
+# so a later look shows which stage started and whether its completion was confirmed.
+DEFAULT_STAGE_TIMEOUT_SECONDS = 540
+STAGE_TIMEOUT_SECONDS = DEFAULT_STAGE_TIMEOUT_SECONDS
+STAGE_TIMEOUT_EXIT = 124
+SKILL_CWD = None  # project root: configSrc and plan paths are relative to it
+UNRESOLVED_EXIT = 3
+
+
+def stage_timeout_seconds(db: dict) -> int:
+    value = db.get("apply_stage_timeout_seconds", DEFAULT_STAGE_TIMEOUT_SECONDS)
+    if type(value) is not int or not 60 <= value <= 7200:
+        raise ValueError("apply_stage_timeout_seconds must be an integer 60..7200")
+    return value
+
+
+def _utc_now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+class ApplyJournal:
+    def __init__(self, project_root: Path, task: str, db_id: str):
+        self.path = project_root / "pilot-control" / task / "apply-run.json"
+        self.db_id = db_id
+        self.data = {"runs": []}
+        if self.path.is_file():
+            self.data = json.loads(self.path.read_text(encoding="utf-8-sig"))
+
+    def _save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        tmp.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, self.path)
+
+    def unresolved(self):
+        """Stages of earlier runs whose completion was never confirmed."""
+        found = []
+        for run in self.data.get("runs", []):
+            if run.get("resolution"):
+                continue
+            for stage in run.get("stages", []):
+                if stage.get("outcome") in ("started", "unknown"):
+                    found.append((run, stage))
+        return found
+
+    def resolve(self, reason: str) -> None:
+        for run, _stage in self.unresolved():
+            run["resolution"] = {"at": _utc_now(), "reason": reason}
+        self._save()
+
+    def begin_run(self) -> None:
+        import uuid
+        self.run = {"run_id": uuid.uuid4().hex[:12], "db": self.db_id, "started_at": _utc_now(), "stages": []}
+        self.data.setdefault("runs", []).append(self.run)
+        self._save()
+
+    def start(self, name: str, timeout: int) -> None:
+        self.stage = {"name": name, "started_at": _utc_now(), "timeout_seconds": timeout, "outcome": "started"}
+        self.run["stages"].append(self.stage)
+        self._save()
+
+    def finish(self, code: int) -> None:
+        self.stage["finished_at"] = _utc_now()
+        self.stage["exit"] = code
+        self.stage["outcome"] = ("unknown" if code == STAGE_TIMEOUT_EXIT
+                                 else "succeeded" if code == 0 else "failed")
+        self._save()
+
+
 def run_skill(skill_name: str, ps_args: list[str], skills_dir: Path) -> int:
     """Запустить PowerShell skill-скрипт."""
     skill_script = skills_dir / skill_name / "scripts" / f"{skill_name}.ps1"
@@ -220,11 +292,21 @@ def run_skill(skill_name: str, ps_args: list[str], skills_dir: Path) -> int:
         return 2
     pwsh = os.environ.get("PWSH", "powershell")
     cmd = [pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(skill_script)] + ps_args
-    print(f"\n=== safe_apply: запуск skill '{skill_name}' ===")
+    print(f"\n=== safe_apply: этап '{skill_name}' ЗАПУЩЕН — до подтверждения исход неизвестен ===", flush=True)
     print(f"  script: {skill_script}")
-    print(f"  args: {redact(' '.join(ps_args))}")
+    print(f"  args: {redact(' '.join(ps_args))}", flush=True)
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                               timeout=STAGE_TIMEOUT_SECONDS, cwd=SKILL_CWD)
+        except subprocess.TimeoutExpired as exc:
+            for chunk in (exc.stdout, exc.stderr):
+                if chunk:
+                    print(redact(chunk if isinstance(chunk, str) else chunk.decode("utf-8", "replace")), end="")
+            print(f"\n=== safe_apply: этап '{skill_name}' запущен, ЗАВЕРШЕНИЕ НЕ ПОДТВЕРЖДЕНО за "
+                  f"{STAGE_TIMEOUT_SECONDS} с. Процесс 1cv8 может продолжать работу; состояние базы неизвестно. "
+                  "Автоматический повтор не выполняется. ===", flush=True)
+            return STAGE_TIMEOUT_EXIT
         if r.stdout:
             print(r.stdout, end="")
         if r.stderr:
@@ -253,6 +335,8 @@ def main() -> int:
     parser.add_argument("--db", required=True, help="id базы из .v8-project.json")
     parser.add_argument("--project-root", default="", help="явный корень проекта (для тестов)")
     parser.add_argument("--dry-run", action="store_true", help="только проверки, без вызова skill")
+    parser.add_argument("--resolve-unknown-outcome", default="",
+                        help="после проверки человеком: что установлено о незавершённом этапе прошлого apply")
     parser.add_argument("--baseline", default="unknown", choices=["unknown", "confirmed", "stale"],
                         help="DB baseline state: unknown (default, WARN в guard) | confirmed "
                              "(явное подтверждение пользователя baseline sync repository → DB) | "
@@ -319,12 +403,39 @@ def main() -> int:
         return 0
 
     # 6. db-load-xml Partial
+    global STAGE_TIMEOUT_SECONDS, SKILL_CWD
+    SKILL_CWD = str(project_root_path)
+    try:
+        STAGE_TIMEOUT_SECONDS = stage_timeout_seconds(db)
+        journal = ApplyJournal(project_root_path, task, db_id)
+    except (ValueError, OSError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    pending = journal.unresolved()
+    if pending and not args.resolve_unknown_outcome:
+        for run, stage in pending:
+            print(f"ERROR: предыдущий apply (run {run.get('run_id')}): этап '{stage.get('name')}' запущен "
+                  f"{stage.get('started_at')}, завершение не подтверждено. Повтор не выполняется: проверьте "
+                  "процессы 1cv8 и состояние базы, затем запустите с --resolve-unknown-outcome \"<что проверено>\".",
+                  file=sys.stderr)
+        return UNRESOLVED_EXIT
+    if pending:
+        if len(args.resolve_unknown_outcome.strip()) < 10:
+            print("ERROR: --resolve-unknown-outcome: опишите, что проверено (не менее 10 символов)", file=sys.stderr)
+            return 2
+        journal.resolve(args.resolve_unknown_outcome.strip())
+    journal.begin_run()
     skills_dir = find_skills_dir(project_root_path)
     if not skills_dir.is_dir():
         # Fallback: harness skills (for development)
         skills_dir = find_skills_dir(ROOT)
     ps_args_load = build_ps_args(db, config_src, files_rel, is_update=False)
+    journal.start("db-load-xml", STAGE_TIMEOUT_SECONDS)
     load_exit = run_skill("db-load-xml", ps_args_load, skills_dir)
+    journal.finish(load_exit)
+    if load_exit == STAGE_TIMEOUT_EXIT:
+        print("=== safe_apply: load-xml — исход неизвестен; update НЕ запускался ===")
+        return UNRESOLVED_EXIT
     if load_exit != 0:
         print("=== safe_apply: load-xml не прошёл — update не запускается ===")
         print("Восстановление — ручная процедура (внешний backup).")
@@ -332,7 +443,12 @@ def main() -> int:
 
     # 7. db-update (UpdateDBCfg)
     ps_args_update = build_ps_args(db, config_src, files_rel, is_update=True)
+    journal.start("db-update", STAGE_TIMEOUT_SECONDS)
     update_exit = run_skill("db-update", ps_args_update, skills_dir)
+    journal.finish(update_exit)
+    if update_exit == STAGE_TIMEOUT_EXIT:
+        print("=== safe_apply: update — исход неизвестен; загрузка выполнена, обновление БД не подтверждено ===")
+        return UNRESOLVED_EXIT
     if update_exit != 0:
         print("=== safe_apply: update завершился с ошибкой ===")
         print("Восстановление — ручная процедура (внешний backup).")

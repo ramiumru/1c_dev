@@ -111,6 +111,7 @@ REQUIRED_FILES_SOURCE = [
     "core/scripts/test_guard_hardening.py",
     "core/scripts/platform_path.py",
     "core/scripts/test_v8path.py",
+    "core/scripts/test_apply_batch.py",
     "core/scripts/test_development_preflight.py",
     "core/scripts/development_preflight.py",
     "core/scripts/bsl-check.py",
@@ -175,6 +176,7 @@ REQUIRED_FILES_INSTALLED = [
     "scripts/test_guard_hardening.py",
     "scripts/platform_path.py",
     "scripts/test_v8path.py",
+    "scripts/test_apply_batch.py",
     "scripts/test_development_preflight.py",
     "scripts/development_preflight.py",
     "scripts/bsl-check.py",
@@ -919,6 +921,16 @@ def check_v8path_regressions(rep: Report) -> None:
         rep.ok("v8path: database path wins over root for load/update/backup; no silent substitution")
     else:
         rep.error(f"v8path: {result.stdout[-1000:]} {result.stderr[-3000:]}")
+
+
+def check_apply_batch_regressions(rep: Report) -> None:
+    scripts = ROOT / "core/scripts" if IS_SOURCE_REPO else ROOT / "scripts"
+    result = subprocess.run([sys.executable, str(scripts / "test_apply_batch.py")],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180)
+    if result.returncode == 0:
+        rep.ok("apply-batch: repository connection line blocks update; stage timeout journaled as unknown")
+    else:
+        rep.error(f"apply-batch: {result.stdout[-1000:]} {result.stderr[-3000:]}")
 
 
 def check_repository_setup_regressions(rep: Report) -> None:
@@ -3734,6 +3746,7 @@ def main() -> int:
     check_confirmed_regressions(rep)
     check_guard_hardening_regressions(rep)
     check_v8path_regressions(rep)
+    check_apply_batch_regressions(rep)
     check_repository_setup_regressions(rep)
     check_repository_regressions(rep)
     check_python_runtime_regressions(rep)

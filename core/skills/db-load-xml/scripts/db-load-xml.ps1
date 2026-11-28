@@ -369,7 +369,9 @@ try {
 
     # --- Output ---
     $outFile = Join-Path $tempDir "load_log.txt"
+    $resultFile = Join-Path $tempDir "load_result.txt"
     $arguments += "/Out", "`"$outFile`""
+    $arguments += "/DumpResult", "`"$resultFile`""
     $arguments += "/DisableStartupDialogs"
 
     # --- Execute ---
@@ -380,7 +382,42 @@ try {
     # --- Read log ---
     $logContent = $null
     if (Test-Path $outFile) {
-        $logContent = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
+        # BOM decides when present, otherwise UTF-8 (Get-Content on PS 5.1 would read ANSI)
+        try { $logContent = [System.IO.File]::ReadAllText($outFile) } catch { $logContent = $null }
+    }
+
+    # --- Batch verdict: exit 0 alone is not success (pilot incident 2026-11-28) ---
+    # A repository-bound infobase may answer with a repository connection failure in /Out
+    # and still exit 0; /DumpResult carries the batch result code.
+    $repositoryFailurePatterns = @(
+        'Соединение с хранилищем конфигурации не установлено',
+        'Ошибка соединения с хранилищем конфигурации',
+        'Не удалось подключиться к хранилищу',
+        'Ошибка работы с хранилищем конфигурации'
+    )
+    $repositoryFailures = @()
+    if ($logContent) {
+        foreach ($line in ($logContent -split "`r?`n")) {
+            foreach ($pat in $repositoryFailurePatterns) {
+                if ($line -match [regex]::Escape($pat)) { $repositoryFailures += $line.Trim(); break }
+            }
+        }
+    }
+    if ($repositoryFailures.Count -gt 0) {
+        Write-Host "[error] /Out reports a configuration repository connection failure — STAGE NOT CONFIRMED:" -ForegroundColor Red
+        foreach ($f in $repositoryFailures) { Write-Host "  $f" -ForegroundColor Red }
+        if ($exitCode -eq 0) { $exitCode = 1 }
+    }
+    if ($exitCode -eq 0) {
+        $resultText = $null
+        if (Test-Path $resultFile) { try { $resultText = [System.IO.File]::ReadAllText($resultFile) } catch { } }
+        if ($null -eq $resultText -or $resultText.Trim() -notmatch '^-?\d+') {
+            Write-Host "[error] the platform exited 0 but /DumpResult was not written — batch result unknown" -ForegroundColor Red
+            $exitCode = 1
+        } elseif ([int]$Matches[0] -ne 0) {
+            Write-Host "[error] the platform exited 0 but /DumpResult reports $($Matches[0])" -ForegroundColor Red
+            $exitCode = [int]$Matches[0]
+        }
     }
 
     # --- Scan log for silent rejections ---
