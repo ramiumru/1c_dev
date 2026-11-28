@@ -288,6 +288,8 @@ try {
         if ($Password) { $arguments += "--password=$Password" }
         $arguments += "--data=$tempDir"
         Write-Host "Running: ibcmd $(Protect-Secrets ($arguments -join ' ') @($Password, $UserName))"
+        # Harness: mark the moment the platform is launched (pre-launch refusals leave no marker)
+        if ($env:HARNESS_STAGE_MARKER) { [System.IO.File]::WriteAllText($env:HARNESS_STAGE_MARKER, 'platform-started') }
         $__ib = Invoke-IbcmdProcess $V8Path $arguments
         $output = $__ib.Output
         $exitCode = $__ib.ExitCode
@@ -376,6 +378,8 @@ try {
 
     # --- Execute ---
     Write-Host "Running: 1cv8.exe $(Protect-Secrets ($arguments -join ' ') @($Password, $UserName))"
+    # Harness: mark the moment the platform is launched (pre-launch refusals leave no marker)
+    if ($env:HARNESS_STAGE_MARKER) { [System.IO.File]::WriteAllText($env:HARNESS_STAGE_MARKER, 'platform-started') }
     $process = Start-Process -FilePath $V8Path -ArgumentList $arguments -NoNewWindow -Wait -PassThru
     $exitCode = $process.ExitCode
 

@@ -131,12 +131,12 @@ class ApplyBatchTests(unittest.TestCase):
         self.assertIn('/LoadConfigFromFiles', calls[0])
         self.assertIn('repository connection failure', output)
         self.assertIn('update не запускается', output)
-        self.assertEqual(self.journal()['runs'][-1]['stages'][0]['outcome'], 'failed')
+        self.assertEqual(self.journal()['runs'][-1]['stages'][0]['outcome'], 'failed_after_launch')
 
     def test_update_connection_line_is_failure_too(self):
         code, output = self.apply(update='repo_conn')
         self.assertEqual(code, 1, output)
-        self.assertEqual([s['outcome'] for s in self.journal()['runs'][-1]['stages']], ['succeeded', 'failed'])
+        self.assertEqual([s['outcome'] for s in self.journal()['runs'][-1]['stages']], ['succeeded', 'failed_after_launch'])
 
     def test_missing_dump_result_is_not_success(self):
         code, output = self.apply(load='nodump')
@@ -193,7 +193,7 @@ class ApplyBatchTests(unittest.TestCase):
         calls_before = len(self.stages())
         code, output, refreshes = self._apply_repo()
         self.assertEqual(code, safe_apply.UNRESOLVED_EXIT, output)
-        self.assertIn('обновление БД не подтверждено (failed)', output)
+        self.assertIn('обновление БД не подтверждено (failed_after_launch)', output)
         self.assertEqual(refreshes, [])                      # no platform lock-refresh
         self.assertEqual(len(self.stages()), calls_before)   # no load either
 
@@ -210,11 +210,63 @@ class ApplyBatchTests(unittest.TestCase):
         code, output, refreshes = self._apply_repo(extra=('--resolve-unknown-outcome', 'main vs DB config compared: equal'))
         self.assertEqual((code, len(refreshes)), (0, 1), output)
 
-    def test_failed_load_alone_does_not_block(self):
+    def test_refusal_before_launch_allows_a_new_run(self):
+        # the skill refuses before 1cv8 starts (credential variable missing): IB untouched
+        with patch.dict(os.environ, {'DEMO_DB_PASSWORD': ''}):
+            code, output = self.apply()
+        self.assertEqual(code, 1, output)
+        self.assertEqual(self.stages(), [])                       # platform never started
+        stage = self.journal()['runs'][-1]['stages'][0]
+        self.assertEqual((stage['outcome'], stage['platform_started']), ('failed_before_launch', False))
+        self.assertIn('до запуска платформы', output)
+        code, output = self.apply()
+        self.assertEqual(code, 0, output)
+
+    def test_platform_without_dump_result_blocks_reload_before_lock_refresh(self):
+        self._repo_profile()
+        code, output, refreshes = self._apply_repo(load='nodump')
+        self.assertEqual((code, len(refreshes)), (1, 1), output)
+        stage = self.journal()['runs'][-1]['stages'][0]
+        self.assertEqual((stage['outcome'], stage['platform_started']), ('failed_after_launch', True))
+        self.assertIn('после запуска платформы', output)
+        calls = len(self.stages())
+        code, output, refreshes = self._apply_repo()
+        self.assertEqual(code, safe_apply.UNRESOLVED_EXIT, output)
+        self.assertIn('завершилась без подтверждения', output)
+        self.assertEqual(refreshes, [])
+        self.assertEqual(len(self.stages()), calls)
+
+    def test_connection_failure_after_launch_blocks_reload(self):
         code, _ = self.apply(load='repo_conn')
         self.assertEqual(code, 1)
         code, output = self.apply()
-        self.assertEqual(code, 0, output)
+        self.assertEqual(code, safe_apply.UNRESOLVED_EXIT, output)
+
+    def test_parallel_attempts_on_one_database(self):
+        # controlled order: A holds the apply lock inside its journal check; B starts then
+        import threading
+        in_check, release = threading.Event(), threading.Event()
+        real = safe_apply.ApplyJournal.unresolved
+        def paused(journal):
+            if threading.current_thread().name == 'A':
+                in_check.set()
+                release.wait(10)
+            return real(journal)
+        results = {}
+        def attempt(name):
+            results[name] = self.apply()
+        with patch.object(safe_apply.ApplyJournal, 'unresolved', paused):
+            a = threading.Thread(target=attempt, args=('A',), name='A'); a.start()
+            self.assertTrue(in_check.wait(10))
+            b = threading.Thread(target=attempt, args=('B',), name='B'); b.start(); b.join(20)
+            journal_during = (self.root / 'pilot-control/TASK-DEMO/apply-run.json').exists()
+            release.set(); a.join(60)
+        self.assertEqual(results['B'][0], safe_apply.BUSY_EXIT, results['B'][1])
+        self.assertIn('уже выполняется другой safe_apply', results['B'][1])
+        self.assertFalse(journal_during)            # B wrote nothing while A was checking
+        self.assertEqual(results['A'][0], 0, results['A'][1])
+        self.assertEqual(len(self.journal()['runs']), 1)   # one run: A's
+        self.assertEqual(len(self.stages()), 2)            # A's load + update only
 
     def test_dry_run_never_records_a_resolution(self):
         journal = safe_apply.ApplyJournal(self.root, 'TASK-DEMO', 'demo-test')
@@ -234,7 +286,8 @@ class ApplyBatchTests(unittest.TestCase):
         self.assertEqual(code, 0, output)
 
     def test_shell_budget_exhausted_after_load_blocks_until_resolved(self):
-        with patch.object(safe_apply.time, 'monotonic', side_effect=_clock(0.0, 10.0, 500.0)):
+        # readings: call start, apply lock, load budget, update budget
+        with patch.object(safe_apply.time, 'monotonic', side_effect=_clock(0.0, 0.0, 10.0, 500.0)):
             code, output = self.apply(extra=('--shell-budget-seconds', '570'))
         self.assertEqual(code, safe_apply.BUDGET_EXIT, output)
         self.assertIn("этап 'db-update' НЕ запущен", output)

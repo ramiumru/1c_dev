@@ -42,6 +42,7 @@ try:
 except ImportError:
     _find_root_shared = None
 from platform_path import resolve_v8path
+from os_lock import FileLock, Busy
 try:
     from plan_parser import parse_plan_from_file, normalize_files_for_powershell
 except ImportError:
@@ -221,6 +222,9 @@ DEFAULT_STAGE_TIMEOUT_SECONDS = 540
 STAGE_TIMEOUT_SECONDS = DEFAULT_STAGE_TIMEOUT_SECONDS
 STAGE_TIMEOUT_EXIT = 124
 SKILL_CWD = None  # project root: configSrc and plan paths are relative to it
+BUSY_EXIT = 5
+STAGE_MARKER = None           # path the skill writes right before launching the platform
+LAST_PLATFORM_STARTED = None  # True/False after a real run_skill; None = unknown (treated as started)
 UNRESOLVED_EXIT = 3
 BUDGET_EXIT = 4
 MIN_STAGE_SECONDS = 60
@@ -258,7 +262,8 @@ class ApplyJournal:
         - a stage started but its completion was never confirmed (timeout, runner killed);
         - load succeeded but update was not confirmed (failed, not started, interrupted
           between stages) — the main configuration may differ from the database configuration.
-        A failed load with no later stage leaves the state as before and does not block."""
+        - load ran the platform and failed without confirmation (exit != 0, no /DumpResult, ...).
+        Only a refusal before the platform started (failed_before_launch) leaves the IB untouched."""
         found = []
         for run in self.data.get("runs", []):
             if run.get("resolution"):
@@ -269,6 +274,9 @@ class ApplyJournal:
                     found.append((run, f"этап '{stage.get('name')}' запущен {stage.get('started_at')}, "
                                        "завершение не подтверждено"))
             load, update = stages.get("db-load-xml"), stages.get("db-update")
+            if load and load.get("outcome") == "failed_after_launch":
+                found.append((run, f"загрузка запускалась {load.get('started_at')} и завершилась без "
+                                   f"подтверждения (exit {load.get('exit')}): ИБ могла измениться"))
             if load and load.get("outcome") == "succeeded" and not (update and update.get("outcome") == "succeeded"):
                 if not (update and update.get("outcome") in ("started", "unknown")):
                     state = update.get("outcome") if update else "не запускался"
@@ -296,11 +304,19 @@ class ApplyJournal:
         self.run["stages"].append({"name": name, "outcome": "not_started", "reason": reason, "at": _utc_now()})
         self._save()
 
-    def finish(self, code: int) -> None:
+    def finish(self, code: int, platform_started=None) -> None:
         self.stage["finished_at"] = _utc_now()
         self.stage["exit"] = code
-        self.stage["outcome"] = ("unknown" if code == STAGE_TIMEOUT_EXIT
-                                 else "succeeded" if code == 0 else "failed")
+        self.stage["platform_started"] = platform_started
+        if code == STAGE_TIMEOUT_EXIT:
+            outcome = "unknown"
+        elif code == 0:
+            outcome = "succeeded"
+        elif platform_started is False:
+            outcome = "failed_before_launch"   # the skill refused before 1cv8 started: IB untouched
+        else:
+            outcome = "failed_after_launch"    # 1cv8 ran (or may have run): result not confirmed
+        self.stage["outcome"] = outcome
         self._save()
 
 
@@ -312,13 +328,22 @@ def run_skill(skill_name: str, ps_args: list[str], skills_dir: Path) -> int:
         return 2
     pwsh = os.environ.get("PWSH", "powershell")
     cmd = [pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(skill_script)] + ps_args
+    global LAST_PLATFORM_STARTED
+    LAST_PLATFORM_STARTED = None
+    env = None
+    if STAGE_MARKER:
+        marker = Path(STAGE_MARKER)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        if marker.exists():
+            marker.unlink()
+        env = dict(os.environ, HARNESS_STAGE_MARKER=str(marker))
     print(f"\n=== safe_apply: этап '{skill_name}' ЗАПУЩЕН — до подтверждения исход неизвестен ===", flush=True)
     print(f"  script: {skill_script}")
     print(f"  args: {redact(' '.join(ps_args))}", flush=True)
     try:
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                               timeout=STAGE_TIMEOUT_SECONDS, cwd=SKILL_CWD)
+                               timeout=STAGE_TIMEOUT_SECONDS, cwd=SKILL_CWD, env=env)
         except subprocess.TimeoutExpired as exc:
             for chunk in (exc.stdout, exc.stderr):
                 if chunk:
@@ -331,8 +356,12 @@ def run_skill(skill_name: str, ps_args: list[str], skills_dir: Path) -> int:
             print(r.stdout, end="")
         if r.stderr:
             print(r.stderr, end="", file=sys.stderr)
+        if STAGE_MARKER:
+            LAST_PLATFORM_STARTED = Path(STAGE_MARKER).exists()
         if r.returncode != 0:
-            print(f"\n=== safe_apply: skill '{skill_name}' завершился с ошибкой (exit {r.returncode}) ===")
+            when = ("до запуска платформы" if LAST_PLATFORM_STARTED is False
+                    else "после запуска платформы — результат не подтверждён")
+            print(f"\n=== safe_apply: skill '{skill_name}' завершился с ошибкой (exit {r.returncode}), {when} ===")
         return r.returncode
     except FileNotFoundError:
         print(f"ERROR: PowerShell не найден ({pwsh})", file=sys.stderr)
@@ -342,7 +371,20 @@ def run_skill(skill_name: str, ps_args: list[str], skills_dir: Path) -> int:
         return 2
 
 
+def validate_task_id_simple(task: str) -> bool:
+    return bool(re.fullmatch(r"TASK-[A-Za-z0-9]+(-[A-Za-z0-9]+)*", task or ""))
+
+
 def main() -> int:
+    held = []  # per call: the apply lock lives exactly as long as this call
+    try:
+        return _main(held)
+    finally:
+        for lock in held:
+            lock.__exit__(None, None, None)
+
+
+def _main(held: list) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -402,8 +444,21 @@ def main() -> int:
         return 2
 
     # 1a. Незавершённый apply: проверяется ДО guard и lock-refresh (платформа не запускается)
-    global STAGE_TIMEOUT_SECONDS, SKILL_CWD
+    global STAGE_TIMEOUT_SECONDS, SKILL_CWD, STAGE_MARKER
+    # one apply per database at a time: held until this process exits (kernel lock)
+    import hashlib
+    lock_path = project_root_path / "logs" / "apply-locks" / (hashlib.sha256(db_id.encode("utf-8")).hexdigest()[:16] + ".lock")
+    lock = FileLock(lock_path, 0)
+    try:
+        lock.__enter__()
+    except Busy:
+        print(f"ERROR: для базы '{db_id}' уже выполняется другой safe_apply — эта попытка ничего не меняет",
+              file=sys.stderr)
+        return BUSY_EXIT
+    held.append(lock)
     SKILL_CWD = str(project_root_path)
+    if validate_task_id_simple(task):
+        STAGE_MARKER = str(project_root_path / "pilot-control" / task / "stage-platform-started.marker")
     try:
         STAGE_TIMEOUT_SECONDS = stage_timeout_seconds(db)
         stage_limit = STAGE_TIMEOUT_SECONDS
@@ -479,7 +534,7 @@ def main() -> int:
         return BUDGET_EXIT
     journal.start("db-load-xml", STAGE_TIMEOUT_SECONDS)
     load_exit = run_skill("db-load-xml", ps_args_load, skills_dir)
-    journal.finish(load_exit)
+    journal.finish(load_exit, LAST_PLATFORM_STARTED)
     if load_exit == STAGE_TIMEOUT_EXIT:
         print("=== safe_apply: load-xml — исход неизвестен; update НЕ запускался ===")
         return UNRESOLVED_EXIT
@@ -498,7 +553,7 @@ def main() -> int:
         return BUDGET_EXIT
     journal.start("db-update", STAGE_TIMEOUT_SECONDS)
     update_exit = run_skill("db-update", ps_args_update, skills_dir)
-    journal.finish(update_exit)
+    journal.finish(update_exit, LAST_PLATFORM_STARTED)
     if update_exit == STAGE_TIMEOUT_EXIT:
         print("=== safe_apply: update — исход неизвестен; загрузка выполнена, обновление БД не подтверждено ===")
         return UNRESOLVED_EXIT

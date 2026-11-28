@@ -22,15 +22,19 @@
       update-without-repo /UpdateDBCfg
       update-with-repo    /UpdateDBCfg + /ConfigurationRepositoryF/N/P
       verify              /DumpConfigToFiles -listFile of the same objects, compares hashes
+                          with the sources: checks the MAIN configuration after a load
+      verify-db           /CompareCfg MainConfiguration vs DBConfiguration for -ObjectNames:
+                          checks the DATABASE configuration after /UpdateDBCfg (report kept)
 #>
 param(
-    [Parameter(Mandatory=$true)][ValidateSet('load-without-repo','load-with-repo','update-without-repo','update-with-repo','verify')]
+    [Parameter(Mandatory=$true)][ValidateSet('load-without-repo','load-with-repo','update-without-repo','update-with-repo','verify','verify-db')]
     [string]$Variant,
     [Parameter(Mandatory=$true)][string]$V8Path,
     [string]$InfoBaseServer, [string]$InfoBaseRef, [string]$InfoBasePath,
     [string]$IbUserEnv, [string]$IbPasswordEnv,
     [string]$RepositoryPath, [string]$RepoUserEnv, [string]$RepoPasswordEnv,
     [string]$ConfigDir, [string]$ListFile,
+    [string]$ObjectNames,
     [Parameter(Mandatory=$true)][string]$OutDir,
     [int]$TimeoutSeconds = 900,
     [switch]$TestCopyConfirmed
@@ -43,9 +47,10 @@ if (-not $TestCopyConfirmed) {
 if (-not $InfoBasePath -and -not ($InfoBaseServer -and $InfoBaseRef)) { Write-Host 'Specify -InfoBasePath or -InfoBaseServer + -InfoBaseRef'; exit 2 }
 $withRepo = $Variant -like '*-with-repo'
 if ($withRepo -and (-not $RepositoryPath -or -not $RepoUserEnv)) { Write-Host 'with-repo variants need -RepositoryPath and -RepoUserEnv'; exit 2 }
-if ($Variant -ne 'update-without-repo' -and $Variant -ne 'update-with-repo' -and (-not $ConfigDir -or -not $ListFile)) {
+if ($Variant -in @('load-without-repo','load-with-repo','verify') -and (-not $ConfigDir -or -not $ListFile)) {
     Write-Host 'load/verify variants need -ConfigDir and -ListFile'; exit 2
 }
+if ($Variant -eq 'verify-db' -and -not $ObjectNames) { Write-Host 'verify-db needs -ObjectNames (full names, comma separated)'; exit 2 }
 if (Test-Path $V8Path -PathType Container) { $V8Path = Join-Path $V8Path '1cv8.exe' }
 if (-not (Test-Path $V8Path)) { Write-Host "Platform not found: $V8Path"; exit 2 }
 
@@ -60,8 +65,9 @@ $repoUser = if ($withRepo) { Get-Secret $RepoUserEnv } else { '' }
 $repoPass = if ($withRepo) { Get-Secret $RepoPasswordEnv } else { '' }
 $secrets = @($ibUser, $ibPass, $repoUser, $repoPass) | Where-Object { $_ }
 function Hide([string]$text) {
+    # for platform output only; the command line is built masked from the start (Add-Arg)
     if ($null -eq $text) { return $text }
-    foreach ($s in $secrets) { $text = $text.Replace($s, '***') }
+    foreach ($s in $secrets) { $text = $text.Replace($s.Replace('"', '""'), '***').Replace($s, '***') }
     return $text
 }
 function Q([string]$v) { return '"' + $v.Replace('"', '""') + '"' }
@@ -73,26 +79,54 @@ $work = Join-Path ([IO.Path]::GetTempPath()) "repo_probe_$(Get-Random)"
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 $outFile = Join-Path $work 'out.txt'; $resultFile = Join-Path $work 'result.txt'
 
-$a = @('DESIGNER')
-if ($InfoBasePath) { $a += '/F' + (Q $InfoBasePath) } else { $a += '/S' + (Q "$InfoBaseServer/$InfoBaseRef") }
-if ($ibUser) { $a += '/N' + (Q $ibUser) }
-if ($ibPass) { $a += '/P' + (Q $ibPass) }
+# Real and diagnostic command lines are built side by side: a credential goes into $a only,
+# its place in $d is '***' — no search-and-replace over the quoted real value.
+$a = New-Object System.Collections.Generic.List[string]
+$d = New-Object System.Collections.Generic.List[string]
+function Add-Arg([string]$real, [string]$shown = $null) {
+    $a.Add($real); if ($null -eq $shown) { $d.Add($real) } else { $d.Add($shown) }
+}
+Add-Arg 'DESIGNER'
+if ($InfoBasePath) { Add-Arg ('/F' + (Q $InfoBasePath)) } else { Add-Arg ('/S' + (Q "$InfoBaseServer/$InfoBaseRef")) }
+if ($ibUser) { Add-Arg ('/N' + (Q $ibUser)) '/N"***"' }
+if ($ibPass) { Add-Arg ('/P' + (Q $ibPass)) '/P"***"' }
 if ($withRepo) {
-    $a += '/ConfigurationRepositoryF' + (Q $RepositoryPath)
-    $a += '/ConfigurationRepositoryN' + (Q $repoUser)
-    if ($repoPass) { $a += '/ConfigurationRepositoryP' + (Q $repoPass) }
+    Add-Arg ('/ConfigurationRepositoryF' + (Q $RepositoryPath))
+    Add-Arg ('/ConfigurationRepositoryN' + (Q $repoUser)) '/ConfigurationRepositoryN"***"'
+    if ($repoPass) { Add-Arg ('/ConfigurationRepositoryP' + (Q $repoPass)) '/ConfigurationRepositoryP"***"' }
 }
-$dumpDir = $null
-switch -Wildcard ($Variant) {
-    'load-*'   { $a += '/LoadConfigFromFiles', (Q $ConfigDir), '-listFile', (Q $ListFile), '-partial', '-updateConfigDumpInfo', '-Format', 'Hierarchical' }
-    'update-*' { $a += '/UpdateDBCfg' }
-    'verify'   { $dumpDir = Join-Path $work 'dump'; New-Item -ItemType Directory -Path $dumpDir | Out-Null
-                 $a += '/DumpConfigToFiles', (Q $dumpDir), '-listFile', (Q $ListFile), '-Format', 'Hierarchical' }
+$dumpDir = $null; $reportFile = $null
+switch ($Variant) {
+    { $_ -like 'load-*' } {
+        foreach ($x in @('/LoadConfigFromFiles', (Q $ConfigDir), '-listFile', (Q $ListFile), '-partial', '-updateConfigDumpInfo', '-Format', 'Hierarchical')) { Add-Arg $x }
+    }
+    { $_ -like 'update-*' } { Add-Arg '/UpdateDBCfg' }
+    'verify' {
+        $dumpDir = Join-Path $work 'dump'; New-Item -ItemType Directory -Path $dumpDir | Out-Null
+        foreach ($x in @('/DumpConfigToFiles', (Q $dumpDir), '-listFile', (Q $ListFile), '-Format', 'Hierarchical')) { Add-Arg $x }
+    }
+    'verify-db' {
+        $objectsXml = Join-Path $work 'objects.xml'
+        $sb = New-Object Text.StringBuilder
+        [void]$sb.AppendLine('<?xml version="1.0" encoding="UTF-8"?>')
+        [void]$sb.AppendLine('<Objects xmlns="http://v8.1c.ru/8.3/config/objects" version="1.0">')
+        foreach ($n in ($ObjectNames -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+            $esc = [Security.SecurityElement]::Escape($n)
+            [void]$sb.AppendLine("  <Object fullName=`"$esc`" includeChildObjects=`"false`"/>")
+        }
+        [void]$sb.AppendLine('</Objects>')
+        [IO.File]::WriteAllText($objectsXml, $sb.ToString(), (New-Object Text.UTF8Encoding($true)))
+        $reportFile = Join-Path $work 'compare.txt'
+        foreach ($x in @('/CompareCfg', '-FirstConfigurationType', 'MainConfiguration', '-SecondConfigurationType', 'DBConfiguration',
+                         '-Objects', (Q $objectsXml), '-ReportType', 'Brief', '-IncludeChangedObjects', '-IncludeDeletedObjects',
+                         '-IncludeAddedObjects', '-ReportFormat', 'txt', '-ReportFile', (Q $reportFile))) { Add-Arg $x }
+    }
 }
-$a += '/Out', (Q $outFile), '/DumpResult', (Q $resultFile), '/DisableStartupDialogs', '/DisableStartupMessages'
+foreach ($x in @('/Out', (Q $outFile), '/DumpResult', (Q $resultFile), '/DisableStartupDialogs', '/DisableStartupMessages')) { Add-Arg $x }
 $line = $a -join ' '
-[IO.File]::WriteAllText((Join-Path $dir 'command.txt'), (Hide "$V8Path $line"), (New-Object Text.UTF8Encoding($false)))
-Write-Host "Running ($Variant): $(Hide $line)"
+$shownLine = $d -join ' '
+[IO.File]::WriteAllText((Join-Path $dir 'command.txt'), "$V8Path $shownLine", (New-Object Text.UTF8Encoding($false)))
+Write-Host "Running ($Variant): $shownLine"
 
 $psi = New-Object Diagnostics.ProcessStartInfo
 $psi.FileName = $V8Path; $psi.Arguments = $line; $psi.UseShellExecute = $false
@@ -112,6 +146,11 @@ if ($null -ne $dumpText) { [IO.File]::WriteAllText((Join-Path $dir 'dumpresult.t
 $console = Hide (($o.Result) + ($e.Result))
 if ($console) { [IO.File]::WriteAllText((Join-Path $dir 'console.txt'), $console, (New-Object Text.UTF8Encoding($false))) }
 
+$compare = $null
+if ($Variant -eq 'verify-db' -and -not $timedOut -and $reportFile -and (Test-Path $reportFile)) {
+    $compare = Hide ([IO.File]::ReadAllText($reportFile))
+    [IO.File]::WriteAllText((Join-Path $dir 'compare-main-vs-db.txt'), $compare, (New-Object Text.UTF8Encoding($false)))
+}
 $verify = $null
 if ($Variant -eq 'verify' -and -not $timedOut) {
     $verify = @()
@@ -132,6 +171,7 @@ $meta = [ordered]@{
     out_present = ($null -ne $outText); repository_parameters_passed = $withRepo
     platform = (Split-Path (Split-Path (Split-Path $V8Path -Parent) -Parent) -Leaf)
     verify_all_equal = $(if ($verify) { -not ($verify | Where-Object { -not $_.equal }) } else { $null })
+    compare_report_present = ($null -ne $compare)
 }
 [IO.File]::WriteAllText((Join-Path $dir 'meta.json'), ($meta | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
