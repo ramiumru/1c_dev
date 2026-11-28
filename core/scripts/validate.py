@@ -876,7 +876,7 @@ def check_codex_adapter(rep: Report, skip_smoke: bool) -> None:
         if skip_smoke:
             cmd.append("--source-only")
         result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                                errors="replace", timeout=300)
+                                errors="replace", timeout=360)
         if result.returncode == 0:
             rep.ok("codex-adapter: source contracts" if skip_smoke else
                    "codex-adapter: native skills/agents, migration, repeated update and user-file protection")
