@@ -114,7 +114,10 @@ class ApplyBatchTests(unittest.TestCase):
         return [line for line in self.capture.read_text(encoding='utf-8').splitlines()] if self.capture.exists() else []
 
     def journal(self):
-        return json.loads((self.root / 'pilot-control/TASK-DEMO/apply-run.json').read_text(encoding='utf-8'))
+        return json.loads(self.journal_file().read_text(encoding='utf-8'))
+
+    def journal_file(self, task='TASK-DEMO', db='demo-test'):
+        return safe_apply.journal_path(self.root, task, db)
 
     def test_clean_run_loads_then_updates_and_journals_both(self):
         code, output = self.apply()
@@ -263,7 +266,7 @@ class ApplyBatchTests(unittest.TestCase):
             a = threading.Thread(target=attempt, args=('A',), name='A'); a.start()
             self.assertTrue(in_check.wait(10))
             b = threading.Thread(target=attempt, args=('B',), name='B'); b.start(); b.join(20)
-            journal_during = (self.root / 'pilot-control/TASK-DEMO/apply-run.json').exists()
+            journal_during = self.journal_file().exists()
             release.set(); a.join(60)
         self.assertEqual(results['B'][0], safe_apply.BUSY_EXIT, results['B'][1])
         self.assertIn('уже выполняется другой safe_apply', results['B'][1])
@@ -327,7 +330,7 @@ class ApplyBatchTests(unittest.TestCase):
         self.assertIn('задача TASK-DEMO', output)
         self.assertEqual(refreshes, [])                                 # no lock-refresh
         self.assertEqual(len(self.stages()), calls)                     # no platform start
-        self.assertFalse((self.root / 'pilot-control/TASK-OTHER/apply-run.json').exists())
+        self.assertFalse(self.journal_file('TASK-OTHER').exists())
         # resolving from task B closes A's run in A's journal, then B proceeds
         with patch.object(safe_repository, 'before_apply', side_effect=lambda *a, **k: refreshes.append(a)), \
              patch.object(repository_support, 'record_apply', return_value=None):
@@ -391,12 +394,89 @@ exit 1
         self.assertEqual(self.stages(), [])   # db-update never ran (fake platform untouched)
         self.assertEqual(self.journal()['runs'][-1]['stages'][0]['outcome'], 'failed_no_signal')
 
+    # --- review of 41ff301 ---------------------------------------------------------------------
+    ACK_ONLY_SKILL = r"""# HARNESS_STAGE_PROTOCOL: 1
+param([string]$V8Path, [string]$InfoBasePath, [string]$InfoBaseServer, [string]$InfoBaseRef,
+  [string]$UserName, [string]$UserNameEnv, [string]$PasswordEnv, [string]$ConfigDir, [string]$Mode,
+  [string]$Files, [string]$Extension)
+if ($env:HARNESS_STAGE_MARKER) { [IO.File]::WriteAllText($env:HARNESS_STAGE_MARKER, 'ack') }
+exit 0
+"""
+
+    def test_ack_with_exit_zero_is_unconfirmed_and_blocks(self):
+        self._repo_profile()
+        self._install_skill('db-load-xml', self.ACK_ONLY_SKILL)
+        code, output, refreshes = self._apply_repo()
+        self.assertEqual((code, len(refreshes)), (1, 1), output)
+        self.assertIn('exit 0 без сигнала platform-started', output)
+        stage = self.journal()['runs'][-1]['stages']
+        self.assertEqual([(st['name'], st['outcome']) for st in stage], [('db-load-xml', 'unconfirmed_without_launch')])
+        self.assertEqual(self.stages(), [])                 # db-update never started
+        self._install_skill('db-load-xml', _skill_source('db-load-xml').read_text(encoding='utf-8-sig'))
+        code, output, refreshes = self._apply_repo()
+        self.assertEqual(code, safe_apply.UNRESOLVED_EXIT, output)
+        self.assertEqual(refreshes, [])
+
+    def _second_database(self):
+        other = dict(self.db, id='second-test', path=str(self.root / 'second-base'))
+        (self.root / 'second-base').mkdir()
+        (self.root / '.v8-project.json').write_text(json.dumps({'databases': [self.db, other]}), encoding='utf-8')
+
+    def test_same_task_on_two_databases_keeps_both_records(self):
+        # controlled order: B (second db) loads its journal and pauses; A (first db) times out and
+        # records an unknown outcome; then B writes its run. A's record must survive.
+        import threading
+        self._second_database()
+        loaded, release = threading.Event(), threading.Event()
+        real_init = safe_apply.ApplyJournal.__init__
+        def init(journal, project_root, task, db_id, path=None):
+            real_init(journal, project_root, task, db_id, path)
+            if path is None and threading.current_thread().name == 'B':
+                loaded.set()
+                release.wait(20)
+        results = {}
+        with patch.object(safe_apply.ApplyJournal, '__init__', init):
+            b = threading.Thread(target=lambda: results.__setitem__('B', self.apply(db='second-test')), name='B')
+            b.start()
+            self.assertTrue(loaded.wait(20))
+            with patch.object(safe_apply, 'stage_timeout_seconds', return_value=3):
+                results['A'] = self.apply(load='hang')          # first db, same TASK-DEMO
+            release.set(); b.join(60)
+        self.assertEqual(results['A'][0], safe_apply.UNRESOLVED_EXIT, results['A'][1])
+        self.assertEqual(results['B'][0], 0, results['B'][1])
+        first = json.loads(self.journal_file(db='demo-test').read_text(encoding='utf-8'))
+        second = json.loads(self.journal_file(db='second-test').read_text(encoding='utf-8'))
+        self.assertEqual(first['runs'][-1]['stages'][0]['outcome'], 'unknown')
+        self.assertEqual([st['outcome'] for st in second['runs'][-1]['stages']], ['succeeded', 'succeeded'])
+        code, output = self.apply()                              # next apply on the FIRST db: blocked
+        self.assertEqual(code, safe_apply.UNRESOLVED_EXIT, output)
+        code, output = self.apply(db='second-test')              # the second db is not blocked
+        self.assertEqual(code, 0, output)
+
+    def test_legacy_shared_journal_is_still_read_and_resolvable(self):
+        legacy = self.root / 'pilot-control/TASK-DEMO/apply-run.json'
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        legacy.write_text(json.dumps({'runs': [
+            {'run_id': 'old1', 'db': 'demo-test', 'stages': [{'name': 'db-load-xml', 'outcome': 'started'}]},
+            {'run_id': 'old2', 'db': 'elsewhere', 'stages': [{'name': 'db-load-xml', 'outcome': 'started'}]}]}),
+            encoding='utf-8')
+        code, output = self.apply()
+        self.assertEqual(code, safe_apply.UNRESOLVED_EXIT, output)
+        self.assertIn('old1', output)
+        self.assertNotIn('old2', output)                         # another database's record
+        code, output = self.apply(extra=('--resolve-unknown-outcome', 'legacy run checked: no 1cv8'))
+        self.assertEqual(code, 0, output)
+        runs = {r['run_id']: r for r in json.loads(legacy.read_text(encoding='utf-8'))['runs']}
+        self.assertIn('resolution', runs['old1'])
+        self.assertNotIn('resolution', runs['old2'])
+        self.assertTrue(self.journal_file().exists())            # new runs go to the per-db file
+
     def test_credentials_never_in_output_or_journal(self):
         for modes in ({}, {'load': 'repo_conn'}):
             with self.subTest(modes=modes):
                 code, output = self.apply(**modes)
                 self.assertNotIn(SECRET, output)
-                self.assertNotIn(SECRET, (self.root / 'pilot-control/TASK-DEMO/apply-run.json').read_text(encoding='utf-8'))
+                self.assertNotIn(SECRET, self.journal_file().read_text(encoding='utf-8'))
         self.assertIn(SECRET, self.capture.read_text(encoding='utf-8'))  # reached the platform only
 
 

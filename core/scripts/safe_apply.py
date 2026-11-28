@@ -216,7 +216,8 @@ def run_guard(task: str, db: str, config_src: str, files_rel: list[str], project
 
 # --- Stage timeout and durable stage journal (pilot incident 2026-11-28) ---------------------
 # An agent shell kills commands after <=600 s; a stage that outlives it leaves no answer.
-# The journal pilot-control/<TASK>/apply-run.json records each stage before and after it runs,
+# The journal pilot-control/<TASK>/apply-run.<db-hash>.json (one file per task AND database — the
+# same scope as the database apply lock) records each stage before and after it runs,
 # so a later look shows which stage started and whether its completion was confirmed.
 DEFAULT_STAGE_TIMEOUT_SECONDS = 540
 STAGE_TIMEOUT_SECONDS = DEFAULT_STAGE_TIMEOUT_SECONDS
@@ -249,10 +250,11 @@ def unresolved_for_database(project_root: Path, db_id: str):
     """Unresolved apply runs on this database in the whole workspace — every TASK-ID.
     Returns [(journal, run, why)]."""
     found = []
-    for path in sorted((project_root / "pilot-control").glob("*/apply-run.json")):
+    paths = [p for p in (project_root / "pilot-control").glob("*/apply-run*.json") if p.is_file()]
+    for path in sorted(paths):
         task = path.parent.name
         try:
-            journal = ApplyJournal(project_root, task, db_id)
+            journal = ApplyJournal(project_root, task, db_id, path=path)
         except (OSError, ValueError) as exc:
             # an unreadable journal of this workspace is itself an unknown state
             found.append((None, {"run_id": "?", "task": task}, f"журнал {path} не читается: {exc}"))
@@ -262,15 +264,30 @@ def unresolved_for_database(project_root: Path, db_id: str):
     return found
 
 
+def journal_path(project_root: Path, task: str, db_id: str) -> Path:
+    import hashlib
+    digest = hashlib.sha256(db_id.encode("utf-8")).hexdigest()[:16]
+    return project_root / "pilot-control" / task / f"apply-run.{digest}.json"
+
+
+LEGACY_JOURNAL = "apply-run.json"  # one file per task shared by all databases (before per-db files)
+
+
 class ApplyJournal:
-    def __init__(self, project_root: Path, task: str, db_id: str):
-        self.path = project_root / "pilot-control" / task / "apply-run.json"
+    def __init__(self, project_root: Path, task: str, db_id: str, path: Path = None):
+        self.path = Path(path) if path else journal_path(project_root, task, db_id)
         self.db_id = db_id
         self.data = {"runs": []}
         if self.path.is_file():
             self.data = json.loads(self.path.read_text(encoding="utf-8-sig"))
 
+    @property
+    def legacy(self) -> bool:
+        return self.path.name == LEGACY_JOURNAL
+
     def _save(self) -> None:
+        if self.legacy:
+            raise ValueError("legacy shared journal is read-only except for resolution")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(self.path.name + ".tmp")
         tmp.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -293,7 +310,7 @@ class ApplyJournal:
                     found.append((run, f"этап '{stage.get('name')}' запущен {stage.get('started_at')}, "
                                        "завершение не подтверждено"))
             load, update = stages.get("db-load-xml"), stages.get("db-update")
-            if load and load.get("outcome") in ("failed_after_launch", "failed_no_signal"):
+            if load and load.get("outcome") in ("failed_after_launch", "failed_no_signal", "unconfirmed_without_launch"):
                 found.append((run, f"загрузка запускалась {load.get('started_at')} и завершилась без "
                                    f"подтверждения (exit {load.get('exit')}): ИБ могла измениться"))
             if load and load.get("outcome") == "succeeded" and not (update and update.get("outcome") == "succeeded"):
@@ -304,6 +321,16 @@ class ApplyJournal:
         return found
 
     def resolve(self, reason: str, by_task: str = "") -> None:
+        if self.legacy:
+            # shared by databases: serialise with other resolvers and re-read before writing
+            with FileLock(self.path.with_name(self.path.name + ".lock"), 10):
+                self.data = json.loads(self.path.read_text(encoding="utf-8-sig"))
+                for run, _why in self.unresolved():
+                    run["resolution"] = {"at": _utc_now(), "reason": reason, "resolved_from_task": by_task}
+                tmp = self.path.with_name(self.path.name + f".{os.getpid()}.tmp")
+                tmp.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
+                os.replace(tmp, self.path)
+            return
         for run, _why in self.unresolved():
             run["resolution"] = {"at": _utc_now(), "reason": reason, "resolved_from_task": by_task}
         self._save()
@@ -332,8 +359,10 @@ class ApplyJournal:
             outcome = "unknown"
         elif signal == "missing":
             outcome = "failed_no_signal"       # no protocol signal at all: nothing is confirmed
+        elif code == 0 and signal == "ack":
+            outcome = "unconfirmed_without_launch"  # "success" without platform-started: not success
         elif code == 0:
-            outcome = "succeeded"
+            outcome = "succeeded"              # signal "platform-started" (or untracked test double)
         elif signal in ("ack", "incompatible"):
             outcome = "failed_before_launch"   # explicit refusal before 1cv8 started: IB untouched
         else:
@@ -396,6 +425,9 @@ def run_skill(skill_name: str, ps_args: list[str], skills_dir: Path) -> int:
         if LAST_STAGE_SIGNAL == "missing":
             print(f"\n=== safe_apply: этап '{skill_name}' не прислал сигнал протокола (exit {r.returncode}) — "
                   "результат НЕ подтверждён, платформа могла запускаться ===")
+        elif r.returncode == 0 and LAST_STAGE_SIGNAL == "ack":
+            print(f"\n=== safe_apply: этап '{skill_name}' вернул exit 0 без сигнала platform-started — "
+                  "результат НЕ подтверждён ===")
         elif r.returncode != 0:
             when = ("явный отказ до запуска платформы" if LAST_STAGE_SIGNAL == "ack"
                     else "после запуска платформы — результат не подтверждён")
@@ -581,8 +613,8 @@ def _main(held: list) -> int:
     journal.start("db-load-xml", STAGE_TIMEOUT_SECONDS)
     load_exit = run_skill("db-load-xml", ps_args_load, skills_dir)
     load_outcome = journal.finish(load_exit, LAST_STAGE_SIGNAL)
-    if load_outcome == "failed_no_signal" and load_exit == 0:
-        load_exit = 1  # success without a protocol signal is not success
+    if load_outcome in ("failed_no_signal", "unconfirmed_without_launch") and load_exit == 0:
+        load_exit = 1  # success needs exit 0 AND the platform-started signal
     if load_exit == STAGE_TIMEOUT_EXIT:
         print("=== safe_apply: load-xml — исход неизвестен; update НЕ запускался ===")
         return UNRESOLVED_EXIT
@@ -602,7 +634,7 @@ def _main(held: list) -> int:
     journal.start("db-update", STAGE_TIMEOUT_SECONDS)
     update_exit = run_skill("db-update", ps_args_update, skills_dir)
     update_outcome = journal.finish(update_exit, LAST_STAGE_SIGNAL)
-    if update_outcome == "failed_no_signal" and update_exit == 0:
+    if update_outcome in ("failed_no_signal", "unconfirmed_without_launch") and update_exit == 0:
         update_exit = 1
     if update_exit == STAGE_TIMEOUT_EXIT:
         print("=== safe_apply: update — исход неизвестен; загрузка выполнена, обновление БД не подтверждено ===")
