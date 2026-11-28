@@ -33,6 +33,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -221,6 +222,9 @@ STAGE_TIMEOUT_SECONDS = DEFAULT_STAGE_TIMEOUT_SECONDS
 STAGE_TIMEOUT_EXIT = 124
 SKILL_CWD = None  # project root: configSrc and plan paths are relative to it
 UNRESOLVED_EXIT = 3
+BUDGET_EXIT = 4
+MIN_STAGE_SECONDS = 60
+BUDGET_MARGIN_SECONDS = 20  # journal writes, output and process exit after the last stage
 
 
 def stage_timeout_seconds(db: dict) -> int:
@@ -250,18 +254,30 @@ class ApplyJournal:
         os.replace(tmp, self.path)
 
     def unresolved(self):
-        """Stages of earlier runs whose completion was never confirmed."""
+        """Earlier runs whose infobase state is not established, judged on the whole operation:
+        - a stage started but its completion was never confirmed (timeout, runner killed);
+        - load succeeded but update was not confirmed (failed, not started, interrupted
+          between stages) — the main configuration may differ from the database configuration.
+        A failed load with no later stage leaves the state as before and does not block."""
         found = []
         for run in self.data.get("runs", []):
             if run.get("resolution"):
                 continue
+            stages = {st.get("name"): st for st in run.get("stages", [])}
             for stage in run.get("stages", []):
                 if stage.get("outcome") in ("started", "unknown"):
-                    found.append((run, stage))
+                    found.append((run, f"этап '{stage.get('name')}' запущен {stage.get('started_at')}, "
+                                       "завершение не подтверждено"))
+            load, update = stages.get("db-load-xml"), stages.get("db-update")
+            if load and load.get("outcome") == "succeeded" and not (update and update.get("outcome") == "succeeded"):
+                if not (update and update.get("outcome") in ("started", "unknown")):
+                    state = update.get("outcome") if update else "не запускался"
+                    found.append((run, f"загрузка выполнена {load.get('finished_at')}, обновление БД "
+                                       f"не подтверждено ({state})"))
         return found
 
     def resolve(self, reason: str) -> None:
-        for run, _stage in self.unresolved():
+        for run, _why in self.unresolved():
             run["resolution"] = {"at": _utc_now(), "reason": reason}
         self._save()
 
@@ -274,6 +290,10 @@ class ApplyJournal:
     def start(self, name: str, timeout: int) -> None:
         self.stage = {"name": name, "started_at": _utc_now(), "timeout_seconds": timeout, "outcome": "started"}
         self.run["stages"].append(self.stage)
+        self._save()
+
+    def skip(self, name: str, reason: str) -> None:
+        self.run["stages"].append({"name": name, "outcome": "not_started", "reason": reason, "at": _utc_now()})
         self._save()
 
     def finish(self, code: int) -> None:
@@ -335,6 +355,9 @@ def main() -> int:
     parser.add_argument("--db", required=True, help="id базы из .v8-project.json")
     parser.add_argument("--project-root", default="", help="явный корень проекта (для тестов)")
     parser.add_argument("--dry-run", action="store_true", help="только проверки, без вызова skill")
+    parser.add_argument("--shell-budget-seconds", type=int, default=0,
+                        help="лимит внешней оболочки на весь вызов (напр. 570 при 600 с): этап, которому не "
+                             "хватает остатка, не запускается; лимит этапа урезается до остатка")
     parser.add_argument("--resolve-unknown-outcome", default="",
                         help="после проверки человеком: что установлено о незавершённом этапе прошлого apply")
     parser.add_argument("--baseline", default="unknown", choices=["unknown", "confirmed", "stale"],
@@ -342,6 +365,21 @@ def main() -> int:
                              "(явное подтверждение пользователя baseline sync repository → DB) | "
                              "stale (guard заблокирует apply)")
     args = parser.parse_args()
+    started = time.monotonic()
+    if args.shell_budget_seconds and args.shell_budget_seconds < MIN_STAGE_SECONDS + BUDGET_MARGIN_SECONDS:
+        print(f"ERROR: --shell-budget-seconds < {MIN_STAGE_SECONDS + BUDGET_MARGIN_SECONDS}", file=sys.stderr)
+        return 2
+
+    def stage_budget(name: str) -> int:
+        """Timeout for the next stage, or 0 when the shell budget cannot cover a stage start."""
+        if not args.shell_budget_seconds:
+            return stage_limit
+        remaining = int(args.shell_budget_seconds - BUDGET_MARGIN_SECONDS - (time.monotonic() - started))
+        if remaining < MIN_STAGE_SECONDS:
+            print(f"=== safe_apply: этап '{name}' НЕ запущен: остаток бюджета оболочки {max(remaining, 0)} с "
+                  f"меньше {MIN_STAGE_SECONDS} с ===", flush=True)
+            return 0
+        return min(stage_limit, remaining)
 
     task = args.task.strip()
     db_id = args.db.strip()
@@ -362,6 +400,32 @@ def main() -> int:
     if not config_src:
         print(f"ERROR: configSrc не задан для базы '{db_id}'", file=sys.stderr)
         return 2
+
+    # 1a. Незавершённый apply: проверяется ДО guard и lock-refresh (платформа не запускается)
+    global STAGE_TIMEOUT_SECONDS, SKILL_CWD
+    SKILL_CWD = str(project_root_path)
+    try:
+        STAGE_TIMEOUT_SECONDS = stage_timeout_seconds(db)
+        stage_limit = STAGE_TIMEOUT_SECONDS
+        journal = ApplyJournal(project_root_path, task, db_id)
+    except (ValueError, OSError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    pending = journal.unresolved()
+    if pending and not args.resolve_unknown_outcome:
+        for run, why in pending:
+            print(f"ERROR: предыдущий apply (run {run.get('run_id')}): {why}. Повторная загрузка не выполняется: "
+                  "сверьте состояние ИБ (процессы 1cv8, основная конфигурация против конфигурации БД), затем "
+                  "запустите с --resolve-unknown-outcome \"<что проверено>\".", file=sys.stderr)
+        return UNRESOLVED_EXIT
+    if pending:
+        if len(args.resolve_unknown_outcome.strip()) < 10:
+            print("ERROR: --resolve-unknown-outcome: опишите, что проверено (не менее 10 символов)", file=sys.stderr)
+            return 2
+        if args.dry_run:
+            print("=== safe_apply: --dry-run — решение по незавершённому apply НЕ записано ===")
+        else:
+            journal.resolve(args.resolve_unknown_outcome.strip())
 
     # 2. Прочитать файлы из 06_change_report.md через общий парсер
     specs_dir = project_root_path / "specs"
@@ -403,33 +467,16 @@ def main() -> int:
         return 0
 
     # 6. db-load-xml Partial
-    global STAGE_TIMEOUT_SECONDS, SKILL_CWD
-    SKILL_CWD = str(project_root_path)
-    try:
-        STAGE_TIMEOUT_SECONDS = stage_timeout_seconds(db)
-        journal = ApplyJournal(project_root_path, task, db_id)
-    except (ValueError, OSError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 2
-    pending = journal.unresolved()
-    if pending and not args.resolve_unknown_outcome:
-        for run, stage in pending:
-            print(f"ERROR: предыдущий apply (run {run.get('run_id')}): этап '{stage.get('name')}' запущен "
-                  f"{stage.get('started_at')}, завершение не подтверждено. Повтор не выполняется: проверьте "
-                  "процессы 1cv8 и состояние базы, затем запустите с --resolve-unknown-outcome \"<что проверено>\".",
-                  file=sys.stderr)
-        return UNRESOLVED_EXIT
-    if pending:
-        if len(args.resolve_unknown_outcome.strip()) < 10:
-            print("ERROR: --resolve-unknown-outcome: опишите, что проверено (не менее 10 символов)", file=sys.stderr)
-            return 2
-        journal.resolve(args.resolve_unknown_outcome.strip())
     journal.begin_run()
     skills_dir = find_skills_dir(project_root_path)
     if not skills_dir.is_dir():
         # Fallback: harness skills (for development)
         skills_dir = find_skills_dir(ROOT)
     ps_args_load = build_ps_args(db, config_src, files_rel, is_update=False)
+    STAGE_TIMEOUT_SECONDS = stage_budget("db-load-xml")
+    if not STAGE_TIMEOUT_SECONDS:
+        journal.skip("db-load-xml", "shell budget exhausted before start")
+        return BUDGET_EXIT
     journal.start("db-load-xml", STAGE_TIMEOUT_SECONDS)
     load_exit = run_skill("db-load-xml", ps_args_load, skills_dir)
     journal.finish(load_exit)
@@ -443,6 +490,12 @@ def main() -> int:
 
     # 7. db-update (UpdateDBCfg)
     ps_args_update = build_ps_args(db, config_src, files_rel, is_update=True)
+    STAGE_TIMEOUT_SECONDS = stage_budget("db-update")
+    if not STAGE_TIMEOUT_SECONDS:
+        journal.skip("db-update", "shell budget exhausted before start")
+        print("=== safe_apply: загрузка выполнена, обновление БД НЕ запускалось; следующий apply потребует "
+              "сверки (--resolve-unknown-outcome) ===")
+        return BUDGET_EXIT
     journal.start("db-update", STAGE_TIMEOUT_SECONDS)
     update_exit = run_skill("db-update", ps_args_update, skills_dir)
     journal.finish(update_exit)

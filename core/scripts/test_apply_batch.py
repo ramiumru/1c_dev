@@ -48,6 +48,14 @@ sys.exit(0)
 '''
 
 
+def _clock(*values):
+    """Fake monotonic clock: the given readings in order, then the last one forever."""
+    state = list(values)
+    def tick():
+        return state.pop(0) if len(state) > 1 else state[0]
+    return tick
+
+
 def _skill_source(name):
     path = SCRIPTS.parent / 'skills' / name / 'scripts' / f'{name}.ps1'
     if not path.exists():  # installed layout
@@ -163,6 +171,88 @@ class ApplyBatchTests(unittest.TestCase):
         code, output = self.apply()
         self.assertEqual(code, safe_apply.UNRESOLVED_EXIT, output)
         self.assertEqual(self.stages(), [])
+
+    # --- review of 56bc04d: whole-operation state, checked before lock-refresh ---------------
+    def _repo_profile(self):
+        self.db['repository'] = {'enabled': True, 'path': 'tcp://repo.invalid/demo', 'environment': 'dev'}
+        (self.root / '.v8-project.json').write_text(json.dumps({'databases': [self.db]}), encoding='utf-8')
+
+    def _apply_repo(self, extra=(), **modes):
+        import safe_repository
+        import repository_support
+        refreshes = []
+        with patch.object(safe_repository, 'before_apply', side_effect=lambda *a, **k: refreshes.append(a)), \
+             patch.object(repository_support, 'record_apply', return_value=None):
+            code, output = self.apply(extra, **modes)
+        return code, output, refreshes
+
+    def test_failed_update_blocks_reload_before_lock_refresh(self):
+        self._repo_profile()
+        code, output, refreshes = self._apply_repo(update='repo_conn')
+        self.assertEqual((code, len(refreshes)), (1, 1), output)
+        calls_before = len(self.stages())
+        code, output, refreshes = self._apply_repo()
+        self.assertEqual(code, safe_apply.UNRESOLVED_EXIT, output)
+        self.assertIn('обновление БД не подтверждено (failed)', output)
+        self.assertEqual(refreshes, [])                      # no platform lock-refresh
+        self.assertEqual(len(self.stages()), calls_before)   # no load either
+
+    def test_interruption_between_stages_blocks_reload_before_lock_refresh(self):
+        self._repo_profile()
+        journal = safe_apply.ApplyJournal(self.root, 'TASK-DEMO', 'demo-test')
+        journal.begin_run(); journal.start('db-load-xml', 540); journal.finish(0)  # killed before update
+        code, output, refreshes = self._apply_repo()
+        self.assertEqual(code, safe_apply.UNRESOLVED_EXIT, output)
+        self.assertIn('обновление БД не подтверждено (не запускался)', output)
+        self.assertEqual(refreshes, [])
+        self.assertEqual(self.stages(), [])
+        # after the human check the same call proceeds and refreshes the lock first
+        code, output, refreshes = self._apply_repo(extra=('--resolve-unknown-outcome', 'main vs DB config compared: equal'))
+        self.assertEqual((code, len(refreshes)), (0, 1), output)
+
+    def test_failed_load_alone_does_not_block(self):
+        code, _ = self.apply(load='repo_conn')
+        self.assertEqual(code, 1)
+        code, output = self.apply()
+        self.assertEqual(code, 0, output)
+
+    def test_dry_run_never_records_a_resolution(self):
+        journal = safe_apply.ApplyJournal(self.root, 'TASK-DEMO', 'demo-test')
+        journal.begin_run(); journal.start('db-load-xml', 540); journal.finish(0)
+        code, output = self.apply(extra=('--dry-run', '--resolve-unknown-outcome', 'only a dry run, nothing checked'))
+        self.assertEqual(code, 0, output)
+        self.assertNotIn('resolution', self.journal()['runs'][0])
+
+    def test_shell_budget_stops_before_load_without_blocking(self):
+        with patch.object(safe_apply.time, 'monotonic', side_effect=_clock(0.0, 200.0)):
+            code, output = self.apply(extra=('--shell-budget-seconds', '250'))
+        self.assertEqual(code, safe_apply.BUDGET_EXIT, output)
+        self.assertIn("этап 'db-load-xml' НЕ запущен", output)
+        self.assertEqual(self.stages(), [])
+        self.assertEqual(self.journal()['runs'][-1]['stages'][0]['outcome'], 'not_started')
+        code, output = self.apply()  # nothing was loaded: not an unresolved state
+        self.assertEqual(code, 0, output)
+
+    def test_shell_budget_exhausted_after_load_blocks_until_resolved(self):
+        with patch.object(safe_apply.time, 'monotonic', side_effect=_clock(0.0, 10.0, 500.0)):
+            code, output = self.apply(extra=('--shell-budget-seconds', '570'))
+        self.assertEqual(code, safe_apply.BUDGET_EXIT, output)
+        self.assertIn("этап 'db-update' НЕ запущен", output)
+        self.assertEqual(len(self.stages()), 1)
+        code, output = self.apply()
+        self.assertEqual(code, safe_apply.UNRESOLVED_EXIT, output)
+        self.assertIn('обновление БД не подтверждено (not_started)', output)
+
+    def test_shell_budget_caps_stage_timeout(self):
+        seen = []
+        real = safe_apply.run_skill
+        def spy(name, args, path):
+            seen.append(safe_apply.STAGE_TIMEOUT_SECONDS)
+            return real(name, args, path)
+        with patch.object(safe_apply, 'run_skill', side_effect=spy):
+            code, output = self.apply(extra=('--shell-budget-seconds', '200'))
+        self.assertEqual(code, 0, output)
+        self.assertTrue(all(60 <= t <= 180 for t in seen), seen)
 
     def test_credentials_never_in_output_or_journal(self):
         for modes in ({}, {'load': 'repo_conn'}):
