@@ -97,8 +97,12 @@ class ApplyBatchTests(unittest.TestCase):
         self.env.start()
         self.addCleanup(self.env.stop)
 
-    def apply(self, extra=(), **modes):
-        argv = ['safe_apply.py', '--task', 'TASK-DEMO', '--db', 'demo-test', '--project-root', str(self.root), *extra]
+    def apply(self, extra=(), task='TASK-DEMO', db='demo-test', **modes):
+        report = self.root / 'specs' / task / '06_change_report.md'
+        if not report.exists():
+            report.parent.mkdir(parents=True)
+            report.write_text('## Изменённые файлы\n- ' + PLAN + '\n', encoding='utf-8')
+        argv = ['safe_apply.py', '--task', task, '--db', db, '--project-root', str(self.root), *extra]
         out, err = io.StringIO(), io.StringIO()
         env = {f'FAKE_V8_{k.upper()}': v for k, v in modes.items()}
         with patch.dict(os.environ, env), patch.object(sys, 'argv', argv), \
@@ -217,8 +221,8 @@ class ApplyBatchTests(unittest.TestCase):
         self.assertEqual(code, 1, output)
         self.assertEqual(self.stages(), [])                       # platform never started
         stage = self.journal()['runs'][-1]['stages'][0]
-        self.assertEqual((stage['outcome'], stage['platform_started']), ('failed_before_launch', False))
-        self.assertIn('до запуска платформы', output)
+        self.assertEqual((stage['outcome'], stage['signal']), ('failed_before_launch', 'ack'))
+        self.assertIn('явный отказ до запуска платформы', output)
         code, output = self.apply()
         self.assertEqual(code, 0, output)
 
@@ -227,7 +231,7 @@ class ApplyBatchTests(unittest.TestCase):
         code, output, refreshes = self._apply_repo(load='nodump')
         self.assertEqual((code, len(refreshes)), (1, 1), output)
         stage = self.journal()['runs'][-1]['stages'][0]
-        self.assertEqual((stage['outcome'], stage['platform_started']), ('failed_after_launch', True))
+        self.assertEqual((stage['outcome'], stage['signal']), ('failed_after_launch', 'platform-started'))
         self.assertIn('после запуска платформы', output)
         calls = len(self.stages())
         code, output, refreshes = self._apply_repo()
@@ -246,16 +250,16 @@ class ApplyBatchTests(unittest.TestCase):
         # controlled order: A holds the apply lock inside its journal check; B starts then
         import threading
         in_check, release = threading.Event(), threading.Event()
-        real = safe_apply.ApplyJournal.unresolved
-        def paused(journal):
+        real = safe_apply.unresolved_for_database
+        def paused(root, db_id):
             if threading.current_thread().name == 'A':
                 in_check.set()
                 release.wait(10)
-            return real(journal)
+            return real(root, db_id)
         results = {}
         def attempt(name):
             results[name] = self.apply()
-        with patch.object(safe_apply.ApplyJournal, 'unresolved', paused):
+        with patch.object(safe_apply, 'unresolved_for_database', side_effect=paused):
             a = threading.Thread(target=attempt, args=('A',), name='A'); a.start()
             self.assertTrue(in_check.wait(10))
             b = threading.Thread(target=attempt, args=('B',), name='B'); b.start(); b.join(20)
@@ -306,6 +310,86 @@ class ApplyBatchTests(unittest.TestCase):
             code, output = self.apply(extra=('--shell-budget-seconds', '200'))
         self.assertEqual(code, 0, output)
         self.assertTrue(all(60 <= t <= 180 for t in seen), seen)
+
+    # --- review of b49ae4b ---------------------------------------------------------------------
+    def test_unknown_outcome_of_task_a_blocks_task_b_on_same_database(self):
+        self._repo_profile()
+        with patch.object(safe_apply, 'stage_timeout_seconds', return_value=3):
+            code, output, _ = self._apply_repo(load='hang')           # task A times out and exits
+        self.assertEqual(code, safe_apply.UNRESOLVED_EXIT, output)
+        calls = len(self.stages())
+        import safe_repository, repository_support
+        refreshes = []
+        with patch.object(safe_repository, 'before_apply', side_effect=lambda *a, **k: refreshes.append(a)), \
+             patch.object(repository_support, 'record_apply', return_value=None):
+            code, output = self.apply(task='TASK-OTHER')               # task B, same database
+        self.assertEqual(code, safe_apply.UNRESOLVED_EXIT, output)
+        self.assertIn('задача TASK-DEMO', output)
+        self.assertEqual(refreshes, [])                                 # no lock-refresh
+        self.assertEqual(len(self.stages()), calls)                     # no platform start
+        self.assertFalse((self.root / 'pilot-control/TASK-OTHER/apply-run.json').exists())
+        # resolving from task B closes A's run in A's journal, then B proceeds
+        with patch.object(safe_repository, 'before_apply', side_effect=lambda *a, **k: refreshes.append(a)), \
+             patch.object(repository_support, 'record_apply', return_value=None):
+            code, output = self.apply(task='TASK-OTHER', extra=('--resolve-unknown-outcome', 'checked: no 1cv8, configs compared'))
+        self.assertEqual((code, len(refreshes)), (0, 1), output)
+        a_runs = self.journal()['runs']
+        self.assertEqual(a_runs[0]['resolution']['resolved_from_task'], 'TASK-OTHER')
+
+    def test_unknown_outcome_does_not_block_another_database(self):
+        other = dict(self.db, id='other-test', path=str(self.root / 'other-base'))
+        (self.root / 'other-base').mkdir()
+        (self.root / '.v8-project.json').write_text(json.dumps({'databases': [self.db, other]}), encoding='utf-8')
+        with patch.object(safe_apply, 'stage_timeout_seconds', return_value=3):
+            code, _ = self.apply(load='hang')
+        self.assertEqual(code, safe_apply.UNRESOLVED_EXIT)
+        code, output = self.apply(task='TASK-OTHER', db='other-test')
+        self.assertEqual(code, 0, output)
+
+    def _install_skill(self, name, body):
+        script = self.root / '.kilo/skills' / name / 'scripts' / f'{name}.ps1'
+        script.write_text(body, encoding='utf-8-sig')
+
+    OLD_SKILL = r"""param([string]$V8Path, [string]$InfoBasePath, [string]$InfoBaseServer, [string]$InfoBaseRef,
+  [string]$UserName, [string]$UserNameEnv, [string]$PasswordEnv, [string]$ConfigDir, [string]$Mode,
+  [string]$Files, [string]$Extension)
+[IO.File]::WriteAllText((Join-Path $env:TEMP 'old-skill-ran.txt'), 'touched')
+exit 1
+"""
+
+    def test_mixed_install_old_skill_is_not_started(self):
+        # new safe_apply + old db-load-xml without the stage protocol: refused before it runs
+        self._repo_profile()
+        self._install_skill('db-load-xml', self.OLD_SKILL)
+        code, output, refreshes = self._apply_repo()
+        self.assertEqual(code, 1, output)
+        self.assertIn('не поддерживает протокол этапов', output)
+        self.assertFalse((self.root / 'tmp/old-skill-ran.txt').exists())   # the old skill never ran
+        self.assertEqual(self.stages(), [])
+        stage = self.journal()['runs'][-1]['stages'][0]
+        self.assertEqual((stage['outcome'], stage['signal']), ('failed_before_launch', 'incompatible'))
+
+    def test_skill_without_signal_is_unconfirmed_and_blocks(self):
+        # claims the protocol but sends no signal, touches a file and fails: nothing confirmed
+        self._repo_profile()
+        self._install_skill('db-load-xml', '# HARNESS_STAGE_PROTOCOL: 1\n' + self.OLD_SKILL)
+        code, output, refreshes = self._apply_repo()
+        self.assertEqual(code, 1, output)
+        self.assertTrue((self.root / 'tmp/old-skill-ran.txt').exists())
+        self.assertIn('не прислал сигнал протокола', output)
+        stage = self.journal()['runs'][-1]['stages'][0]
+        self.assertEqual((stage['outcome'], stage['signal']), ('failed_no_signal', 'missing'))
+        self._install_skill('db-load-xml', _skill_source('db-load-xml').read_text(encoding='utf-8-sig'))
+        code, output, refreshes = self._apply_repo()
+        self.assertEqual(code, safe_apply.UNRESOLVED_EXIT, output)
+        self.assertEqual(refreshes, [])
+
+    def test_success_without_signal_is_not_success(self):
+        self._install_skill('db-load-xml', '# HARNESS_STAGE_PROTOCOL: 1\n' + self.OLD_SKILL.replace('exit 1', 'exit 0'))
+        code, output = self.apply()
+        self.assertEqual(code, 1, output)
+        self.assertEqual(self.stages(), [])   # db-update never ran (fake platform untouched)
+        self.assertEqual(self.journal()['runs'][-1]['stages'][0]['outcome'], 'failed_no_signal')
 
     def test_credentials_never_in_output_or_journal(self):
         for modes in ({}, {'load': 'repo_conn'}):

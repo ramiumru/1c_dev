@@ -119,6 +119,11 @@ function Get-ExitAnnotation {
     return ""
 }
 
+# HARNESS_STAGE_PROTOCOL: 1
+# Stage protocol with safe_apply: "ack" first (this skill speaks the protocol; any exit before
+# "platform-started" is an explicit refusal before launch), "platform-started" right before 1cv8/ibcmd.
+if ($env:HARNESS_STAGE_MARKER) { [System.IO.File]::WriteAllText($env:HARNESS_STAGE_MARKER, 'ack') }
+
 # --- Resolve V8Path ---
 function Find-ProjectV8Path {
     $dir = (Get-Location).Path
@@ -238,7 +243,7 @@ try {
         if ($Password) { $arguments += "--password=$Password" }
         $arguments += "--data=$tempDir"
         Write-Host "Running: ibcmd $(Protect-Secrets ($arguments -join ' ') @($Password, $UserName))"
-        # Harness: mark the moment the platform is launched (pre-launch refusals leave no marker)
+        # Harness stage protocol: the platform is launched now
         if ($env:HARNESS_STAGE_MARKER) { [System.IO.File]::WriteAllText($env:HARNESS_STAGE_MARKER, 'platform-started') }
         $__ib = Invoke-IbcmdProcess $V8Path $arguments
         $output = $__ib.Output
@@ -294,7 +299,7 @@ try {
 
     # --- Execute ---
     Write-Host "Running: 1cv8.exe $(Protect-Secrets ($arguments -join ' ') @($Password, $UserName))"
-    # Harness: mark the moment the platform is launched (pre-launch refusals leave no marker)
+    # Harness stage protocol: the platform is launched now
     if ($env:HARNESS_STAGE_MARKER) { [System.IO.File]::WriteAllText($env:HARNESS_STAGE_MARKER, 'platform-started') }
     $process = Start-Process -FilePath $V8Path -ArgumentList $arguments -NoNewWindow -Wait -PassThru
     $exitCode = $process.ExitCode

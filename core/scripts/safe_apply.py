@@ -223,8 +223,10 @@ STAGE_TIMEOUT_SECONDS = DEFAULT_STAGE_TIMEOUT_SECONDS
 STAGE_TIMEOUT_EXIT = 124
 SKILL_CWD = None  # project root: configSrc and plan paths are relative to it
 BUSY_EXIT = 5
-STAGE_MARKER = None           # path the skill writes right before launching the platform
-LAST_PLATFORM_STARTED = None  # True/False after a real run_skill; None = unknown (treated as started)
+STAGE_MARKER = None      # file the skill writes: "ack" at its start, "platform-started" before 1cv8
+LAST_STAGE_SIGNAL = None # after a real run_skill: "ack" | "platform-started" | "missing" | "incompatible"
+STAGE_PROTOCOL_TOKEN = "HARNESS_STAGE_PROTOCOL: 1"
+INCOMPATIBLE_EXIT = 6
 UNRESOLVED_EXIT = 3
 BUDGET_EXIT = 4
 MIN_STAGE_SECONDS = 60
@@ -241,6 +243,23 @@ def stage_timeout_seconds(db: dict) -> int:
 def _utc_now() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
+
+
+def unresolved_for_database(project_root: Path, db_id: str):
+    """Unresolved apply runs on this database in the whole workspace — every TASK-ID.
+    Returns [(journal, run, why)]."""
+    found = []
+    for path in sorted((project_root / "pilot-control").glob("*/apply-run.json")):
+        task = path.parent.name
+        try:
+            journal = ApplyJournal(project_root, task, db_id)
+        except (OSError, ValueError) as exc:
+            # an unreadable journal of this workspace is itself an unknown state
+            found.append((None, {"run_id": "?", "task": task}, f"журнал {path} не читается: {exc}"))
+            continue
+        for run, why in journal.unresolved():
+            found.append((journal, dict(run, task=task), why))
+    return found
 
 
 class ApplyJournal:
@@ -266,7 +285,7 @@ class ApplyJournal:
         Only a refusal before the platform started (failed_before_launch) leaves the IB untouched."""
         found = []
         for run in self.data.get("runs", []):
-            if run.get("resolution"):
+            if run.get("resolution") or run.get("db") != self.db_id:
                 continue
             stages = {st.get("name"): st for st in run.get("stages", [])}
             for stage in run.get("stages", []):
@@ -274,7 +293,7 @@ class ApplyJournal:
                     found.append((run, f"этап '{stage.get('name')}' запущен {stage.get('started_at')}, "
                                        "завершение не подтверждено"))
             load, update = stages.get("db-load-xml"), stages.get("db-update")
-            if load and load.get("outcome") == "failed_after_launch":
+            if load and load.get("outcome") in ("failed_after_launch", "failed_no_signal"):
                 found.append((run, f"загрузка запускалась {load.get('started_at')} и завершилась без "
                                    f"подтверждения (exit {load.get('exit')}): ИБ могла измениться"))
             if load and load.get("outcome") == "succeeded" and not (update and update.get("outcome") == "succeeded"):
@@ -284,9 +303,9 @@ class ApplyJournal:
                                        f"не подтверждено ({state})"))
         return found
 
-    def resolve(self, reason: str) -> None:
+    def resolve(self, reason: str, by_task: str = "") -> None:
         for run, _why in self.unresolved():
-            run["resolution"] = {"at": _utc_now(), "reason": reason}
+            run["resolution"] = {"at": _utc_now(), "reason": reason, "resolved_from_task": by_task}
         self._save()
 
     def begin_run(self) -> None:
@@ -304,20 +323,24 @@ class ApplyJournal:
         self.run["stages"].append({"name": name, "outcome": "not_started", "reason": reason, "at": _utc_now()})
         self._save()
 
-    def finish(self, code: int, platform_started=None) -> None:
+    def finish(self, code: int, signal=None) -> str:
+        """signal: None = untracked (test doubles); otherwise the stage marker content."""
         self.stage["finished_at"] = _utc_now()
         self.stage["exit"] = code
-        self.stage["platform_started"] = platform_started
+        self.stage["signal"] = signal
         if code == STAGE_TIMEOUT_EXIT:
             outcome = "unknown"
+        elif signal == "missing":
+            outcome = "failed_no_signal"       # no protocol signal at all: nothing is confirmed
         elif code == 0:
             outcome = "succeeded"
-        elif platform_started is False:
-            outcome = "failed_before_launch"   # the skill refused before 1cv8 started: IB untouched
+        elif signal in ("ack", "incompatible"):
+            outcome = "failed_before_launch"   # explicit refusal before 1cv8 started: IB untouched
         else:
             outcome = "failed_after_launch"    # 1cv8 ran (or may have run): result not confirmed
         self.stage["outcome"] = outcome
         self._save()
+        return outcome
 
 
 def run_skill(skill_name: str, ps_args: list[str], skills_dir: Path) -> int:
@@ -328,10 +351,20 @@ def run_skill(skill_name: str, ps_args: list[str], skills_dir: Path) -> int:
         return 2
     pwsh = os.environ.get("PWSH", "powershell")
     cmd = [pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(skill_script)] + ps_args
-    global LAST_PLATFORM_STARTED
-    LAST_PLATFORM_STARTED = None
+    global LAST_STAGE_SIGNAL
+    LAST_STAGE_SIGNAL = None
     env = None
     if STAGE_MARKER:
+        try:
+            compatible = STAGE_PROTOCOL_TOKEN in skill_script.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            compatible = False
+        if not compatible:
+            LAST_STAGE_SIGNAL = "incompatible"
+            print(f"\n=== safe_apply: этап '{skill_name}' НЕ запущен: навык {skill_script} не поддерживает "
+                  f"протокол этапов ({STAGE_PROTOCOL_TOKEN}) — обновите Harness; платформа не запускалась ===",
+                  flush=True)
+            return INCOMPATIBLE_EXIT
         marker = Path(STAGE_MARKER)
         marker.parent.mkdir(parents=True, exist_ok=True)
         if marker.exists():
@@ -357,9 +390,14 @@ def run_skill(skill_name: str, ps_args: list[str], skills_dir: Path) -> int:
         if r.stderr:
             print(r.stderr, end="", file=sys.stderr)
         if STAGE_MARKER:
-            LAST_PLATFORM_STARTED = Path(STAGE_MARKER).exists()
-        if r.returncode != 0:
-            when = ("до запуска платформы" if LAST_PLATFORM_STARTED is False
+            marker = Path(STAGE_MARKER)
+            content = marker.read_text(encoding="utf-8-sig", errors="replace").strip() if marker.exists() else ""
+            LAST_STAGE_SIGNAL = content if content in ("ack", "platform-started") else "missing"
+        if LAST_STAGE_SIGNAL == "missing":
+            print(f"\n=== safe_apply: этап '{skill_name}' не прислал сигнал протокола (exit {r.returncode}) — "
+                  "результат НЕ подтверждён, платформа могла запускаться ===")
+        elif r.returncode != 0:
+            when = ("явный отказ до запуска платформы" if LAST_STAGE_SIGNAL == "ack"
                     else "после запуска платформы — результат не подтверждён")
             print(f"\n=== safe_apply: skill '{skill_name}' завершился с ошибкой (exit {r.returncode}), {when} ===")
         return r.returncode
@@ -466,10 +504,12 @@ def _main(held: list) -> int:
     except (ValueError, OSError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    pending = journal.unresolved()
+    # under the database lock: every task's journal of this workspace counts
+    pending = unresolved_for_database(project_root_path, db_id)
     if pending and not args.resolve_unknown_outcome:
-        for run, why in pending:
-            print(f"ERROR: предыдущий apply (run {run.get('run_id')}): {why}. Повторная загрузка не выполняется: "
+        for _journal, run, why in pending:
+            print(f"ERROR: незавершённый apply по базе '{db_id}' (задача {run.get('task')}, run {run.get('run_id')}): "
+                  f"{why}. Повторная загрузка не выполняется: "
                   "сверьте состояние ИБ (процессы 1cv8, основная конфигурация против конфигурации БД), затем "
                   "запустите с --resolve-unknown-outcome \"<что проверено>\".", file=sys.stderr)
         return UNRESOLVED_EXIT
@@ -477,10 +517,16 @@ def _main(held: list) -> int:
         if len(args.resolve_unknown_outcome.strip()) < 10:
             print("ERROR: --resolve-unknown-outcome: опишите, что проверено (не менее 10 символов)", file=sys.stderr)
             return 2
+        if any(j is None for j, _r, _w in pending):
+            print("ERROR: нечитаемый журнал apply нельзя закрыть ключом — восстановите или уберите его вручную",
+                  file=sys.stderr)
+            return UNRESOLVED_EXIT
         if args.dry_run:
             print("=== safe_apply: --dry-run — решение по незавершённому apply НЕ записано ===")
         else:
-            journal.resolve(args.resolve_unknown_outcome.strip())
+            for journal_with_pending in {id(j): j for j, _r, _w in pending}.values():
+                journal_with_pending.resolve(args.resolve_unknown_outcome.strip(), by_task=task)
+            journal = ApplyJournal(project_root_path, task, db_id)  # re-read: resolutions were written
 
     # 2. Прочитать файлы из 06_change_report.md через общий парсер
     specs_dir = project_root_path / "specs"
@@ -534,7 +580,9 @@ def _main(held: list) -> int:
         return BUDGET_EXIT
     journal.start("db-load-xml", STAGE_TIMEOUT_SECONDS)
     load_exit = run_skill("db-load-xml", ps_args_load, skills_dir)
-    journal.finish(load_exit, LAST_PLATFORM_STARTED)
+    load_outcome = journal.finish(load_exit, LAST_STAGE_SIGNAL)
+    if load_outcome == "failed_no_signal" and load_exit == 0:
+        load_exit = 1  # success without a protocol signal is not success
     if load_exit == STAGE_TIMEOUT_EXIT:
         print("=== safe_apply: load-xml — исход неизвестен; update НЕ запускался ===")
         return UNRESOLVED_EXIT
@@ -553,7 +601,9 @@ def _main(held: list) -> int:
         return BUDGET_EXIT
     journal.start("db-update", STAGE_TIMEOUT_SECONDS)
     update_exit = run_skill("db-update", ps_args_update, skills_dir)
-    journal.finish(update_exit, LAST_PLATFORM_STARTED)
+    update_outcome = journal.finish(update_exit, LAST_STAGE_SIGNAL)
+    if update_outcome == "failed_no_signal" and update_exit == 0:
+        update_exit = 1
     if update_exit == STAGE_TIMEOUT_EXIT:
         print("=== safe_apply: update — исход неизвестен; загрузка выполнена, обновление БД не подтверждено ===")
         return UNRESOLVED_EXIT

@@ -134,6 +134,8 @@ def create_fake_skills(tdpath: Path, exit_codes: dict) -> Path:
         env_key = skill_name.upper().replace("-", "_") + "_EXIT"
         # JSONL writer: append one line per call. Log path embedded directly.
         runner_script = f'''# Fake runner for {skill_name}
+# HARNESS_STAGE_PROTOCOL: 1
+if ($env:HARNESS_STAGE_MARKER) {{ [System.IO.File]::WriteAllText($env:HARNESS_STAGE_MARKER, 'platform-started') }}
 $ErrorActionPreference = 'Stop'
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8

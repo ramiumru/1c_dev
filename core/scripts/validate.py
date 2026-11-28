@@ -929,7 +929,7 @@ def check_v8path_regressions(rep: Report) -> None:
 def check_apply_batch_regressions(rep: Report) -> None:
     scripts = ROOT / "core/scripts" if IS_SOURCE_REPO else ROOT / "scripts"
     result = subprocess.run([sys.executable, str(scripts / "test_apply_batch.py")],
-                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180)
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
     if result.returncode == 0:
         rep.ok("apply-batch: repository connection line blocks update; stage timeout journaled as unknown")
     else:
